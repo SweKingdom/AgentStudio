@@ -22,15 +22,15 @@ Each rework loop counts toward the project's *Max QA rework*. Beyond it the stor
 
 | Mode | Evidence |
 |---|---|
-| Simulation | A drawing of the Salesforce record page the tester checked, with the verified fields and the outcome, and a red box around what is wrong. Labelled *simulated evidence*. |
-| Live, with an org | Real screenshots. The Salesforce CLI creates a one-time login link to a page in the org, and a headless Chrome on this computer opens it and takes the screenshot. The link is never logged or stored, and only pages inside the org are allowed. Without Chrome, the drawing is used. |
+| Simulation | A drawing of the app page the tester checked, with the verified fields and the outcome, and a red box around what is wrong. Labelled *simulated evidence*. |
+| Live | The project's checks are the hard evidence: their results are recorded with the test report. |
 
 ## Guards in live mode
 
-With an org, the pipeline enforces:
+In live mode the pipeline enforces, with the project's checks (`run_checks`):
 
-- the developer can't hand a story to QA until its deployment validates in the org;
-- QA can't approve until the story's Apex tests pass and the changed classes meet the minimum coverage (*Settings → Team → Salesforce defaults*).
+- the developer can't hand a story to QA until the checks pass on its branch;
+- QA can't approve until the checks pass on its branch, and the release isn't published until they pass on the base branch.
 
 ## Architect code review
 

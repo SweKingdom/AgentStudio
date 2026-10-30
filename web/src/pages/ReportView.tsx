@@ -2,7 +2,7 @@ import { useEffect, type ReactNode } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { useLocation } from "react-router-dom";
 import { Printer } from "lucide-react";
-import siroccoLogo from "../assets/sirocco-logo.svg?raw";
+import brandLogo from "../assets/agentstudio-logo.svg?raw";
 import { api, storyAssetBase } from "../lib/api";
 import type { AccuracyResult } from "../components/EstimateAccuracy";
 import { CATEGORY, DOC_KINDS, STATE_GROUP, TYPE } from "../lib/constants";
@@ -130,7 +130,7 @@ export default function ReportView() {
       <style>{`
         @page { size: A4; margin: 18mm 15mm 18mm 15mm;
           @top-left { content: "${p.key} · ${p.name.replace(/"/g, "'")} — Project report"; font: 8pt "Nunito Sans", sans-serif; color: #929190; }
-          @top-right { content: "Sirocco Group · SiroccoARM"; font: 8pt "Nunito Sans", sans-serif; color: #929190; }
+          @top-right { content: "AgentStudio"; font: 8pt "Nunito Sans", sans-serif; color: #929190; }
           @bottom-left { content: "Generated ${dateTime(r.generatedAt)}${k.simulated ? " · simulation" : ""}"; font: 8pt "Nunito Sans", sans-serif; color: #929190; }
           @bottom-right { content: "Page " counter(page) " of " counter(pages); font: 8pt "Nunito Sans", sans-serif; color: #929190; }
         }
@@ -147,7 +147,7 @@ export default function ReportView() {
       {/* ---------------------------------------------------------------- cover */}
       <div className="rp-cover">
         <div className="rp-cover-top">
-          <span className="rp-cover-logo" dangerouslySetInnerHTML={{ __html: siroccoLogo }} />
+          <span className="rp-cover-logo" dangerouslySetInnerHTML={{ __html: brandLogo }} />
           <span className="rp-cover-eyebrow">Project report</span>
         </div>
         <div className="rp-cover-body">
@@ -164,7 +164,7 @@ export default function ReportView() {
           {k.simulated && <div className="rp-sim">Produced in simulation mode: agents ran without calling the Claude API. Costs are estimates at real model prices; test evidence is simulated.</div>}
         </div>
         <div className="rp-cover-band">
-          <span>Prepared by <b>SiroccoARM</b> — Agent Relationship Management</span>
+          <span>Prepared by <b>AgentStudio</b> — AI delivery studio</span>
           <span>{dateTime(r.generatedAt)}</span>
         </div>
       </div>

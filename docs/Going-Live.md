@@ -1,6 +1,6 @@
 # Going live
 
-Live mode spends real money and can touch real orgs and repositories. Go through this list once, then start small.
+Live mode uses your Claude plan or API credits and changes real repositories. Go through this list once, then start small.
 
 ## Checklist
 
@@ -10,8 +10,8 @@ Live mode spends real money and can touch real orgs and repositories. Go through
 | 2 | **System check** | `npm run doctor` or *Settings → System check → Full check*. It confirms the key is accepted and that the account can use each agent's model. Read-only and free. |
 | 3 | **Mode** | *Settings → General → Live → Save*. The badge left of Total spend turns into a red **LIVE**. Only projects created from now on run live. |
 | 4 | **Spend limits** | Set daily and monthly limits in *Settings → General*, and a budget on each project. |
-| 5 | **Salesforce** | Register the org, **Log in**, then **Test** until it says connected. For a production or Trailhead org, switch **Allow** on. |
-| 6 | **Agents** | Check models and effort. On the release agent, choose the target org and validate or deploy; on the developer, choose check-only or deploy for stories. |
+| 5 | **Checks** | Make sure the repository has test and build scripts in `package.json`, or set the check commands in the project settings — otherwise nothing is really tested. |
+| 6 | **Agents** | Check models and effort. |
 | 7 | **Repository** | *Test connection* in the project, then switch *Push to origin* on. For GitHub pull requests, run `gh auth login` once on this computer. |
 | 8 | **Azure DevOps** (optional) | Add `AZURE_DEVOPS_PAT` to `.env`, restart, then *Project settings → Azure DevOps → Test*. |
 | 9 | **Start small** | One short requirements document, approval gates on, a budget of about USD 5. Watch the first stories end to end. |

@@ -27,7 +27,7 @@ async function api<T = any>(method: string, path: string, body?: unknown): Promi
   return JSON.parse(text) as T;
 }
 
-async function waitFor(pred: () => Promise<boolean>, what: string, timeoutMs = 90_000) {
+async function waitFor(pred: () => Promise<boolean>, what: string, timeoutMs = 180_000) {
   const t0 = Date.now();
   while (Date.now() - t0 < timeoutMs) {
     if (await pred()) return;

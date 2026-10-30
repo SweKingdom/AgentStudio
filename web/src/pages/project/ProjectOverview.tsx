@@ -11,6 +11,7 @@ import { EstimatePanel } from "../NewProject";
 import { useItems } from "./hooks";
 import { Count } from "../../components/Count";
 import EstimateAccuracy from "../../components/EstimateAccuracy";
+import { t } from "../../lib/i18n";
 
 export default function ProjectOverview({ p }: { p: Project }) {
   const { data: meta } = useMeta();
@@ -28,11 +29,11 @@ export default function ProjectOverview({ p }: { p: Project }) {
   return (
     <div className="col" style={{ gap: 14 }}>
       <div className="grid g5 stagger">
-        <Kpi label="Deployed" icon={<CheckCircle2 size={13} />} value={`${p.counts.done}/${p.counts.stories}`} foot={`${p.counts.releaseReady} release-ready · ${p.counts.inProgress} in flight`} />
-        <Kpi label="AI cost" icon={<Coins size={13} />} value={<Count value={p.costUsd} format={(n) => money(n)} />} accent foot={p.estimate ? `estimated ${money(p.estimate.totalUsd)} up front` : undefined} />
-        <Kpi label="Elapsed" icon={<Clock size={13} />} value={duration(elapsed)} foot="incl. time waiting for approvals" />
-        <Kpi label="Human team equivalent" icon={<Zap size={13} />} value={<Count value={humanH} format={(n) => hours(n)} />} foot={speedup ? `~${num(speedup)}× faster than a team of 4` : `${p.counts.points} story points`} />
-        <Kpi label="Open questions" icon={<HelpCircle size={13} />} value={p.openQuestions} foot={p.openQuestions ? <Link to={`/p/${p.key}/questions`} style={{ color: "var(--accent)" }}>Answer them →</Link> : "nothing pending"} />
+        <Kpi label={t("Deployed")} icon={<CheckCircle2 size={13} />} value={`${p.counts.done}/${p.counts.stories}`} foot={`${p.counts.releaseReady} release-ready · ${p.counts.inProgress} in flight`} />
+        <Kpi label={meta?.backend === "subscription" && p.mode === "live" ? t("AI cost (est.)") : t("AI cost")} icon={<Coins size={13} />} value={<Count value={p.costUsd} format={(n) => money(n)} />} accent foot={p.estimate ? `estimated ${money(p.estimate.totalUsd)} up front` : undefined} />
+        <Kpi label={t("Elapsed")} icon={<Clock size={13} />} value={duration(elapsed)} foot="incl. time waiting for approvals" />
+        <Kpi label={t("Human team equivalent")} icon={<Zap size={13} />} value={<Count value={humanH} format={(n) => hours(n)} />} foot={speedup ? `~${num(speedup)}× faster than a team of 4` : `${p.counts.points} story points`} />
+        <Kpi label={t("Open questions")} icon={<HelpCircle size={13} />} value={p.openQuestions} foot={p.openQuestions ? <Link to={`/p/${p.key}/questions`} style={{ color: "var(--accent)" }}>Answer them →</Link> : "nothing pending"} />
       </div>
 
       <div className="grid ov-grid">

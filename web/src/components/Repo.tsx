@@ -14,7 +14,7 @@ export function repoUrlError(url: string): string | null {
   if (!u) return "A git repository URL is required.";
   if (/\s/.test(u)) return "The URL can't contain spaces.";
   const https = u.match(/^https?:\/\/([^/@]+@)?([^/]+)\/(.+)$/i);
-  if (https) return https[1] ? "Don't put a user, password or token in the URL — SiroccoARM never stores credentials." : null;
+  if (https) return https[1] ? "Don't put a user, password or token in the URL — AgentStudio never stores credentials." : null;
   if (/^(ssh:\/\/)?git@[\w.-]+[:/][\w./~-]+$/i.test(u)) return null;
   if (/^file:\/\/\/\S+$/i.test(u)) return null;
   return "Use an https:// or git@ URL, e.g. https://github.com/org/repo.git";
@@ -42,7 +42,7 @@ export function RepoFields({ url, branch, push, onChange }: RepoValue & { onChan
       <RepoTest url={url} />
       <Field
         label="Push to origin"
-        help="When on, task branches are pushed as agents commit, and the default branch and release tags are pushed after each merge and release. It uses this computer's own git login (SSH key or credential helper) — SiroccoARM never stores or asks for credentials. Off: everything stays in the local repository."
+        help="When on, task branches are pushed as agents commit, and the default branch and release tags are pushed after each merge and release. It uses this computer's own git login (SSH key or credential helper) — AgentStudio never stores or asks for credentials. Off: everything stays in the local repository."
       >
         <Switch on={push} onChange={(v) => onChange({ url, branch, push: v })} label={push ? "Push branches and tags with this computer's git login" : "Local only — nothing is pushed"} />
       </Field>

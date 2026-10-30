@@ -59,10 +59,21 @@ test("plain descriptions without headings still produce a plan; empty text does 
   assert.equal(buildPlanFromText("A scanned page with no text", "X"), null);
 });
 
-test("classifies categories and Salesforce objects", () => {
+test("classifies categories and the main entity", () => {
   assert.equal(classify("Migrate customers from the legacy system"), "data_migration");
   assert.equal(classify("Send invoices to SAP via the API"), "integration");
   assert.equal(classify("Managers need a dashboard"), "reporting");
-  assert.equal(detectObject("schedule the appointment"), "ServiceAppointment");
-  assert.equal(detectObject("unrelated words", "Lead"), "Lead");
+  assert.equal(classify("Users can create and delete todos"), "development");
+  assert.equal(detectObject("schedule the appointment"), "Booking");
+  assert.equal(detectObject("users can complete their todos"), "Todo");
+  assert.equal(detectObject("unrelated words", "Thing"), "Thing");
+});
+
+test("a short description with 'can' sentences becomes a plan about its own domain", () => {
+  const plan = buildPlanFromText("A small REST API for a todo list. Users can create, list, complete and delete todos. Completed todos can be filtered out.", "Todo");
+  assert.ok(plan);
+  const stories = planStories(plan);
+  assert.equal(stories.length, 2);
+  assert.ok(stories.every((s) => s.object === "Todo"));
+  assert.ok(!JSON.stringify(plan).match(/Apex|Salesforce|__c|permission set/i), "nothing Salesforce-specific");
 });

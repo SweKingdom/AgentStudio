@@ -76,7 +76,7 @@ export interface Section {
 
 const HEADING = /^(\d+(?:\.\d+)*)\.?\s+([A-Z][^.!?]{2,80})$/;
 const BULLET = /^\s*(?:[-•*–▪◦]|\(?[a-z]\)|\d+\))\s+(.*)$/;
-const REQ = /\b(must|shall|should|needs? to|need|has to|have to|may only|must not|will need|is required|are required|cannot|can't)\b/i;
+const REQ = /\b(must|shall|should|needs? to|need|has to|have to|may only|must not|will need|is required|are required|cannot|can't|can|are able to|is able to)\b/i;
 /** Sentences that record a pending decision or a limit of scope, not work to do — kept as context, not as stories. */
 const NOT_WORK = /\b(to be (decided|defined|confirmed|agreed)|not (yet |fully )?(defined|decided|fixed|confirmed|agreed)|must be confirmed|(does|do) not need|is not needed|are not needed|not needed|could be enough|is enough|out of scope|will come later|not in scope)\b/i;
 
@@ -146,12 +146,12 @@ const CONTEXT_SECTIONS = /^(background|introduction|overview|purpose|scope|conte
 
 const CATEGORY_RULES: [string, RegExp][] = [
   ["data_migration", /\b(migrat\w*|legacy|import\w*|duplicates?|de-?dup\w*|historic(al)? data|service history|cut-?over)\b/i],
-  ["integration", /\b(integrat\w*|api|sap|erp|webhook|middleware|sync\w*|sent to|send to \w+ system|external system|real[- ]time against|callout)\b/i],
+  ["integration", /\b(integrat\w*|third[- ]party|external (api|service|system)|sap|erp|webhook|middleware|sync\w*|sent to|send to \w+ system|payment provider|stripe)\b/i],
   ["reporting", /\b(dashboards?|reports?|kpis?|metrics?|analytics)\b/i],
-  ["security", /\b(permission\w*|access|security|only see|profiles?|sharing|visibility rules?|must not access|roles?)\b/i],
+  ["security", /\b(permission\w*|access|security|only see|log ?in|sign ?in|authenticat\w*|authori[sz]\w*|password|visibility rules?|must not access|roles?)\b/i],
   ["script", /\b(one-off|batch job|clean-?up|bulk update|scheduled job|script)\b/i],
-  ["development", /\b(offline|mobile|signature|photos?|custom (screen|component|ui)|lwc|gantt|calculate\w*|algorithm)\b/i],
-  ["configuration", /\b(sms|email|notif\w*|flag\w*|priority|picklist|fields?|layout|automatic\w*|derived|validation|status|queue|assign\w*|create\w* .* from)\b/i],
+  ["configuration", /\b(settings?|config\w*|feature flags?|environment variables?|sms|email|notif\w*|theme)\b/i],
+  ["development", /\b(create|list|edit|update|delete|remove|filter|search|sort|complete|validat\w*|calculate\w*|show|display|page|screen|endpoint|form|upload|offline|mobile)\b/i],
 ];
 
 /** Starting points per story type (before modifiers). */
@@ -171,9 +171,8 @@ export function classifyWhy(text: string): { category: string; match: string | n
 }
 
 const PERSONAS = [
-  "customer service agent", "service agent", "dispatcher", "technician", "service manager", "team lead", "manager", "administrator",
-  "admin", "customer", "sales rep", "sales manager", "account manager", "finance team", "quality team", "partner", "support team",
-  "agent", "user", "data owner",
+  "product owner", "dispatcher", "technician", "team lead", "manager", "administrator", "admin", "developer", "operator", "editor", "author", "reviewer",
+  "customer", "member", "visitor", "guest", "partner", "support team", "finance team", "agent", "user", "data owner",
 ];
 
 function findPersona(text: string): string | null {
@@ -182,24 +181,26 @@ function findPersona(text: string): string | null {
   return null;
 }
 
+/** The main thing a requirement is about ("Todo", "Order", "Invoice"): the first known entity in the text. */
 const OBJECT_RULES: [string, RegExp][] = [
-  ["ServiceAppointment", /\b(appointments?|dispatch\w*|arrival window|gantt|schedul\w*)\b/i],
-  ["WorkOrder", /\bwork orders?|jobs?\b/i],
-  ["Case", /\bcases?|tickets?\b/i],
-  ["Asset", /\bappliances?|assets?|equipment|devices?\b/i],
-  ["ProductItem", /\b(spare )?parts?|stock|inventory\b/i],
-  ["ServiceResource", /\btechnicians?|resources?|crews?\b/i],
-  ["ServiceTerritory", /\bterritor(y|ies)|regions?\b/i],
-  ["Opportunity", /\bopportunit(y|ies)|deals?\b/i],
-  ["Lead", /\bleads?\b/i],
-  ["Quote", /\bquotes?\b/i],
+  ["Todo", /\btodos?|to-dos?\b/i],
+  ["Task", /\btasks?\b/i],
   ["Order", /\borders?\b/i],
-  ["Contract", /\bcontracts?|warrant(y|ies)\b/i],
-  ["Account", /\bcustomers?|accounts?|companies\b/i],
-  ["Contact", /\bcontacts?\b/i],
+  ["Invoice", /\binvoices?|bills?\b/i],
+  ["Payment", /\bpayments?\b/i],
+  ["Booking", /\bbookings?|reservations?|appointments?\b/i],
+  ["Product", /\bproducts?|items? in stock|catalog\w*\b/i],
+  ["Ticket", /\btickets?|cases?|issues?\b/i],
+  ["Comment", /\bcomments?|replies\b/i],
+  ["Message", /\bmessages?|notifications?\b/i],
+  ["Document", /\bdocuments?|files?|uploads?\b/i],
+  ["Project", /\bprojects?\b/i],
+  ["Report", /\breports?|dashboards?\b/i],
+  ["Customer", /\bcustomers?|clients?|companies\b/i],
+  ["User", /\busers?|accounts?|members?\b/i],
 ];
 
-export function detectObject(text: string, fallback = "Account") {
+export function detectObject(text: string, fallback = "Item") {
   for (const [obj, re] of OBJECT_RULES) if (re.test(text)) return obj;
   return fallback;
 }
@@ -208,7 +209,7 @@ function detectSystems(text: string) {
   const out = new Set<string>();
   for (const m of text.matchAll(/\b([A-Z][A-Za-z0-9]{1,15}|[A-Z]{2,6})\b(?=[^.]{0,40}\b(api|system|warehouse|erp|integration|platform|crm)\b)/gi)) {
     const w = m[1];
-    if (/^(The|This|All|If|When|Every|A|An|Salesforce|Customer|System|Data|Spare|Completed|Open)$/i.test(w)) continue;
+    if (/^(The|This|All|If|When|Every|A|An|REST|HTTP|JSON|Customer|System|Data|Completed|Open)$/i.test(w)) continue;
     if (w === w.toUpperCase() || /Max|SAP|ERP|Oracle|Dynamics|NetSuite|Fortnox|Workday/.test(w)) out.add(w);
   }
   return [...out].slice(0, 6);
@@ -305,9 +306,9 @@ const BENEFIT: Record<string, string> = {
 };
 
 const PERSONA_BY_CATEGORY: Record<string, string> = {
-  data_migration: "migration lead",
-  integration: "service manager",
-  reporting: "service manager",
+  data_migration: "product owner",
+  integration: "product owner",
+  reporting: "manager",
   security: "administrator",
   script: "administrator",
 };
@@ -342,18 +343,18 @@ function acceptanceCriteria(req: string, category: string, object: string): [str
   if (/only/.test(lower)) acs.push(["Access is restricted", "A user outside the allowed group cannot see or open the records (checked with a test user)."]);
   switch (category) {
     case "data_migration":
-      acs.push(["Re-runnable load", `Loading the same file twice creates no duplicates: ${object} records are upserted on \`Legacy_Id__c\`.`]);
-      acs.push(["Counts reconcile", "Record counts per object match the source extract minus the documented rejects."]);
+      acs.push(["Re-runnable import", `Importing the same file twice creates no duplicates: ${object} rows are upserted on their \`legacyId\`.`]);
+      acs.push(["Counts reconcile", "Row counts per entity match the source extract minus the documented rejects."]);
       break;
     case "reporting":
       acs.push(["Per-team view", "Each manager sees the figures for their own territory/team by default and can filter by period."]);
       break;
     case "security":
-      acs.push(["Granted by permission set", "Access comes only from the documented permission set — no profile changes."]);
+      acs.push(["Checked on the server", "Access is enforced by the API for every request, not only hidden in the UI."]);
       break;
     case "development":
     case "configuration":
-      if (acs.length < 3) acs.push(["Bulk safe", `Creating or updating 200 ${object} records in one transaction works without hitting limits.`]);
+      if (acs.length < 3) acs.push(["Invalid input is rejected", `Saving a ${object.toLowerCase()} with missing or invalid fields returns a 400 error with a clear message, and nothing is saved.`]);
       break;
   }
   return acs.slice(0, 4);
@@ -361,17 +362,23 @@ function acceptanceCriteria(req: string, category: string, object: string): [str
 
 function techSpec(category: string, object: string, title: string, systems: string[]) {
   const name = title.replace(/[^A-Za-z0-9 ]/g, " ").split(/\s+/).filter((w) => w.length > 2).slice(0, 3).map(cap).join("");
-  const sys = systems[0] ?? "External";
+  const mod = kebab(name || object);
+  const entity = object.toLowerCase();
+  const sys = (systems[0] ?? "external").toLowerCase();
   const rows: Record<string, string[]> = {
-    configuration: [`| \`${object}_AfterSave_${name}\` | Record-triggered flow | Entry condition on the changed fields of ${object} |`, `| \`${object}.${name}_Status__c\` | Field (Text 80) | Result of the automation |`],
-    development: [`| \`${name}Service\` | Apex service | Bulk-safe logic for ${object} |`, `| \`${object}Trigger\` / \`${object}TriggerHandler\` | Apex trigger + handler | Delegates to the service |`, `| \`${name}ServiceTest\` | Apex test | Positive, negative and 200-record bulk |`],
-    integration: [`| \`${sys}_API\` | Named Credential | Endpoint and auth managed by admins |`, `| \`${sys}${name}Client\` | Apex callout | Timeout 10 s, retries with back-off |`, `| \`Integration_Outbox__c\` | Custom object | Transactional outbox for retries and error write-back |`],
-    data_migration: [`| \`${object}.Legacy_Id__c\` | Field (Text 40, External Id, unique) | Upsert key |`, "| `scripts/data/*-upsert.sh` | Load scripts | Bulk API 2.0, parent-before-child |", "| `Bypass_Automation` | Custom permission | Bypasses triggers/flows for the migration user |"],
-    reporting: [`| \`${name}_Report\` | Report | Summary report on ${object} |`, `| \`${name}_Dashboard\` | Dynamic dashboard | Runs as the logged-in user |`],
-    security: [`| \`${name}_Access\` | Permission set | Object, field and tab access |`, `| Sharing rule on ${object} | Sharing | Restricts visibility by territory/team |`],
-    script: [`| \`scripts/apex/${name}.apex\` | Anonymous Apex | Idempotent, logs what it changed |`],
+    configuration: [`| \`src/config/${mod}.ts\` | Config schema | Defaults and validation of the new settings |`, `| \`test/config/${mod}.test.ts\` | Tests | Defaults, overrides, invalid values |`],
+    development: [`| \`src/${entity}s/${mod}.service.ts\` | Service | Business rules for ${object} |`, `| \`src/${entity}s/${entity}s.routes.ts\` | API route | Request validation, error responses as JSON |`, `| \`test/${entity}s/${mod}.test.ts\` | Tests | Happy path, invalid input, edge cases |`],
+    integration: [`| \`src/integrations/${sys}-client.ts\` | HTTP client | Timeout 10 s, retries with back-off |`, `| \`src/integrations/outbox.ts\` | Outbox | Queues failed calls for retry |`, `| \`test/integrations/${sys}-client.test.ts\` | Tests | Success, timeout and retry |`],
+    data_migration: [`| \`${entity}s.legacy_id\` | Column (unique) | Upsert key |`, `| \`scripts/migrate-${mod}.ts\` | Import script | Parent-before-child, re-runnable |`, `| \`scripts/reconcile-${mod}.ts\` | Script | Compares source and target counts |`],
+    reporting: [`| \`src/reports/${mod}.ts\` | Query | Aggregates ${object} data |`, `| \`src/reports/${mod}.routes.ts\` | API route | Filtered by period and team |`],
+    security: [`| \`src/auth/${mod}.policy.ts\` | Policy | Who may do what with ${object} |`, `| \`test/auth/${mod}.test.ts\` | Tests | Allowed and denied for each role |`],
+    script: [`| \`scripts/${mod}.ts\` | Script | Idempotent, logs what it changed |`],
   };
   return `| Component | Type | Notes |\n|---|---|---|\n${(rows[category] ?? rows.development).join("\n")}`;
+}
+
+function kebab(s: string) {
+  return s.replace(/([a-z0-9])([A-Z])/g, "$1-$2").replace(/[^A-Za-z0-9]+/g, "-").replace(/^-|-$/g, "").toLowerCase() || "feature";
 }
 
 function questionFor(req: string): string | null {
@@ -392,7 +399,7 @@ export function buildPlanFromText(text: string, projectName: string): SimPlan | 
     ...doc.sections.filter((s) => CONTEXT_SECTIONS.test(s.title)).flatMap((s) => s.paragraphs),
   ].join(" ").trim();
   const allReqs = work.flatMap((s) => [...s.requirements, ...s.children.flatMap((c) => c.requirements)]);
-  if (allReqs.length < 3) return null;
+  if (allReqs.length < 2) return null;
 
   const fullText = text;
   const personas = [...new Set(PERSONAS.filter((p) => new RegExp(`\\b${p}s?\\b`, "i").test(fullText)))].filter(
@@ -422,7 +429,7 @@ export function buildPlanFromText(text: string, projectName: string): SimPlan | 
         const req = reqs[0];
         const textAll = reqs.join(". ");
         const { category, match } = classifyWhy(`${g.title} ${textAll}`);
-        const object = detectObject(textAll, detectObject(`${g.title} ${sec.title}`, objects[0] ?? "Account"));
+        const object = detectObject(textAll, detectObject(`${g.title} ${sec.title}`, objects[0] ?? "Item"));
         const parts = splitRequirement(req);
         const persona = (!parts.passive ? findPersona(parts.actor) : null) ?? PERSONA_BY_CATEGORY[category] ?? findPersona(textAll) ?? personas[0] ?? "business user";
         const title = storyTitle(req);
@@ -482,8 +489,8 @@ export function buildPlanFromText(text: string, projectName: string): SimPlan | 
     const n = failingAc >= 0 ? failingAc + 1 : Math.min(2, victim.acs.length);
     victim.failsQaOnce =
       victim.category === "integration"
-        ? `AC ${n} — the callout sets no timeout and never retries; when ${systems[0] ?? "the external system"} is slow the user waits for the default 120 s and nothing is queued for retry.`
-        : `AC ${n} — not bulk-safe: the service queries inside the loop and fails above 100 ${victim.object} records.`;
+        ? `AC ${n} — the HTTP client sets no timeout and never retries; when ${systems[0] ?? "the external system"} is slow the request hangs and nothing is queued for retry.`
+        : `AC ${n} — input is not validated: a ${(victim.object ?? "item").toLowerCase()} with an empty title is saved instead of being rejected with a 400 error.`;
   }
 
   return { source: "document", docTitle: doc.title, intro, personas, objects, systems, nfrs, epics };

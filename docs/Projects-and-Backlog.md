@@ -8,7 +8,7 @@
 | Name and key | Yes | Suggested from the file name. The short key (for example `NFS`) prefixes item codes. |
 | Git repository | Yes | `https://` or `git@` URL without credentials, plus the default branch. *Test connection* checks it without changing the remote. *Push to origin* is opt-in. |
 | Team | Yes | At least one agent. A stage without an agent is skipped. |
-| Run settings | – | Approval gates, parallel lanes, budget, maximum QA rework, architect code review (Off / Complex stories / All stories), and a target org or an environment chain. |
+| Run settings | – | Approval gates, parallel lanes, budget, maximum QA rework and architect code review (Off / Complex stories / All stories). |
 
 Required fields are marked with a red **\***. Until they are filled in, a *Still needed: …* line under the buttons says what is missing. **Create & start** runs immediately; *Create without starting* lets you start later.
 
@@ -55,7 +55,7 @@ Project header → **Export**:
 
 | Export | Contents |
 |---|---|
-| Workspace (.zip) | SFDX source, manifest, scripts, all documents and both CSV files. |
+| Workspace (.zip) | The source, all documents and both CSV files. |
 | Backlog (CSV) | Every item with all template sections, estimates, states, rework and AI cost. Opens in Excel. |
 | Azure DevOps import (CSV) | For *Boards → Work items → Import*; keeps the hierarchy. |
 | Project report (PDF) | A branded A4 report: summary, team, backlog, quality, timing, cost, releases and documents. *+ test reports* adds every task document and test report. |

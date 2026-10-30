@@ -58,8 +58,11 @@ function runOne(c: CheckCommand, cwd: string, timeoutMs: number): Promise<CheckR
     const keep = (d: Buffer) => {
       out = (out + d.toString()).slice(-OUTPUT_TAIL * 2);
     };
-    // A shell, because commands are written like a terminal line ("npm test -- --ci", "make check").
-    const child = spawn(c.command, { cwd, shell: true, env: { ...process.env, CI: "1", FORCE_COLOR: "0" }, windowsHide: true });
+    // A shell, because commands are written like a terminal line ("npm test -- --ci", "make check"). The project's
+    // own test runner must not think it is part of ours (node --test reads NODE_TEST_CONTEXT and reports nothing).
+    const env: NodeJS.ProcessEnv = { ...process.env, CI: "1", FORCE_COLOR: "0" };
+    delete env.NODE_TEST_CONTEXT;
+    const child = spawn(c.command, { cwd, shell: true, env, windowsHide: true });
     const timer = setTimeout(() => {
       out += `\n[timed out after ${Math.round(timeoutMs / 60000)} min]`;
       child.kill();

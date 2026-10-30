@@ -82,7 +82,7 @@ export default function CodeView({ p }: { p: Project }) {
     }
   }, [mode]);
 
-  if (files && !files.length) return <Empty icon={<FileCode2 size={20} />} title="No code yet">Developers write SFDX source here — Apex, flows, LWC, metadata, scripts — mirrored on disk under <code className="code-tag">data/projects/{p.key}/workspace</code>.</Empty>;
+  if (files && !files.length) return <Empty icon={<FileCode2 size={20} />} title="No code yet">Developers write the project's code here — mirrored on disk under <code className="code-tag">data/projects/{p.key}/workspace</code>.</Empty>;
   const meta = files?.find((f) => f.path === sel);
   const v = versions?.find((x) => x.version === current);
 
@@ -118,7 +118,7 @@ export default function CodeView({ p }: { p: Project }) {
         </div>
         {panel === "files" ? (
           <>
-            <div className="row small muted" style={{ padding: "4px 8px 8px", gap: 6 }}>{files?.length} files · SFDX workspace</div>
+            <div className="row small muted" style={{ padding: "4px 8px 8px", gap: 6 }}>{files?.length} files · workspace</div>
             {render(tree, 0)}
           </>
         ) : panel === "branches" ? (

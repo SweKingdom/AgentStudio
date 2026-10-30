@@ -27,7 +27,7 @@ export function validateRepoUrl(raw: string): { ok: true; url: string } | { ok: 
   if (/\s/.test(url)) return { ok: false, error: "The URL can't contain spaces." };
   const https = url.match(/^https?:\/\/([^/@]+@)?([^/]+)\/(.+)$/i);
   if (https) {
-    if (https[1]) return { ok: false, error: "Don't put a user, password or token in the URL — SiroccoARM never stores credentials." };
+    if (https[1]) return { ok: false, error: "Don't put a user, password or token in the URL — AgentStudio never stores credentials." };
     return { ok: true, url };
   }
   if (/^(ssh:\/\/)?git@[\w.-]+[:/][\w./~-]+$/i.test(url)) return { ok: true, url };
@@ -100,7 +100,7 @@ async function remoteGit(dir: string, args: string[], timeout = 120_000) {
 
 
 // Isolated from the user's global git config: no signing, no hooks.
-const ARM_IDENTITY = ["-c", "user.name=SiroccoARM", "-c", "user.email=arm@siroccoarm.local", "-c", "commit.gpgsign=false", "-c", "tag.gpgsign=false", "-c", "core.hooksPath=/dev/null"];
+const ARM_IDENTITY = ["-c", "user.name=AgentStudio", "-c", "user.email=arm@agentstudio.local", "-c", "commit.gpgsign=false", "-c", "tag.gpgsign=false", "-c", "core.hooksPath=/dev/null"];
 
 export function ensureRepo(project: Pick<Project, "key" | "settings">) {
   return serial(project.key, async () => {
@@ -122,13 +122,12 @@ export function ensureRepo(project: Pick<Project, "key" | "settings">) {
     else if (remotes.includes("origin")) await git(dir, ["remote", "remove", "origin"]);
     const current = (await git(dir, ["branch", "--show-current"])).trim();
     if (current && current !== branch) await git(dir, ["branch", "-m", current, branch]);
-    // A pushing project whose remote already has history (e.g. a GitHub repo created with a README) builds on top of it,
-    // so pushes are fast-forwards instead of being rejected.
-    if (fresh && url && project.settings.repo?.push) {
+    // A new workspace starts from the repository's own code when the remote has the branch: the agents work in the
+    // existing codebase (and its checks), and later pushes are fast-forwards. An empty or unreachable remote keeps the
+    // fresh workspace.
+    if (fresh && url) {
       const f = await remoteGit(dir, ["fetch", "-q", "origin", branch]);
-      if (f.ok) {
-        await tryGit(dir, [...ARM_IDENTITY, "merge", "-q", "--allow-unrelated-histories", "-X", "ours", "-m", `Start from origin/${branch}`, `origin/${branch}`]);
-      }
+      if (f.ok) await git(dir, ["reset", "-q", "--hard", `origin/${branch}`]);
     }
   });
 }
@@ -332,7 +331,7 @@ export function dropItemWorktree(project: Pick<Project, "key" | "settings">, cod
 }
 
 /** Push branches and tags to origin — only when the project opted in. Uses this machine's own git login (SSH key or
- *  credential helper); SiroccoARM never stores credentials and never prompts. */
+ *  credential helper); AgentStudio never stores credentials and never prompts. */
 export function pushRefs(project: Pick<Project, "key" | "settings">, refs: string[], tags = false): Promise<{ pushed: boolean; output: string }> {
   return serial(project.key, async () => {
     const repo = project.settings.repo;

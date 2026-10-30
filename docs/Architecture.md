@@ -11,7 +11,6 @@
  └──────────────────────┘ ◀───────────────── │ agents/simulator.ts (scripted turns)           │
                                              │ agents/tools.ts     (28 tools, shared by both)  │
                                              │ git.ts · github.ts  ─▶ git / gh CLI             │
-                                             │ sf.ts · screenshots ─▶ Salesforce CLI / Chrome  │
                                              │ ado.ts              ─▶ Azure DevOps REST        │
                                              │ db.ts               ─▶ SQLite (data/arm.db)     │
                                              └────────────────────────────────────────────────┘
@@ -30,7 +29,7 @@
 | PDF | `unpdf` (local text extraction for simulation and the estimate) |
 | Screenshots | `playwright-core` driving the locally installed Chrome |
 | Web | React 19, Vite, react-router 7, TanStack Query, Recharts, React Flow (`@xyflow/react`), lucide icons |
-| Tests | `node:test` via `tsx`, with stand-ins for Claude, the Salesforce CLI, the GitHub CLI and Azure DevOps |
+| Tests | `node:test` via `tsx`, with stand-ins for Claude (API and Agent SDK), the GitHub CLI and Azure DevOps |
 
 ## Repository layout
 
@@ -41,14 +40,15 @@
 | `server/src/orchestrator.ts` | The pipeline: stages, gates, parallel lanes, rework loop, environments, pause and resume, time tracking. |
 | `server/src/agents/roles.ts` | The seven role definitions: prompts, default model, effort, tools, knowledge, name stories. |
 | `server/src/agents/runner.ts` | The live agent loop: request building, caching, cost recording, budget checks, consultations. |
-| `server/src/agents/simulator.ts`, `simplan.ts` | Simulation: PDF → requirements → backlog plan, scripted turns, templated SFDX output. |
-| `server/src/agents/tools.ts` | The tools agents call (work items, documents, files, tests, evidence, reviews, Salesforce, release). |
+| `server/src/agents/simulator.ts`, `simplan.ts` | Simulation: requirements → backlog plan, scripted turns, templated TypeScript output with tests. |
+| `server/src/agents/tools.ts` | The tools agents call (work items, documents, files, checks, tests, evidence, reviews, release). |
 | `server/src/agents/context.ts` | What each agent receives in its first message (story card, hand-over, changed files). |
 | `server/src/git.ts`, `github.ts`, `pullrequests.ts`, `review.ts` | Worktrees, merges, push, pull requests, architect code review. |
-| `server/src/sf.ts`, `salesforce.ts`, `environments.ts`, `screenshots.ts`, `evidence.ts` | Salesforce CLI bridge, org registry, environment chain, real and drawn evidence. |
+| `server/src/checks.ts`, `evidence.ts` | The project's checks (`run_checks`) and drawn test evidence. |
+| `server/src/agents/runner-sdk.ts` | Live agents on the Claude plan through the Agent SDK. |
 | `server/src/estimate.ts`, `accuracy.ts`, `pricing.ts` | Estimate, estimate vs actual, model prices. |
 | `server/src/pause.ts` | Spend limits and mapping of Claude API errors to pauses. |
-| `server/src/team.ts`, `templates.ts` | Conventions, Salesforce defaults, team export/import. |
+| `server/src/team.ts`, `templates.ts` | Conventions, checks, team export/import, network templates. |
 | `server/src/auth.ts` | Users, sessions, roles, audit log. |
 | `server/src/ado.ts` | Azure DevOps sync. |
 | `server/src/doctor.ts`, `scripts/doctor.ts` | System check (`npm run doctor`). |

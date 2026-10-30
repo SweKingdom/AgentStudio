@@ -24,7 +24,7 @@ async function api<T = any>(method: string, path: string, body?: unknown): Promi
   return (res.headers.get("content-type")?.includes("json") ? JSON.parse(text) : text) as T;
 }
 
-async function waitFor(pred: () => Promise<boolean>, what: string, timeoutMs = 60_000) {
+async function waitFor(pred: () => Promise<boolean>, what: string, timeoutMs = 180_000) {
   const t0 = Date.now();
   while (Date.now() - t0 < timeoutMs) {
     if (await pred()) return;
@@ -157,7 +157,7 @@ test("the workspace is a git repo: one commit per agent run, a tag per release",
   const authors = new Set(log.commits.map((c: any) => c.author.split(" (")[0]));
   for (const a of ["Meiga", "Basajaun", "Trasgu", "Cuélebre", "Xana", "Nuberu"]) assert.ok(authors.has(a), `commits by ${a}`);
   // Accented names still give clean commit emails.
-  assert.ok(log.commits.some((c: any) => c.email === "cuelebre@siroccoarm.local"), "Cuélebre commits as cuelebre@siroccoarm.local");
+  assert.ok(log.commits.some((c: any) => c.email === "cuelebre@agentstudio.local"), "Cuélebre commits as cuelebre@agentstudio.local");
   assert.ok(log.commits.some((c: any) => c.tags.includes("v1.0.0")), "release tagged");
   assert.ok(log.commits.some((c: any) => /^US-\d+: development — /.test(c.subject)));
   // One branch per task, merged into the base branch once the task is documented.
@@ -285,7 +285,7 @@ test("bug after release → fix → patch release", async () => {
   await waitFor(idle, "bug fix + patch release");
   const fixed = await api("GET", `/items/${bug.id}`);
   assert.equal(fixed.state, "Deployed (Done)");
-  assert.ok(fixed.files.some((f: any) => /RegressionTest\.cls$/.test(f.path)));
+  assert.ok(fixed.files.some((f: any) => /^test\/regressions\/bg-\d+\.test\.ts$/.test(f.path)));
   const releases = await api<any[]>("GET", "/projects/NFS/releases");
   assert.equal(releases[0].version, "1.1.0", "re-run story + bug → minor release");
 });
@@ -307,7 +307,8 @@ test("exports: ZIP, backlog CSV and Azure DevOps CSV", async () => {
   const files = Object.keys(unzipSync(new Uint8Array(await res.arrayBuffer())));
   assert.ok(!files.some((f) => f.startsWith("NFS/.git/")), "no .git in the export");
   assert.ok(files.includes("NFS/backlog.csv"));
-  assert.ok(files.some((f) => f.startsWith("NFS/force-app/main/default/classes/")));
+  assert.ok(files.some((f) => f.startsWith("NFS/src/")));
+  assert.ok(!files.some((f) => f.includes("force-app")), "no Salesforce source");
   assert.ok(files.some((f) => /^NFS\/docs\/stories\/US-\d+\/task_doc\.md$/.test(f)));
 
   const raw = new Uint8Array(await (await fetch(`${base}/api/projects/NFS/export/backlog.csv`)).arrayBuffer());

@@ -11,6 +11,7 @@ import { Field, Hint } from "../components/Hint";
 import { PageSkeleton } from "../components/Skeleton";
 import { SystemCheck, TeamConventions, TeamTemplate } from "../components/TeamSettings";
 import { UsersAccess } from "../components/Users";
+import { t } from "../lib/i18n";
 
 const SECTIONS = [
   { key: "general", label: "General", icon: SlidersHorizontal, sub: "Mode, spend limits", saves: true },
@@ -50,7 +51,7 @@ export default function Settings() {
       <div className="page-head">
         <div>
           <h1 className="page-title">Settings</h1>
-          <div className="page-sub">How the ARM runs, how the team works, and the prices used for every cost figure.</div>
+          <div className="page-sub">{t("How AgentStudio runs, how the team works, and the prices used for every cost figure.")}</div>
         </div>
         {current.saves && (
           <button className="btn primary" onClick={() => save.mutate()} disabled={save.isPending || !dirty} title={dirty ? "Save the changes in General, Projects and Model prices" : "No unsaved changes"}>
@@ -65,8 +66,8 @@ export default function Settings() {
             <NavLink key={x.key} to={`/settings/${x.key}`} className={({ isActive }) => `settings-nav-item ${isActive ? "on" : ""}`}>
               <x.icon size={15} />
               <span className="col" style={{ gap: 1, minWidth: 0 }}>
-                <span>{x.label}</span>
-                <span className="tiny faint ellipsis">{x.sub}</span>
+                <span>{t(x.label)}</span>
+                <span className="tiny faint ellipsis">{t(x.sub)}</span>
               </span>
             </NavLink>
           ))}
@@ -74,13 +75,13 @@ export default function Settings() {
       <div className="col settings-body fade-in" key={current.key} style={{ gap: 14 }}>
         {current.key === "general" && (<>
         <div className="card">
-          <div className="card-head"><div className="card-title">Execution</div></div>
+          <div className="card-head"><div className="card-title">{t("Execution")}</div></div>
           <div className="card-pad col" style={{ gap: 16 }}>
             <div>
               {meta.backend === "subscription" ? (
                 <div className="banner info">
                   <CheckCircle2 size={16} color="var(--good)" />
-                  <div className="small"><b>Using your Claude plan.</b> Live agents run through this machine's <code className="code-tag">claude /login</code>; usage counts against the plan's limits, and the dollar figures are estimates.</div>
+                  <div className="small"><b>{t("Using your Claude plan.")}</b> Live agents run through this machine's <code className="code-tag">claude /login</code>; usage counts against the plan's limits, and the dollar figures are estimates.</div>
                 </div>
               ) : (
                 <div className={`banner ${meta.hasApiKey ? "info" : "warn"}`}>
@@ -93,30 +94,30 @@ export default function Settings() {
             </div>
             <div className="row" style={{ justifyContent: "space-between" }}>
               <div>
-                <div className="strong small">Mode</div>
+                <div className="strong small">{t("Mode")}</div>
                 <div className="hint">
                   Simulation: free, nothing is sent to Claude. Live: agents call the Claude API — real tokens, real time, real cost. Running now: <b style={{ color: meta.mode === "live" ? "var(--bad)" : undefined }}>{meta.mode === "live" ? "LIVE" : "simulation"}</b>
                   {s.mode === "live" && meta.backend === "api" && !meta.hasApiKey && <span style={{ color: "var(--warn)" }}> — Live needs ANTHROPIC_API_KEY in .env; until then agents keep simulating.</span>}
                 </div>
               </div>
               <Hint text="Simulation: agents work without calling the Claude API (free). Live: real Claude calls, billed per use — the app shows a red LIVE badge while it's on. Projects keep the mode they were created in.">
-                <Seg value={s.mode} onChange={(v) => set("mode", v)} options={[{ value: "simulation", label: "Simulation" }, { value: "live", label: "Live" }]} />
+                <Seg value={s.mode} onChange={(v) => set("mode", v)} options={[{ value: "simulation", label: t("Simulation") }, { value: "live", label: t("Live") }]} />
               </Hint>
             </div>
             <div className="row" style={{ justifyContent: "space-between" }}>
-              <div><div className="strong small">Claude backend</div><div className="hint">Plan: your own Claude subscription via <code className="code-tag">claude /login</code> (personal use). API: the key in .env, billed per token. Auto uses the API when a key is set. Running now: <b>{meta.backend === "subscription" ? "plan" : "API"}</b></div></div>
+              <div><div className="strong small">{t("Claude backend")}</div><div className="hint">Plan: your own Claude subscription via <code className="code-tag">claude /login</code> (personal use). API: the key in .env, billed per token. Auto uses the API when a key is set. Running now: <b>{meta.backend === "subscription" ? "plan" : "API"}</b></div></div>
               <Hint text="Plan runs agents through the Claude Agent SDK on this machine's Claude login. API calls the Claude API with ANTHROPIC_API_KEY. A team or always-on use needs the API.">
                 <Seg value={s.backend} onChange={(v) => set("backend", v)} options={[{ value: "auto", label: "Auto" }, { value: "subscription", label: "Plan" }, { value: "api", label: "API" }]} />
               </Hint>
             </div>
             <div className="row" style={{ justifyContent: "space-between" }}>
-              <div><div className="strong small">Simulation speed</div><div className="hint">Multiplier on simulated work time. 1 = realistic pace, 0.2 = fast demo.</div></div>
+              <div><div className="strong small">{t("Simulation speed")}</div><div className="hint">{t("Multiplier on simulated work time. 1 = realistic pace, 0.2 = fast demo.")}</div></div>
               <Hint text="Multiplier on how long each simulated agent step takes. 1 ≈ realistic pace so you can watch the graph; 0.2 = fast demo; 0 = instant.">
                 <input className="input" type="number" step={0.1} min={0} max={5} style={{ width: 100 }} value={s.simulationSpeed} onChange={(e) => set("simulationSpeed", Number(e.target.value))} />
               </Hint>
             </div>
             <div className="row" style={{ justifyContent: "space-between" }}>
-              <div><div className="strong small">Refusal fallback</div><div className="hint">If a model declines a request, the API retries it on a fallback model automatically (Opus 5.5, Sonnet 5.5, Fable 5.1).</div></div>
+              <div><div className="strong small">{t("Refusal fallback")}</div><div className="hint">If a model declines a request, the API retries it on a fallback model automatically (Opus 5.5, Sonnet 5.5, Fable 5.1).</div></div>
               <Hint text="Live mode only: if a model declines a request, the API automatically retries it on a fallback model instead of stopping the run.">
                 <Switch on={s.refusalFallback} onChange={(v) => set("refusalFallback", v)} label="Refusal fallback" />
               </Hint>

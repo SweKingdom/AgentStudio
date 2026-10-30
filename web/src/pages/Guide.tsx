@@ -9,7 +9,7 @@ import { useProjects } from "../lib/queries";
 import { prefersReducedMotion } from "../lib/motion";
 
 /*
- * Guide: how SiroccoARM works, for someone who has never seen it. Screenshots live in web/public/guide (served as /guide/*.png)
+ * Guide: how AgentStudio works, for someone who has never seen it. Screenshots live in web/public/guide (served as /guide/*.png)
  * and were captured from a throw-away instance with generic demo data. Facts follow the code and its history — when a
  * feature changes, update its section here too.
  */
@@ -120,9 +120,9 @@ type Section = { id: string; title: string; icon: LucideIcon; intro: string; bod
 
 const TEAM: [string, string, string][] = [
   ["Meiga", "Business Process & Requirements Analyst", "Project brief; epics → features → stories in the story template, with acceptance criteria, categories and open questions."],
-  ["Basajaun", "Salesforce Solution Architect", "Declarative-vs-code decisions, each story's technical specification, the solution design document and (optionally) code reviews."],
+  ["Basajaun", "Solution Architect", "Fits each story to the existing codebase: its technical specification, the solution design document and (optionally) code reviews."],
   ["Mari", "Backlog & Delivery Planner", "Story points, MoSCoW, WSJF, dependencies, rank, sprints and the delivery plan."],
-  ["Trasgu", "Salesforce Developer", "SFDX source per story — Apex, triggers, flows, LWC, metadata, scripts — with tests, how-to-test, manual steps and a story manifest."],
+  ["Trasgu", "Software Developer", "Code per story in the repository's own structure, with tests, how-to-test and manual steps; runs the project's checks until they pass."],
   ["Cuélebre", "QA & Peer Tester (Rudolf method)", "One ✅ / ❌ / ⛔ per acceptance criterion with evidence, a test report, and approve or send back for rework."],
   ["Xana", "Technical Writer", "A task document per story, plus the living user manual, technical overview and changelog."],
   ["Nuberu", "Release Manager", "package.xml, validation, smoke tests and versioned release notes with a rollback plan."],
@@ -131,9 +131,9 @@ const TEAM: [string, string, string][] = [
 const SECTIONS: Section[] = [
   {
     id: "what",
-    title: "What SiroccoARM is",
+    title: "What AgentStudio is",
     icon: BookOpen,
-    intro: "A web app on your computer where a team of AI agents turns a requirements document into a delivered Salesforce solution: backlog, technical refinement, plan, code, peer test, documentation and release. You stay in charge — you approve at the gates, answer the questions and steer the backlog.",
+    intro: "A web app on your computer where a team of AI agents turns a requirements document into delivered, tested changes in your code repository: backlog, technical refinement, plan, code, peer test, documentation and release. You stay in charge — you approve at the gates, answer the questions and steer the backlog.",
     body: (
       <>
         <h3>The agent team</h3>
@@ -161,7 +161,7 @@ const SECTIONS: Section[] = [
         <Shot name="network" caption="A delivered project's network: who talked to whom, with cost and calls per agent." />
         <h3>Simulation and live</h3>
         <ul>
-          <li><b>Simulation</b> (the default) is free. Nothing is sent to Claude or Salesforce. The requirements PDF is read locally and turned into a real backlog; the rest of the team works through the same pipeline, tools, graph and timing, with realistic token counts priced at real model rates — so costs are estimates, not billed spend.</li>
+          <li><b>Simulation</b> (the default) is free. Nothing is sent to Claude and no checks are run. The requirements are read locally and turned into a real backlog; the rest of the team works through the same pipeline, tools, graph and timing, with realistic token counts priced at real model rates — so costs are estimates, not billed spend.</li>
           <li><b>Live</b>: agents call the Claude API — real tokens, real time, real cost. The mode badge in the top bar, left of <i>Total spend</i>, turns into a red <b>LIVE</b> and a red line runs across the top and bottom of the window. In simulation the same badge reads <i>Simulation</i>. If Live is selected but there's no API key, an amber “Live · no API key” badge says the app is still simulating.</li>
         </ul>
         <Callout kind="note">Projects keep the mode they were created in. A project created in simulation stays simulated even after you switch the app to Live.</Callout>
@@ -182,7 +182,7 @@ const SECTIONS: Section[] = [
           <li><b>Requirements.</b> Drop the requirements PDF (up to 32 MB), or describe the work in <i>Context for the team</i>: each sentence with “must”, “shall” or “should” becomes a story. The project name is suggested from the file name and a short key (e.g. NFS) is generated for item codes.</li>
           <li><b>Git repository.</b> Every project needs one: an <Kbd>https://</Kbd> or <Kbd>git@</Kbd> URL without credentials, and the default branch (usually <Kbd>main</Kbd>). <b>Test connection</b> reads the repository and does a dry-run push — nothing is changed on the remote. <b>Push to origin</b> is off by default.</li>
           <li><b>Team.</b> Tick the agents to involve. The path above the cards shows which stages will run; a stage without an agent is skipped.</li>
-          <li><b>Run settings.</b> Approval gates (on, or autopilot), parallel lanes (stories built at the same time — faster, same total cost), budget cap, maximum QA rework, <b>Architect code review</b> (Off, Complex stories, All stories) and where releases go: one target org, or <i>Use environments instead</i> for a Test → UAT → Production chain.</li>
+          <li><b>Run settings.</b> Approval gates (on, or autopilot), parallel lanes (stories built at the same time — faster, same total cost), budget cap, maximum QA rework, <b>Architect code review</b> (Off, Complex stories, All stories). The checks every story must pass are set in the project settings.</li>
           <li><b>Check the estimate</b> on the right, then <b>Create &amp; start</b> — or <i>Create without starting</i> to start later. Required fields are marked with a red <b>*</b>; until they're filled in, a <i>Still needed: …</i> line under the buttons says what's missing.</li>
         </ol>
         <Shot name="new-project" caption="New project: the requirements PDF and the git repository on the left; the live estimate on the right." />
@@ -213,7 +213,7 @@ const SECTIONS: Section[] = [
           <li><b>Approve plan</b> <span className="guide-gate">gate</span> — you check estimates, priorities and sprints.</li>
           <li><b>Build · Test · Document</b> — per story, in parallel lanes: Trasgu builds, Cuélebre peer-tests (with rework loops), Basajaun reviews the code when code review is on, Xana documents.</li>
           <li><b>Approve release</b> <span className="guide-gate">gate</span> — everything is built, tested and documented.</li>
-          <li><b>Deploy · Smoke test · Release</b> — Nuberu builds the manifest, validates, smoke-tests and publishes the release. With environments this becomes one step per environment (for example <i>Validate · Production → Approve Production → Deploy · Production</i>).</li>
+          <li><b>Check · Smoke test · Release</b> — Nuberu runs the project's checks on the base branch, smoke-tests and publishes the release with a git tag.</li>
         </ol>
         <h3>The path bar</h3>
         <p>Each step is outlined in the colours of the agents that own it (split into bands when several share it). Hover a step to read what happens there and who is working on it now. A ✓ means done, a spinner means running, a hand means it's waiting for you, and hatched, struck-through steps are skipped (gates off).</p>
@@ -221,8 +221,6 @@ const SECTIONS: Section[] = [
         <h3>Approval gates</h3>
         <p>When the pipeline reaches a gate, it stops and a banner explains what to check. <b>Approve &amp; continue</b> (or the <i>Approve: …</i> button in the header) moves on. Gates can be switched off per project (autopilot).</p>
         <Shot name="gate-backlog" caption="Backlog review gate: the project waits until you approve." />
-        <p><b>Environment approvals</b> are separate from the general gates: each stage or production environment can wait for you before the release goes there. A production environment that deploys is validated check-only <i>before</i> your approval, and the already-validated release is deployed <i>after</i> it.</p>
-        <Shot name="gate-environment" caption="An environment approval: the release was validated against Production and waits for your go-ahead." />
         <h3>Questions hold stories</h3>
         <p>When the analyst finds something ambiguous (“to be decided”, “approx.”…) it raises a question. A story with an open question stays in <i>Requires additional information</i> and doesn't advance — the rest of the backlog carries on. Answer it in the <b>Questions</b> tab (the badge shows how many are open). The agent that asked receives the answer, and when a story's last question is answered it moves to <i>Ready for Refinement</i>; use <b>Start work</b> on it if the pipeline has already finished.</p>
         <h3>Pause, resume and spend limits</h3>
@@ -291,7 +289,7 @@ const SECTIONS: Section[] = [
         <p>When a project pushes to a GitHub repository, each story gets a pull request: it opens as a <b>draft</b> when the developer first hands the story to QA, QA's findings are posted as comments, the architect's code review is posted as a comment too, and the PR is merged on GitHub once the story is documented. The local default branch then catches up. This uses the GitHub CLI's own login (<Kbd>gh auth login</Kbd>); if <Kbd>gh</Kbd> is missing, logged out or offline, the story is merged locally and pushed as before — work is never lost. The PR description and commit formats come from the team conventions.</p>
         <h3>The Code tab</h3>
         <ul>
-          <li><b>Files:</b> the SFDX source tree. Files that exist only on an unmerged task branch are marked.</li>
+          <li><b>Files:</b> the repository's source tree. Files that exist only on an unmerged task branch are marked.</li>
           <li><b>Commits:</b> every commit with its agent and branch.</li>
           <li><b>Branches:</b> default, in progress and merged, with commits ahead and a link to the PR.</li>
           <li>For a file, pick any version and compare with the previous one, any older one or an empty file. <b>Changes</b> shows a GitHub-style diff, <b>File</b> the whole file; the choice is remembered.</li>
@@ -320,10 +318,10 @@ const SECTIONS: Section[] = [
         <Shot name="test-evidence" caption="Test report in the item drawer: a check with its steps, what was found and the evidence image." />
         <h3>Evidence</h3>
         <ul>
-          <li><b>Simulation:</b> evidence is a drawing of the Salesforce record page the tester checked, with the verified fields and the outcome — and a red box around what is wrong for failures. It's labelled “simulated evidence”.</li>
-          <li><b>Live with an org:</b> real screenshots. The Salesforce CLI creates a one-time login link to a page in the org, a headless Chrome on this computer opens it and takes the screenshot. That link is never logged or stored, and only pages inside the org are allowed. Without Chrome, the drawing is used instead.</li>
+          <li><b>Simulation:</b> evidence is a drawing of the app page the tester checked, with the verified fields and the outcome — and a red box around what is wrong for failures. It's labelled “simulated evidence”.</li>
+          <li><b>Live:</b> the project's checks are the hard evidence — the developer, QA and the release run them, and their result is recorded with the test report.</li>
         </ul>
-        <Callout kind="live">With an org, the developer can't hand a story over until its deployment validates, and QA can't approve until the story's Apex tests pass and changed classes meet the minimum coverage.</Callout>
+        <Callout kind="live">In live mode the developer can't hand a story over, QA can't approve it and the release can't be published until the project's checks pass.</Callout>
         <h3>Code review by Basajaun</h3>
         <p>With <i>Architect code review</i> on (complex stories — integration, development and data migration — or all stories), Basajaun reviews the task branch's diff against the team's review checklist and the solution design after QA approves and before documentation and the merge. <i>Changes requested</i> sends the story back to the developer; QA re-tests and Basajaun reviews again. It costs one extra architect run per reviewed story.</p>
         <Links><ProjectLink tab="board">an item's Tests tab</ProjectLink><AppLink to="/settings/team">the review checklist</AppLink></Links>
@@ -377,7 +375,7 @@ const SECTIONS: Section[] = [
         <h3>Reports and exports</h3>
         <p>Project header → <b>Export</b>:</p>
         <ul>
-          <li><b>Workspace (.zip)</b> — SFDX source, manifest, scripts, all documents and both CSV files.</li>
+          <li><b>Workspace (.zip)</b> — the source, all documents and both CSV files.</li>
           <li><b>Backlog (CSV for Excel)</b> — every item with all template sections, estimates, states, rework and AI cost.</li>
           <li><b>Azure DevOps import (CSV)</b> — for Boards → Work items → Import; the hierarchy is kept.</li>
           <li><b>Project report (PDF)</b> — a branded A4 report: cover, executive summary, team, backlog, quality, timing, cost, releases, questions and the living documents. <i>+ test reports</i> adds every task document and test report with screenshots. Use “Save as PDF” in the print dialog.</li>
@@ -401,8 +399,8 @@ const SECTIONS: Section[] = [
         <ul>
           <li><b>Profile:</b> name, title, description, <b>Why this name</b> (the story shown in the agent's “Why …?” box on the Agents page — its first sentence is the region), colour and icon; disabled agents are skipped by projects.</li>
           <li><b>Model</b> (Opus, Sonnet, Haiku, Fable — prices shown per million tokens), <b>effort</b> (low → max: deeper reasoning costs more output tokens) and <b>max turns per run</b>.</li>
-          <li><b>Knowledge:</b> role knowledge packs you can switch on and off (story template, DevOps workflow, Rudolf method, Salesforce standards for Apex, Flow, LWC, SOQL, testing, metadata, integration, data migration, release, docs) plus <b>custom knowledge</b> — your own Markdown, always applied and winning over the packs. Shared packs live in Agents → Knowledge library.</li>
-          <li><b>Prompt and tools:</b> the core instructions and the tools the agent may call. Developer and release agents also have Salesforce settings (default target org, check-only or deploy, test level).</li>
+          <li><b>Knowledge:</b> role knowledge packs you can switch on and off (story template, DevOps workflow, Rudolf method, solution architecture, engineering and testing standards, release, docs) plus <b>custom knowledge</b> — your own Markdown, always applied and winning over the packs. Shared packs live in Agents → Knowledge library.</li>
+          <li><b>Prompt and tools:</b> the core instructions and the tools the agent may call.</li>
           <li><b>Versions:</b> every change to prompt, knowledge, tools or model is a version with its runs, cost and QA rework rate. Compare any version with the current one and restore it.</li>
           <li><b>Chat</b> with the agent, <b>Reset to role defaults</b>, or switch it off for new projects with <b>Enabled</b>.</li>
         </ul>
@@ -410,10 +408,10 @@ const SECTIONS: Section[] = [
         <h3>Team settings</h3>
         <ul>
           <li><b>Team conventions:</b> deliverables language, branch, commit and merge formats, the PR description, the code review checklist and Azure DevOps area, iterations and tags.</li>
-          <li><b>Salesforce defaults:</b> API version, minimum coverage, name prefix, namespace and which tests run when a story is validated. Each project can override them.</li>
-          <li><b>Export &amp; import the team:</b> <i>Export</i> downloads the whole team as one JSON file (agents, custom knowledge packs, conventions, Salesforce defaults, project defaults, prices). <i>Import</i> shows a preview of what changes first. API keys, org aliases, logins, git credentials, spend limits and the mode are never included.</li>
+          <li><b>Checks:</b> the commands every story must pass (tests, build, typecheck, lint). Empty: detected from each repository's package.json. Each project can override them.</li>
+          <li><b>Export &amp; import the team:</b> <i>Export</i> downloads the whole team as one JSON file (agents, custom knowledge packs, conventions, checks, project defaults, prices). <i>Import</i> shows a preview of what changes first. API keys, logins, git credentials, spend limits and the mode are never included.</li>
         </ul>
-        <Shot name="settings-team" caption="Team conventions and Salesforce defaults — every agent follows them, and they travel with the team export." />
+        <Shot name="settings-team" caption="Team conventions and checks — every agent follows them, and they travel with the team export." />
         <Links><AppLink to="/agents">Agents</AppLink><AppLink to="/settings/team">Settings → Team</AppLink></Links>
       </>
     ),
@@ -431,26 +429,26 @@ const SECTIONS: Section[] = [
             <tbody>
               <tr><td className="strong">General</td><td>Mode (Simulation / Live), simulation speed, refusal fallback, daily and monthly spend limits with auto-resume</td></tr>
               <tr><td className="strong">System check</td><td>Is this computer ready? Read-only and free</td></tr>
-              <tr><td className="strong">Salesforce orgs</td><td>Registered orgs, Test, Log in, Allow production</td></tr>
-              <tr><td className="strong">Team</td><td>Conventions, Salesforce defaults, export &amp; import the team</td></tr>
+
+              <tr><td className="strong">Team</td><td>Conventions, checks, export &amp; import the team</td></tr>
               <tr><td className="strong">Projects</td><td>Defaults for new projects, the human-team baseline (hours per story point, hourly rate) and currency</td></tr>
               <tr><td className="strong">Model prices</td><td>Price per million tokens for every model — used by every cost figure</td></tr>
               <tr><td className="strong">Users &amp; access</td><td>Optional login, roles and the audit log</td></tr>
             </tbody>
           </table>
         </div>
-        <Shot name="settings-general" caption="Settings → General: the API key and org status, the mode switch and simulation speed." />
+        <Shot name="settings-general" caption="Settings → General: the Claude backend, the mode switch and simulation speed." />
         <h3>System check</h3>
-        <p>Checks Node.js, the data folder, git and its HTTPS login, the Salesforce CLI and each registered org, the Claude API key and the Azure DevOps token. <b>Full check</b> also tests GitHub access, every org and access to each agent's model — still read-only and free. The same check runs in a terminal with <Kbd>npm run doctor</Kbd>.</p>
+        <p>Checks Node.js, the data folder, git and its HTTPS login, the Claude login or API key and the Azure DevOps token. <b>Full check</b> also tests GitHub access and access to each agent's model — still read-only and free. The same check runs in a terminal with <Kbd>npm run doctor</Kbd>.</p>
         <Shot name="settings-system" caption="System check: what is ready, what is missing and how to fix it." />
         <h3>Users and access</h3>
         <p>Login is off until you create the first admin — fine while the app only listens on your computer. Once on, everyone signs in, and every important change (deleting a project, approving a gate, changing settings or the team) is recorded in the <b>audit log</b>.</p>
         <ul>
-          <li><b>Admin</b> — everything, including users, app settings, team conventions and the org registry.</li>
+          <li><b>Admin</b> — everything, including users, app settings and team conventions.</li>
           <li><b>Member</b> — runs projects: create, start, pause, approve and edit work.</li>
           <li><b>Viewer</b> — read-only: projects, documents, code and costs.</li>
         </ul>
-        <p>Passwords are stored only as salted hashes, and sessions end after 12 hours without activity. This login doesn't affect git, Salesforce or Claude — they keep using this computer's own logins.</p>
+        <p>Passwords are stored only as salted hashes, and sessions end after 12 hours without activity. This login doesn't affect git or Claude — they keep using this computer's own logins.</p>
         <Shot name="settings-users" caption="Users & access before login is turned on." />
         <Shot name="login" caption="The sign-in page once login is on." />
         <Links><AppLink to="/settings">Settings</AppLink><AppLink to="/settings/system">System check</AppLink><AppLink to="/settings/users">Users &amp; access</AppLink></Links>
@@ -461,21 +459,21 @@ const SECTIONS: Section[] = [
     id: "going-live",
     title: "Going live: checklist",
     icon: KeyRound,
-    intro: "Live mode spends real money and can touch real orgs and repositories. Go through this list once, then start small.",
+    intro: "Live mode uses your Claude plan or API credits and changes real repositories. Go through this list once, then start small.",
     body: (
       <>
         <ol className="guide-checklist">
-          <li><b>API key:</b> copy <Kbd>.env.example</Kbd> to <Kbd>.env</Kbd> in the project folder, set <Kbd>ANTHROPIC_API_KEY</Kbd> and restart the app.</li>
+          <li><b>Claude:</b> run <Kbd>claude /login</Kbd> on this computer to use your Claude plan, or put <Kbd>ANTHROPIC_API_KEY</Kbd> in <Kbd>.env</Kbd> and restart. Pick the backend in Settings → General.</li>
           <li><b>Mode:</b> Settings → General → <b>Live</b> → Save. The red LIVE badge appears. Projects created from now on run live.</li>
           <li><b>Budget:</b> set daily and monthly spend limits, and a budget cap on each project.</li>
           <li><b>System check:</b> run the <i>Full check</i> and fix every warning you need.</li>
-          <li><b>Salesforce:</b> register the org, <b>Log in</b>, then <b>Test</b> until it says connected. For a production or Trailhead org, switch <b>Allow</b> on.</li>
-          <li><b>Agents:</b> check models and effort; on the release agent choose the target org and validate or deploy; on the developer choose check-only or deploy for stories.</li>
+          <li><b>Checks:</b> make sure the repository has test and build scripts in package.json, or set the check commands in the project settings — otherwise nothing is really tested.</li>
+          <li><b>Agents:</b> check models and effort.</li>
           <li><b>Repository:</b> <b>Test connection</b> in the project, then switch <b>Push to origin</b> on. For pull requests on GitHub, run <Kbd>gh auth login</Kbd> once on this computer.</li>
           <li><b>Azure DevOps</b> (optional): add <Kbd>AZURE_DEVOPS_PAT</Kbd> to <Kbd>.env</Kbd>, restart, then Project settings → Azure DevOps → <b>Test</b>.</li>
           <li><b>Start small:</b> one project, approval gates on, and watch the first stories end to end.</li>
         </ol>
-        <Callout kind="never">SiroccoARM never reads or stores passwords or tokens of external systems. The Claude key and the Azure DevOps token exist only in your <Kbd>.env</Kbd>; git uses this computer's login (SSH key or credential helper); GitHub uses the <Kbd>gh</Kbd> login; Salesforce uses the CLI's login. Secrets never appear in URLs, logs or activity.</Callout>
+        <Callout kind="never">AgentStudio never reads or stores passwords or tokens of external systems. The Claude key and the Azure DevOps token exist only in your <Kbd>.env</Kbd>; git uses this computer's login (SSH key or credential helper); GitHub uses the <Kbd>gh</Kbd> login; the Claude plan uses the <Kbd>claude</Kbd> login. Secrets never appear in URLs, logs or activity.</Callout>
         <Links><AppLink to="/settings/general">Settings → General</AppLink><AppLink to="/settings/system">System check</AppLink></Links>
       </>
     ),
@@ -493,8 +491,8 @@ const SECTIONS: Section[] = [
         <details><summary>A story is Blocked</summary><p>It reached the project's <i>Max QA rework</i>. Read the test report and the conversation, then <b>Re-run with feedback</b> for the developer, or split or change the story.</p></details>
         <details><summary>Push failed, or Test connection fails</summary><p>Check that the URL is right and that this computer's git login has write access to it: an <Kbd>https://</Kbd> URL uses the credential helper (<Kbd>gh auth login</Kbd> sets it up), a <Kbd>git@</Kbd> URL uses your SSH key. They can be different GitHub accounts. Work is never lost — it stays committed in the local repository.</p></details>
         <details><summary>No pull requests are created</summary><p>PRs are only used when the project pushes and its remote is on GitHub, and they need a logged-in GitHub CLI. Without it, stories are merged locally and pushed as before.</p></details>
-        <details><summary>An org says it isn't logged in</summary><p>Settings → Salesforce orgs → <b>Log in</b>, sign in in the browser, then <b>Test</b>. The alias must match the CLI's alias. A production org also needs <b>Allow</b>.</p></details>
-        <details><summary>The badge says “Live · no API key”</summary><p>Live is selected but the server didn't find <Kbd>ANTHROPIC_API_KEY</Kbd>. Add it to <Kbd>.env</Kbd> and restart; until then agents keep simulating.</p></details>
+        <details><summary>A story never leaves the developer</summary><p>The project's checks don't pass. Open the story's activity to see which command failed and its output, or check the commands in the project settings.</p></details>
+        <details><summary>The badge says “Live · no API key”</summary><p>Live is selected with the API backend but the server didn't find <Kbd>ANTHROPIC_API_KEY</Kbd>. Switch the backend to <b>Plan</b>, or add the key to <Kbd>.env</Kbd> and restart; until then agents keep simulating.</p></details>
         <details><summary>There's no estimate on the New project page</summary><p>The estimate needs requirements: a PDF with text, or a description of a few sentences. A scanned PDF without text gives only a rough estimate.</p></details>
         <details><summary>Azure DevOps sync fails</summary><p>Check that <Kbd>AZURE_DEVOPS_PAT</Kbd> is in <Kbd>.env</Kbd> and can read and write work items, that the iterations exist, and the state mapping: if a state name is refused, that item is sent with the Agile mapping and the sync says so.</p></details>
       </div>
@@ -504,19 +502,17 @@ const SECTIONS: Section[] = [
     id: "references",
     title: "References and glossary",
     icon: Library,
-    intro: "Official documentation for the tools SiroccoARM relies on, and the words used throughout the app.",
+    intro: "Official documentation for the tools AgentStudio relies on, and the words used throughout the app.",
     body: (
       <>
         <h3>Official documentation</h3>
         <ul className="guide-refs">
-          <li><a href="https://developer.salesforce.com/docs/atlas.en-us.sfdx_cli_reference.meta/sfdx_cli_reference/cli_reference_org_commands_unified.htm" target="_blank" rel="noreferrer noopener">Salesforce CLI — org commands (<Kbd>sf org login web</Kbd>, <Kbd>sf org open</Kbd>)</a></li>
-          <li><a href="https://developer.salesforce.com/docs/atlas.en-us.sfdx_cli_reference.meta/sfdx_cli_reference/cli_reference_project_commands_unified.htm" target="_blank" rel="noreferrer noopener">Salesforce CLI — project commands (<Kbd>sf project deploy start</Kbd>, <Kbd>validate</Kbd>, <Kbd>quick</Kbd>)</a></li>
-          <li><a href="https://developer.salesforce.com/docs/atlas.en-us.sfdx_dev.meta/sfdx_dev/sfdx_dev_intro.htm" target="_blank" rel="noreferrer noopener">Salesforce DX Developer Guide</a></li>
-          <li><a href="https://developer.salesforce.com/docs/atlas.en-us.api_meta.meta/api_meta/meta_deployRecentValidation.htm" target="_blank" rel="noreferrer noopener">Metadata API — deploying a recent validation (quick deploy)</a></li>
+
           <li><a href="https://cli.github.com/manual/gh_auth_login" target="_blank" rel="noreferrer noopener">GitHub CLI — <Kbd>gh auth login</Kbd></a></li>
           <li><a href="https://cli.github.com/manual/gh_pr_create" target="_blank" rel="noreferrer noopener">GitHub CLI — <Kbd>gh pr create</Kbd></a></li>
           <li><a href="https://learn.microsoft.com/en-us/azure/devops/organizations/accounts/use-personal-access-tokens-to-authenticate" target="_blank" rel="noreferrer noopener">Azure DevOps — personal access tokens</a></li>
           <li><a href="https://learn.microsoft.com/en-us/azure/devops/boards/queries/import-work-items-from-csv" target="_blank" rel="noreferrer noopener">Azure Boards — import work items from CSV</a></li>
+          <li><a href="https://docs.claude.com/en/docs/claude-code/sdk/sdk-overview" target="_blank" rel="noreferrer noopener">Claude Agent SDK — overview</a></li>
           <li><a href="https://docs.claude.com/en/docs/about-claude/models/overview" target="_blank" rel="noreferrer noopener">Claude — models overview</a></li>
           <li><a href="https://docs.claude.com/en/docs/about-claude/pricing" target="_blank" rel="noreferrer noopener">Claude — pricing</a></li>
           <li><a href="https://docs.claude.com/en/docs/build-with-claude/prompt-caching" target="_blank" rel="noreferrer noopener">Claude — prompt caching</a></li>
@@ -533,14 +529,14 @@ const SECTIONS: Section[] = [
           <dt>Gate</dt><dd>A point where the pipeline waits for your approval.</dd>
           <dt>Lane</dt><dd>One story being built, tested and documented. Several lanes run in parallel.</dd>
           <dt>Rework loop</dt><dd>QA or code review sends a story back to the developer. Counted on the item and limited per project.</dd>
-          <dt>Check-only deploy (validation)</dt><dd>A deployment that compiles and runs tests in the org without saving anything.</dd>
-          <dt>Quick deploy</dt><dd>Deploying a release that was already validated, without running the tests again — used for production after your approval.</dd>
-          <dt>Smoke test</dt><dd>A short check after deployment that the critical path still works.</dd>
+          <dt>Checks</dt><dd>The project's own commands (tests, build, typecheck, lint). A story only moves on when they pass.</dd>
+
+          <dt>Smoke test</dt><dd>A short check after the release that the critical path still works.</dd>
           <dt>Worktree</dt><dd>A separate working folder for one branch of the same git repository, so parallel lanes never collide.</dd>
           <dt>Draft pull request</dt><dd>A PR that's visible for review but not ready to merge — each story's PR starts as one.</dd>
           <dt>Effort</dt><dd>How hard a model thinks before answering. More effort: better reasoning, more output tokens.</dd>
           <dt>Prompt caching</dt><dd>Re-using the unchanged start of a prompt between calls at a fraction of the input price.</dd>
-          <dt>Simulation / Live</dt><dd>Free scripted run without Claude or Salesforce, or real calls with real cost.</dd>
+          <dt>Simulation / Live</dt><dd>Free scripted run without Claude, or real calls on your Claude plan or API key.</dd>
         </dl>
       </>
     ),
@@ -648,7 +644,7 @@ export default function Guide() {
         <div className="page-head">
           <div>
             <h1 className="page-title">Guide</h1>
-            <div className="page-sub">How SiroccoARM works, from the first requirements PDF to a released Salesforce solution — with screenshots of every screen. Click any screenshot to enlarge it.</div>
+            <div className="page-sub">How AgentStudio works, from the first requirements to a tested, released change in your repository — with screenshots of every screen. Click any screenshot to enlarge it.</div>
           </div>
         </div>
         <div className="guide-layout">
@@ -700,7 +696,7 @@ export default function Guide() {
                 {s.body}
               </section>
             ))}
-            <div className="guide-foot tiny faint"><CheckCircle2 size={12} aria-hidden /> Screenshots come from a demo instance in simulation mode with made-up projects and orgs.</div>
+            <div className="guide-foot tiny faint"><CheckCircle2 size={12} aria-hidden /> Screenshots come from a demo instance in simulation mode with made-up projects.</div>
           </div>
         </div>
       </div>

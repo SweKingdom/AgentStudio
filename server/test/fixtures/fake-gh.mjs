@@ -27,7 +27,7 @@ const failing = process.env.ARM_FAKE_GH_FAIL;
 if (failing === "all" || (failing && cmd === `pr ${failing}`)) fail("error connecting to api.github.com\ncheck your internet connection or https://githubstatus.com");
 
 const repo = flag("--repo");
-if (!repo) fail("--repo is required by SiroccoARM");
+if (!repo) fail("--repo is required by AgentStudio");
 const remote = process.env.ARM_FAKE_GH_REMOTE;
 const statePath = process.env.ARM_FAKE_GH_STATE;
 if (!remote || !statePath) fail("fake gh: ARM_FAKE_GH_REMOTE and ARM_FAKE_GH_STATE must be set");
@@ -94,7 +94,7 @@ if (cmd === "pr ready") {
 }
 if (cmd === "pr merge") {
   const pr = find(args[2]);
-  if (!args.includes("--merge")) fail("fake gh: SiroccoARM always merges with --merge");
+  if (!args.includes("--merge")) fail("fake gh: AgentStudio always merges with --merge");
   if (pr.isDraft) fail(`Pull request ${repo}#${pr.number} is still a draft`);
   if (pr.state !== "OPEN") fail(`Pull request ${repo}#${pr.number} is not open`);
   // A real merge commit on the bare repository, made in a throwaway clone.

@@ -5,7 +5,7 @@ Every project's workspace is a real git repository (`data/projects/<KEY>/workspa
 ## Branches and commits
 
 - **One branch per task:** each story or bug gets its own branch (`feature/US-103-…`, `bugfix/BG-120-…`, following the team's branch pattern) and its own working copy, a git worktree under `data/projects/<KEY>/worktrees/`. Parallel lanes never write into the same folder.
-- **Commits per agent run:** development, QA and documentation runs commit on the task branch, authored by the agent (for example `Trasgu <trasgu@siroccoarm.local>`). Project-level documents stay on the default branch.
+- **Commits per agent run:** development, QA and documentation runs commit on the task branch, authored by the agent (for example `Trasgu <trasgu@agentstudio.local>`). Project-level documents stay on the default branch.
 - **Merge:** once the task is documented, the default branch is merged into the task branch first, then the task is merged with a merge commit. On conflicts, live mode asks the developer to resolve them (the merge is refused while conflict markers remain); simulation keeps the task's version. Merged branches stay as history.
 - **Releases** are tagged on the default branch (`v1.0.0`).
 
@@ -32,7 +32,7 @@ This uses the GitHub CLI's login (`gh auth login`). If `gh` is missing, logged o
 
 ## The Code tab
 
-- **Files:** the SFDX source tree; files that exist only on an unmerged task branch are marked.
+- **Files:** the repository's source tree; files that exist only on an unmerged task branch are marked.
 - **Commits:** every commit with its agent and branch.
 - **Branches:** default, in progress and merged, with commits ahead and a link to the PR.
 - **Diff:** pick any version of a file and compare it with the previous one, any older one or an empty file.

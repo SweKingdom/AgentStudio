@@ -1,0 +1,15 @@
+<svg role="img" aria-label="AgentStudio" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 264 48">
+  <!-- Mark: three connected agents in a rounded square. The word follows the theme through --logo-text. -->
+  <rect x="2" y="2" width="44" height="44" rx="12" fill="var(--logo-sand-1, #cfc3a8)"/>
+  <g stroke="#282b34" stroke-width="3" stroke-linecap="round">
+    <line x1="15" y1="31" x2="24" y2="15"/>
+    <line x1="24" y1="15" x2="33" y2="31"/>
+    <line x1="15" y1="31" x2="33" y2="31"/>
+  </g>
+  <g fill="#282b34">
+    <circle cx="24" cy="15" r="5"/>
+    <circle cx="15" cy="31" r="5"/>
+    <circle cx="33" cy="31" r="5"/>
+  </g>
+  <text x="58" y="33" font-family="Nunito Sans, Segoe UI, Helvetica, Arial, sans-serif" font-size="25" font-weight="800" fill="var(--logo-text, #ffffff)">Agent<tspan fill="var(--logo-sand-2, #b2a792)">Studio</tspan></text>
+</svg>

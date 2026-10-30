@@ -1,5 +1,5 @@
 /**
- * Test evidence "screenshots": an SVG mock of the Salesforce Lightning record page the tester checked, with the
+ * Test evidence "screenshots": an SVG mock of the app page the tester checked, with the
  * verified fields, the outcome, and — for failures — a red box around what is wrong (Rudolf-style marked screenshot).
  * All text is escaped; the output never contains scripts.
  */
@@ -49,13 +49,15 @@ export function renderEvidenceSvg(o: {
   notes: string;
   iteration: number;
   simulated: boolean;
+  /** Shown in the mock's top bar (the project's name). */
+  appName?: string;
 }) {
   const W = 1280;
   const H = 760;
   const fields = specFields(o.item);
   const failIdx = o.result === "fail" ? Math.min(fields.length - 1, 1) : -1;
   const value = (f: string, i: number) =>
-    i === failIdx ? "— (empty)" : /status/i.test(f) ? "In Progress" : /priority/i.test(f) ? "High" : /owner|by/i.test(f) ? "QA tester (AI)" : /date/i.test(f) ? "15/10/2026 10:24" : /id$/i.test(f) ? "a0X5g00000AbCdE" : "Verified value";
+    i === failIdx ? "— (empty)" : /status/i.test(f) ? "In Progress" : /priority/i.test(f) ? "High" : /owner|by/i.test(f) ? "QA tester (AI)" : /date/i.test(f) ? "15/10/2026 10:24" : /id$/i.test(f) ? "8f3c2a91" : "Verified value";
   const colour = { pass: "#2e844a", fail: "#ba0517", blocked: "#8c4b02" }[o.result];
   const verdict = { pass: "✓ Works", fail: "✗ Broken", blocked: "⛔ Couldn't test" }[o.result];
   const noteLines = wrap(o.notes || "", 70, 4);
@@ -73,7 +75,7 @@ export function renderEvidenceSvg(o: {
     .join("");
 
   return `<?xml version="1.0" encoding="UTF-8"?>
-<svg xmlns="http://www.w3.org/2000/svg" width="${W}" height="${H}" viewBox="0 0 ${W} ${H}" font-family="Salesforce Sans, -apple-system, Segoe UI, Helvetica, Arial, sans-serif">
+<svg xmlns="http://www.w3.org/2000/svg" width="${W}" height="${H}" viewBox="0 0 ${W} ${H}" font-family="-apple-system, Segoe UI, Helvetica, Arial, sans-serif">
   <rect width="${W}" height="${H}" fill="#f3f3f3"/>
   <!-- global header -->
   <rect width="${W}" height="48" fill="#ffffff"/>
@@ -83,7 +85,7 @@ export function renderEvidenceSvg(o: {
   <circle cx="1240" cy="24" r="14" fill="#d8dde6"/>
   <!-- app nav -->
   <rect y="48" width="${W}" height="40" fill="#ffffff" stroke="#e5e5e5"/>
-  <text x="24" y="74" font-size="15" font-weight="600" fill="#181818">Service Console</text>
+  <text x="24" y="74" font-size="15" font-weight="600" fill="#181818">${esc(o.appName ?? "App")}</text>
   <text x="200" y="74" font-size="13" fill="#0b5cab">${esc(o.object)}s</text>
   <rect x="200" y="84" width="${Math.max(60, o.object.length * 8 + 10)}" height="3" fill="#0b5cab"/>
   <!-- record header -->
@@ -94,7 +96,7 @@ export function renderEvidenceSvg(o: {
   <rect x="${W - 260}" y="132" width="90" height="32" rx="4" fill="#ffffff" stroke="#c9c9c9"/>
   <text x="${W - 236}" y="153" font-size="13" fill="#0b5cab">Edit</text>
   <rect x="${W - 160}" y="132" width="110" height="32" rx="4" fill="#ffffff" stroke="#c9c9c9"/>
-  <text x="${W - 144}" y="153" font-size="13" fill="#0b5cab">Change Owner</text>
+  <text x="${W - 144}" y="153" font-size="13" fill="#0b5cab">Delete</text>
   <!-- details -->
   <rect x="24" y="216" width="${W - 48}" height="${H - 300}" rx="8" fill="#ffffff" stroke="#e5e5e5"/>
   <text x="44" y="250" font-size="15" font-weight="700" fill="#181818">Details</text>

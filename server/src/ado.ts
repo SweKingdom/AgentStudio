@@ -46,7 +46,7 @@ export function cleanAdoConfig(input: unknown): AdoConfig | null {
   // Plain http is only accepted for a local stand-in (tests); everything real goes over https.
   const local = u.hostname === "127.0.0.1" || u.hostname === "localhost";
   if (u.protocol !== "https:" && !(u.protocol === "http:" && local)) throw new Error("Azure DevOps organization URL must use https://");
-  if (u.username || u.password) throw new Error("SiroccoARM never stores credentials — remove the user/token from the URL and put AZURE_DEVOPS_PAT in .env");
+  if (u.username || u.password) throw new Error("AgentStudio never stores credentials — remove the user/token from the URL and put AZURE_DEVOPS_PAT in .env");
   if (u.search || u.hash) throw new Error("Azure DevOps organization URL must not have a query string");
   if (/[\\/?#]/.test(project)) throw new Error("Azure DevOps project name can't contain / \\ ? or #");
   const mode = o.stateMode === "agile" ? "agile" : "same";

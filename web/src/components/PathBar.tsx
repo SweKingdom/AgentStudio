@@ -1,6 +1,7 @@
 import type { ReactNode } from "react";
 import { Check, Hand, Loader2, X } from "lucide-react";
 import { Hint } from "./Hint";
+import { t } from "../lib/i18n";
 
 export interface PathStep {
   key: string;
@@ -30,7 +31,7 @@ function edgeGradient(colors: string[]) {
   return `linear-gradient(90deg, ${colors.map((c, i) => `${c} ${(i * w).toFixed(2)}% ${((i + 1) * w).toFixed(2)}%`).join(", ")})`;
 }
 
-/** Chevron path (like the Salesforce Path component): one arrow per stage, coloured by status. */
+/** Chevron path: one arrow per stage, coloured by status. */
 export function PathBar({ steps, compact }: { steps: PathStep[]; compact?: boolean }) {
   return (
     <ol className={`path ${compact ? "compact" : ""}`} aria-label="Pipeline stages">
@@ -52,14 +53,14 @@ export function PathBar({ steps, compact }: { steps: PathStep[]; compact?: boole
               block
               text={
                 <>
-                  <b>{s.label}</b> — {STATUS_TEXT[s.status]}
+                  <b>{t(s.label)}</b> — {t(STATUS_TEXT[s.status])}
                   {s.help ? <div style={{ marginTop: 4, fontWeight: 400 }}>{s.help}</div> : null}
                 </>
               }
             >
               <div className="path-inner">
                 {icon && <span className="path-icon">{icon}</span>}
-                <span className="path-label">{s.label}</span>
+                <span className="path-label">{t(s.label)}</span>
                 {s.extra && !compact && <span className="path-extra">{s.extra}</span>}
               </div>
             </Hint>
