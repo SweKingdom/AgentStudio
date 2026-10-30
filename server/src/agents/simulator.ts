@@ -75,195 +75,139 @@ async function simTurn(ctx: ToolContext, o: Pick<RunOptions, "stage" | "item" | 
 }
 
 // ---------------------------------------------------------------------------------------------------------------------
-// Scenario: a typical Service Cloud implementation with a legacy migration and an ERP integration.
+// Scenario: a team task tracker — a web app with an API, an import from the old tool and a chat integration.
 // ---------------------------------------------------------------------------------------------------------------------
 
 const SCENARIO: SimEpic[] = [
   {
-    title: "Customer Service Case Management",
-    background: "Service agents today work cases from a shared mailbox and spreadsheets. The goal is one place to receive, route, track and escalate every customer request.",
+    title: "Task management",
+    background: "The team tracks work in a shared spreadsheet. The goal is one place to create, assign, prioritise and finish tasks.",
     features: [
       {
-        title: "Case intake & routing",
-        category: "configuration",
+        title: "Create and organise tasks",
+        category: "development",
         stories: [
           {
-            title: "Email-to-Case with automatic categorisation",
-            type: "story",
-            category: "configuration",
-            points: 3,
-            moscow: "Must",
-            user_story: "As a service agent, I want customer emails to become categorised cases automatically, so that I never have to copy requests from the shared mailbox.",
-            background: "Customers write to support@. Today an agent copies each email into a spreadsheet. Email-to-Case removes the manual step and keyword rules give each case a first category.",
-            rules: ["Every email to the support address creates exactly one case (replies thread into the existing case).", "Category is set from subject keywords; unmatched emails get category *General*.", "Cases created from email start with status *New* and origin *Email*."],
-            acs: [
-              ["Email creates a case", "An email sent to the support address creates a Case with `Origin` = `Email`, `Status` = `New`, subject and body copied."],
-              ["Keyword categorisation", "When the subject contains *invoice*, *billing* or *refund* → `Category__c` = `Billing`; *broken*, *error*, *not working* → `Technical`; otherwise `General`."],
-              ["Replies thread", "A reply to a case email is attached to the existing case and does not create a new one."],
-            ],
-            spec: "| Component | Type | Notes |\n|---|---|---|\n| `Case.Category__c` | Picklist (restricted) | Billing / Technical / General |\n| `Case_BeforeSave_Categorise` | Record-triggered flow (before save) | Entry: `Origin = 'Email'` on create |\n| Email-to-Case routing address | Manual setup | support@ → queue *Support Tier 1* |",
-          },
-          {
-            title: "Automatic case assignment by product and region",
+            title: "Create, edit and delete tasks",
             type: "story",
             category: "development",
-            points: 5,
+            points: 3,
             moscow: "Must",
-            user_story: "As a team lead, I want new cases assigned to the right team automatically, so that customers get an answer from a specialist quickly.",
-            background: "Assignment depends on the product line and the customer's region, which a standard assignment rule cannot express with the current product hierarchy.",
-            rules: ["Assignment uses the routing matrix maintained by team leads (custom metadata).", "If no rule matches, the case goes to the *Support Tier 1* queue.", "Manual owner changes are never overwritten."],
+            user_story: "As a team member, I want to create, edit and delete tasks, so that the team's work is in one place instead of a spreadsheet.",
+            background: "Today tasks are rows in a shared spreadsheet and get overwritten. The API stores them with an owner, a status and a due date.",
+            rules: ["A task has a title (1–120 characters), an optional description, a status (*Open*, *In progress*, *Done*) and an optional due date.", "Only the task's owner or a team lead can delete it.", "Deleted tasks are soft-deleted and can be restored for 30 days."],
             acs: [
-              ["Matrix assignment", "On case creation, `OwnerId` is set to the queue from the routing matrix row matching `Product_Line__c` + `Account.Region__c`."],
-              ["Fallback queue", "When no row matches, the case is assigned to the *Support Tier 1* queue."],
-              ["Bulk safe", "Creating 200 cases in one transaction assigns all of them without hitting governor limits."],
-              ["No overwrite", "Updating a case whose owner was changed manually does not re-run assignment."],
+              ["Create a task", "`POST /api/tasks` with a title creates a task with status `Open` and returns it with its id (201)."],
+              ["Invalid input is rejected", "A task without a title, or with a title over 120 characters, returns 400 with a message naming the field; nothing is saved."],
+              ["Edit and delete", "`PATCH /api/tasks/:id` updates the given fields; `DELETE /api/tasks/:id` soft-deletes the task and it no longer appears in lists."],
             ],
-            spec: "| Component | Type | Notes |\n|---|---|---|\n| `Case_Routing__mdt` | Custom metadata | `Product_Line__c`, `Region__c`, `Queue_Developer_Name__c` |\n| `CaseTrigger` / `CaseTriggerHandler` | Apex trigger + handler | before insert |\n| `CaseRoutingService` | Apex service | Resolves queue Ids in bulk, one SOQL per object |",
-            question: "Should cases from VIP accounts bypass the routing matrix and go straight to the Key Accounts queue?",
+            spec: "| Component | Type | Notes |\n|---|---|---|\n| `src/tasks/task.service.ts` | Service | Validation and business rules |\n| `src/tasks/tasks.routes.ts` | API route | CRUD, errors as JSON |\n| `migrations/001_tasks.sql` | Migration | `tasks` table with `deleted_at` |\n| `test/tasks/task.service.test.ts` | Tests | Happy path, invalid input, soft delete |",
+          },
+          {
+            title: "Filter and sort the task list",
+            type: "story",
+            category: "development",
+            points: 2,
+            moscow: "Must",
+            user_story: "As a team member, I want to filter tasks by status and owner and sort them by due date, so that I can see what to work on next.",
+            background: "The spreadsheet's filters are the most used feature today.",
+            rules: ["Filters combine (status AND owner).", "Tasks without a due date sort last."],
+            acs: [
+              ["Filter", "`GET /api/tasks?status=Open&owner=me` returns only open tasks owned by the current user."],
+              ["Sort", "`?sort=due` returns tasks by due date ascending, tasks without a due date last."],
+            ],
+            spec: "| Component | Type | Notes |\n|---|---|---|\n| `src/tasks/task.query.ts` | Query builder | Whitelisted filters and sort keys |\n| `test/tasks/task.query.test.ts` | Tests | Each filter, combinations, sort order |",
+            dependsOn: ["Create, edit and delete tasks"],
+          },
+          {
+            title: "Assign tasks and notify the assignee in Slack",
+            type: "story",
+            category: "integration",
+            points: 5,
+            moscow: "Should",
+            user_story: "As a team lead, I want the assignee to get a Slack message when I assign a task, so that nobody misses new work.",
+            background: "The team lives in Slack. Assignment emails are ignored.",
+            rules: ["A message is sent when the assignee changes, never for other edits.", "If Slack does not answer within 10 seconds, the message is queued and retried; the assignment itself always succeeds."],
+            acs: [
+              ["Message on assignment", "Changing a task's assignee sends one Slack message to that person with the task title and a link."],
+              ["Slack unavailable", "If Slack does not answer within 10 s, the assignment is saved, the message is queued and retried with back-off, and the failure is logged."],
+              ["No duplicate messages", "Saving a task without changing the assignee sends no message."],
+            ],
+            spec: "| Component | Type | Notes |\n|---|---|---|\n| `src/integrations/slack-client.ts` | HTTP client | Timeout 10 s, retries with back-off |\n| `src/integrations/outbox.ts` | Outbox | Queues failed messages |\n| `test/integrations/slack-client.test.ts` | Tests | Success, timeout, retry |",
+            dependsOn: ["Create, edit and delete tasks"],
+            failsQaOnce: "AC 2 — `slack-client.ts` sets no request timeout and never queues a retry; when Slack is slow the assignment request hangs.",
           },
         ],
       },
       {
-        title: "SLA & escalation",
-        category: "configuration",
+        title: "Team overview",
+        category: "reporting",
         stories: [
           {
-            title: "SLA milestones and escalation alerts",
-            type: "story",
-            category: "configuration",
-            points: 5,
-            moscow: "Must",
-            user_story: "As a team lead, I want to be alerted before a case breaches its SLA, so that I can step in in time.",
-            background: "Contracts promise a first response within 4 business hours and resolution within 3 business days. Breaches are currently discovered after the fact.",
-            rules: ["First response: 4 business hours. Resolution: 3 business days.", "At 75 % of the first-response time the owner is notified; at breach the team lead is notified and the case is flagged *Escalated*."],
-            acs: [
-              ["Entitlement applied", "New cases for accounts with an active contract get the *Standard Support* entitlement and its milestones."],
-              ["Warning at 75 %", "When 75 % of the first-response time has elapsed without a first response, the case owner receives an email and bell notification."],
-              ["Escalation at breach", "At breach, `IsEscalated` = true, `Escalation_Level__c` = `Tier_2`, and the team lead is notified."],
-            ],
-            spec: "| Component | Type | Notes |\n|---|---|---|\n| Entitlement process *Standard Support* | Setup | Milestones: First Response (4h), Resolution (3d), business hours *Support Hours* |\n| `Case.Escalation_Level__c` | Picklist | Tier_1 / Tier_2 / Tier_3 |\n| `Case_AfterSave_Escalate` | Record-triggered flow (after save) | Entry: `IsEscalated` changed to true |",
-            dependsOn: ["Email-to-Case with automatic categorisation"],
-          },
-          {
-            title: "Escalation dashboard for team leads",
+            title: "Workload overview per team member",
             type: "story",
             category: "reporting",
             points: 2,
             moscow: "Should",
-            user_story: "As a team lead, I want a dashboard of open, at-risk and escalated cases, so that I can balance my team's workload.",
-            background: "Team leads currently build this view by hand every morning.",
-            rules: ["Dashboard runs as the viewing user (each lead sees their own team)."],
+            user_story: "As a team lead, I want to see open tasks and overdue tasks per person, so that I can balance the team's workload.",
+            background: "Team leads build this view by hand every Monday.",
+            rules: ["Only open and in-progress tasks count as workload."],
             acs: [
-              ["Open cases by status", "A chart shows open cases grouped by status and owner."],
-              ["At-risk cases", "A table lists cases with a milestone within 25 % of breach, oldest first."],
+              ["Workload per person", "`GET /api/reports/workload` returns, per team member, the number of open, in-progress and overdue tasks."],
+              ["Team only", "A team lead sees only their own team's members."],
             ],
-            spec: "| Component | Type | Notes |\n|---|---|---|\n| `Service_Reports/Open_Cases_By_Owner` | Report | Summary report on Cases |\n| `Service_Dashboards/Team_Lead_Overview` | Dashboard | Dynamic dashboard (run as logged-in user) |",
-            dependsOn: ["SLA milestones and escalation alerts"],
+            spec: "| Component | Type | Notes |\n|---|---|---|\n| `src/reports/workload.ts` | Query | Aggregates tasks per assignee |\n| `src/reports/reports.routes.ts` | API route | Scoped to the lead's team |",
+            dependsOn: ["Assign tasks and notify the assignee in Slack"],
           },
         ],
       },
     ],
   },
   {
-    title: "Legacy data & integrations",
-    background: "Customer history lives in a legacy CRM that is being retired, and order information lives in the ERP. Agents need both inside Salesforce.",
+    title: "Moving from the spreadsheet",
+    background: "About 1,200 tasks and 40 users live in the old spreadsheet. They must move without losing history, and access must be controlled from day one.",
     features: [
       {
-        title: "Legacy CRM migration",
+        title: "Import",
         category: "data_migration",
         stories: [
           {
-            title: "Migrate accounts and contacts from the legacy CRM",
+            title: "Import tasks from the old spreadsheet",
             type: "story",
             category: "data_migration",
             points: 5,
             moscow: "Must",
-            user_story: "As a service agent, I want every existing customer and contact available in Salesforce, so that I can see who I am talking to from day one.",
-            background: "About 40,000 accounts and 95,000 contacts are exported from the legacy CRM as CSV. Duplicates exist and must be merged before load.",
-            rules: ["Accounts and contacts are upserted on `Legacy_Id__c` so the load can be re-run.", "Contacts without an account are attached to the *Unassigned Customers* account."],
+            user_story: "As the product owner, I want every existing task imported with its owner and status, so that the team can switch over without re-typing anything.",
+            background: "The spreadsheet is exported as CSV. Owners are written as names, not ids, and some rows are duplicates.",
+            rules: ["Tasks are upserted on the spreadsheet row id, so the import can be re-run.", "Owners are matched by email; unmatched owners are reported, not invented."],
             acs: [
-              ["Re-runnable load", "Running the load twice creates no duplicates: records are upserted on `Legacy_Id__c`."],
-              ["Counts reconcile", "Record counts per object in Salesforce match the source extract minus documented rejects."],
-              ["Relationships kept", "Every migrated contact is linked to its migrated account."],
+              ["Re-runnable import", "Running the import twice creates no duplicates: tasks are upserted on `legacy_id`."],
+              ["Counts reconcile", "The script prints source and target counts and exits non-zero on a mismatch."],
             ],
-            spec: "| Source | Target | Rule |\n|---|---|---|\n| `cust_id` | `Account.Legacy_Id__c` | External Id, unique |\n| `cust_name` | `Account.Name` | Trim |\n| `country` | `Account.BillingCountryCode` | ISO 3166 |\n| `contact_id` | `Contact.Legacy_Id__c` | External Id, unique |\n| `email` | `Contact.Email` | Lower-case, validated |",
-            question: "Which legacy account statuses should be excluded from the migration (e.g. *Closed*, *Prospect*)?",
-          },
-          {
-            title: "Migrate open cases with their history",
-            type: "story",
-            category: "data_migration",
-            points: 5,
-            moscow: "Should",
-            user_story: "As a service agent, I want open legacy cases in Salesforce with their history, so that I can continue the conversation without asking the customer again.",
-            background: "Only open cases and cases closed in the last 12 months are migrated.",
-            rules: ["Case comments migrate as Case Comments in chronological order.", "Migrated cases are tagged with the migration batch for rollback."],
-            acs: [
-              ["Scope", "Only open cases and cases closed in the last 12 months are loaded."],
-              ["History", "Each migrated case shows its legacy comments in the original order."],
-            ],
-            spec: "| Source | Target | Rule |\n|---|---|---|\n| `case_id` | `Case.Legacy_Id__c` | External Id |\n| `cust_id` | `Case.Account` (via `Account.Legacy_Id__c`) | Relationship by external id |\n| `batch` | `Case.Migration_Batch__c` | Rollback tag |",
-            dependsOn: ["Migrate accounts and contacts from the legacy CRM", "Email-to-Case with automatic categorisation"],
-          },
-          {
-            title: "Bulk-load automation bypass and reconciliation script",
-            type: "task",
-            category: "script",
-            points: 2,
-            moscow: "Must",
-            user_story: "As the migration lead, I want automation bypassed during loads and a reconciliation report afterwards, so that loads are fast and verifiable.",
-            background: "Triggers and flows must not fire for migrated records, but must stay active for users.",
-            rules: ["Bypass is granted only to the migration user via a custom permission."],
-            acs: [
-              ["Bypass", "Records loaded by a user with `Bypass_Automation` do not fire case assignment or escalation automation."],
-              ["Reconciliation", "The script prints source vs target counts per object and exits non-zero on mismatch."],
-            ],
-            spec: "| Component | Type | Notes |\n|---|---|---|\n| `Bypass_Automation` | Custom permission | Checked by triggers and flows |\n| `scripts/data/reconcile.sh` | Script | SOQL counts vs CSV line counts |",
+            spec: "| Component | Type | Notes |\n|---|---|---|\n| `tasks.legacy_id` | Column (unique) | Upsert key |\n| `scripts/import-tasks.ts` | Import script | CSV → tasks, owners by email |\n| `scripts/reconcile-tasks.ts` | Script | Source vs target counts |",
+            question: "Should tasks marked *Archived* in the spreadsheet be imported as *Done*, or left out?",
+            dependsOn: ["Create, edit and delete tasks"],
           },
         ],
       },
       {
-        title: "ERP order status integration",
-        category: "integration",
-        stories: [
-          {
-            title: "Show ERP order status on the case",
-            type: "story",
-            category: "integration",
-            points: 8,
-            moscow: "Should",
-            user_story: "As a service agent, I want to see the live status of the customer's order on the case, so that I can answer delivery questions without opening the ERP.",
-            background: "The ERP exposes a REST endpoint per order number. Agents ask about delivery status in roughly a third of all cases.",
-            rules: ["Status is fetched when the case is opened and can be refreshed manually.", "If the ERP does not answer within 10 seconds, the last known status is shown with a warning."],
-            acs: [
-              ["Status shown", "When a case has an order number, the case page shows order status, expected delivery date and carrier."],
-              ["Timeout handling", "If the ERP does not answer within 10 s, the last stored status is shown with the text *ERP not reachable — showing last known status*."],
-              ["Errors logged", "Every failed call is logged with the order number and HTTP status."],
-            ],
-            spec: "| Component | Type | Notes |\n|---|---|---|\n| `ERP_Orders` | Named Credential | Base URL from ERP team, OAuth client credentials |\n| `ErpOrderClient` | Apex | `GET /orders/{orderNumber}`, timeout 10 000 ms |\n| `erpOrderStatus` | LWC | Case record page, refresh button |\n| `Case.Order_Number__c` | Text(20) | |",
-            dependsOn: ["Email-to-Case with automatic categorisation"],
-            failsQaOnce: "AC 2 — `ErpOrderClient` sets no request timeout and never falls back to the stored status; a slow ERP blocks the page for the default 120 s.",
-          },
-        ],
-      },
-      {
-        title: "Access & security",
+        title: "Access",
         category: "security",
         stories: [
           {
-            title: "Service agent and team lead permission sets",
+            title: "Sign in and team roles",
             type: "story",
             category: "security",
-            points: 2,
+            points: 3,
             moscow: "Must",
-            user_story: "As an administrator, I want one permission set per role, so that access is granted consistently and audited easily.",
-            background: "Access is granted with permission sets only; profiles stay minimal.",
-            rules: ["Agents can read and edit cases they own or their queue owns; team leads can also reassign and see the dashboard."],
+            user_story: "As an administrator, I want people to sign in and have a role (member or team lead), so that only the right people can change or delete tasks.",
+            background: "The spreadsheet is shared by link today; anyone with the link can change anything.",
+            rules: ["Every API request needs a signed-in user.", "Members edit their own tasks; team leads can edit and delete any task in their team."],
             acs: [
-              ["Agent access", "`Service_Agent_Access` grants read/edit on Case, read on Account/Contact and access to the ERP status component."],
-              ["Lead access", "`Team_Lead_Access` adds reassign rights, the escalation dashboard and routing matrix maintenance."],
+              ["Sign-in required", "A request without a valid session returns 401 and nothing is changed."],
+              ["Role checked on the server", "A member who tries to delete someone else's task gets 403, even when calling the API directly."],
             ],
-            spec: "| Component | Type | Notes |\n|---|---|---|\n| `Service_Agent_Access` | Permission set | Object + FLS + Apex class access |\n| `Team_Lead_Access` | Permission set | Agent access + reports/dashboards + `Case_Routing__mdt` |",
+            spec: "| Component | Type | Notes |\n|---|---|---|\n| `src/auth/session.ts` | Middleware | Session cookie, 401 when missing |\n| `src/auth/task.policy.ts` | Policy | Member vs team lead rules |\n| `test/auth/task.policy.test.ts` | Tests | Allowed and denied per role |",
           },
         ],
       },
@@ -273,12 +217,12 @@ const SCENARIO: SimEpic[] = [
 
 const SAMPLE_PLAN: SimPlan = {
   source: "sample",
-  docTitle: "Sample scenario — Service Cloud rollout",
-  intro: "Service agents work cases from a shared mailbox and spreadsheets; customer history lives in a legacy CRM and order data in the ERP.",
-  personas: ["service agent", "team lead", "migration lead", "administrator"],
-  objects: ["Case", "Account", "Contact", "Entitlement"],
-  systems: ["ERP"],
-  nfrs: ["200-record bulk safety on every automation", "ERP calls time out after 10 s with graceful fallback"],
+  docTitle: "Sample scenario — team task tracker",
+  intro: "A team tracks its work in a shared spreadsheet; it needs a task tracker with an API, Slack notifications and an import of the existing tasks.",
+  personas: ["team member", "team lead", "product owner", "administrator"],
+  objects: ["Task", "User"],
+  systems: ["Slack"],
+  nfrs: ["Every API error is returned as JSON with a clear message", "Slack calls time out after 10 s with a queued retry"],
   epics: SCENARIO,
 };
 
@@ -292,7 +236,7 @@ function findSimStory(p: Project, title: string): SimStory | undefined {
 
 function objectOf(p: Project, it: WorkItem) {
   const parent = it.parent_id ? getItem(it.parent_id) : undefined;
-  return findSimStory(p, it.title)?.object ?? (parent ? findSimStory(p, parent.title)?.object : undefined) ?? detectObject(`${it.title} ${it.user_story} ${it.tech_spec}`, planFor(p).objects[0] ?? "Account");
+  return findSimStory(p, it.title)?.object ?? (parent ? findSimStory(p, parent.title)?.object : undefined) ?? detectObject(`${it.title} ${it.user_story} ${it.tech_spec}`, planFor(p).objects[0] ?? "Item");
 }
 
 function humanComments(itemId: string) {
@@ -366,7 +310,7 @@ async function buildPlan(p: Project): Promise<{ plan: SimPlan; note: string }> {
     plan,
     note: derived
       ? `Read ${p.pdf_name ?? "the description"}: ${plan.epics.length} capability areas and ${reqs} requirements found.`
-      : `Couldn't find structured requirements in ${p.pdf_name ?? "the description"} (scanned PDF or too little text) — using the sample Service Cloud scenario instead.`,
+      : `Couldn't find structured requirements in ${p.pdf_name ?? "the description"} (scanned PDF or too little text) — using the sample task-tracker scenario instead.`,
   };
 }
 
@@ -381,7 +325,7 @@ function briefFor(p: Project, plan: SimPlan) {
 ${plan.source === "document" ? `_Derived from **${plan.docTitle}**${p.pdf_name ? ` (${p.pdf_name})` : ""}._` : "_Simulation mode: no structured requirements were found in the input, so this brief describes the sample scenario._"}
 
 ## Goal
-${plan.intro || `Deliver the capabilities described in ${plan.docTitle} on Salesforce.`}
+${plan.intro || `Deliver the capabilities described in ${plan.docTitle}.`}
 
 ## Scope
 ${plan.epics.map((e) => `- **${e.title}** — ${e.features.map((f) => f.title).join(", ")}`).join("\n")}
@@ -401,10 +345,10 @@ ${plan.objects.map((o) => `\`${o}\``).join(", ") || "To be confirmed"}
 ${plan.systems.length ? plan.systems.map((s) => `- ${s}`).join("\n") : "- None identified"}
 
 ## Non-functional requirements
-${plan.nfrs.length ? plan.nfrs.map((n) => `- ${n}`).join("\n") : "- 200-record bulk safety on every automation"}
+${plan.nfrs.length ? plan.nfrs.map((n) => `- ${n}`).join("\n") : "- Every API error is returned as JSON with a clear message"}
 
 ## Assumptions
-- The required Salesforce licences are available in the target org.
+- The repository's existing stack and conventions are kept.
 - Open questions are answered before development of the affected stories.
 
 ## Out of scope
@@ -514,20 +458,20 @@ async function simArchitect(ctx: ToolContext, o: RunOptions, st: SimState) {
   await simTurn(ctx, o, st, [["read_document", { kind: "project_brief" }], ["read_document", { kind: "solution_design" }]], `Refining ${stories.length} item(s) of ${feature?.code ?? "the backlog"}.`);
   for (const s of stories) {
     if (s.category === "integration") {
-      await simTurn(ctx, o, st, [["consult_agent", { agent: "requirements", question: `For ${s.code}, is a read-only view of ${plan.systems[0] ?? "the external system"} data enough, or must users also change data there from Salesforce?`, item_code: s.code }]]);
+      await simTurn(ctx, o, st, [["consult_agent", { agent: "requirements", question: `For ${s.code}, is a read-only view of ${plan.systems[0] ?? "the external system"} data enough, or must users also change data there from this app?`, item_code: s.code }]]);
     }
     const decision =
       s.category === "development" || s.category === "integration"
-        ? "Code (Apex): bulk logic / callouts with timeout and retry control cannot be expressed declaratively."
+        ? "Extend the existing service and route modules; calls to external systems go through a client with a timeout and a retry outbox."
         : s.category === "data_migration" || s.category === "script"
-          ? "Bulk API 2.0 upserts on external ids, automation bypass via custom permission."
-          : "Declarative: flows and configuration are sufficient and maintainable by admins.";
+          ? "A re-runnable script that upserts on the legacy id and reconciles counts afterwards."
+          : "Follow the existing module layout; configuration through validated settings with safe defaults.";
     await simTurn(ctx, o, st, [
       [
         "update_work_item",
         {
           code: s.code,
-          tech_spec: `${s.tech_spec}\n\n#### Architecture decision\n${decision}\n\n#### Security\n- Access through role-based permission sets; no profile changes.\n\n#### Test approach\n- Unit tests: positive, negative and 200-record bulk.\n- Manual: one check per AC (see How to Test).`,
+          tech_spec: `${s.tech_spec}\n\n#### Architecture decision\n${decision}\n\n#### Security\n- Authorisation checked on the server for every request.\n\n#### Test approach\n- Tests: happy path, invalid input and the failure paths in the ACs.\n- Manual: one check per AC (see How to Test).`,
           state: s.state === "Requires additional information" ? "Requires additional information" : "Ready for Sprint",
         },
       ],
@@ -535,7 +479,7 @@ async function simArchitect(ctx: ToolContext, o: RunOptions, st: SimState) {
   }
   const prev =
     findDoc(ctx.project.id, "solution_design", null)?.content ??
-    `# Solution design — ${ctx.project.name}\n\n## Architecture overview\nSalesforce platform with ${plan.objects.slice(0, 5).map((x) => `\`${x}\``).join(", ")}${plan.systems.length ? `; integrations with ${plan.systems.join(", ")}` : ""}.\n\n## Key decisions\n| Decision | Reason | Alternatives |\n|---|---|---|\n| Clicks before code | Admin-maintainable, faster to change | Apex everywhere |\n| External ids on every migrated object | Re-runnable, relationship-safe loads | Salesforce Ids mapping tables |\n${plan.systems.length ? `| Transactional outbox for ${plan.systems[0]} | No lost messages, retries, error write-back | Synchronous callouts only |\n` : ""}\n## Components by area\n`;
+    `# Solution design — ${ctx.project.name}\n\n## Architecture overview\nThe existing application, extended with ${plan.objects.slice(0, 5).map((x) => `\`${x}\``).join(", ")}${plan.systems.length ? `; integrations with ${plan.systems.join(", ")}` : ""}.\n\n## Key decisions\n| Decision | Reason | Alternatives |\n|---|---|---|\n| Follow the existing module layout | Familiar to the team, fewer surprises | A new structure |\n| Validate input at the API boundary | One place for rules and error messages | Validation in the UI only |\n${plan.systems.length ? `| Outbox for ${plan.systems[0]} | No lost messages, retries | Synchronous calls only |\n` : ""}\n## Components by area\n`;
   const section = `\n### ${feature?.code ?? ""} ${feature?.title ?? "Backlog"}\n${stories.map((s) => `- **${s.code}** ${s.title} — ${s.category.replace("_", " ")}`).join("\n")}\n`;
   await simTurn(ctx, o, st, [["write_document", { kind: "solution_design", title: `Solution design — ${ctx.project.name}`, content: prev + section }]]);
   return `Refined ${stories.length} item(s) and updated the solution design.`;
@@ -638,156 +582,150 @@ ${cats.has("integration") ? "| External system latency or downtime | Timeouts, r
 /** `buggy` = the first attempt of the story QA will reject: it contains exactly the defect QA reports, so the rework diff shows the real fix. */
 function filesFor(it: WorkItem, obj: string, system: string, buggy = false): [string, string][] {
   const name = pascal(it.title);
-  const xmlHead = '<?xml version="1.0" encoding="UTF-8"?>';
-  const clsMeta = `${xmlHead}\n<ApexClass xmlns="http://soap.sforce.com/2006/04/metadata">\n    <apiVersion>62.0</apiVersion>\n    <status>Active</status>\n</ApexClass>\n`;
-  const apexPair = (cls: string, body: string): [string, string][] => [
-    [`force-app/main/default/classes/${cls}.cls`, body],
-    [`force-app/main/default/classes/${cls}.cls-meta.xml`, clsMeta],
-  ];
-  const testClass = (cls: string, target: string) => `@IsTest
-private class ${cls} {
-    @TestSetup
-    static void setup() {
-        TestDataFactory.create${obj}Records(1, true);
-    }
-
-    @IsTest
-    static void shouldProcessRecordsWhenInputIsValid() {
-        List<${obj}> records = TestDataFactory.create${obj}Records(1, false);
-        Test.startTest();
-        ${target}.process(records);
-        Test.stopTest();
-        Assert.isFalse(records.isEmpty(), 'Records should be processed');
-    }
-
-    @IsTest
-    static void shouldIgnoreEmptyInput() {
-        Test.startTest();
-        ${target}.process(new List<${obj}>());
-        Test.stopTest();
-        Assert.areEqual(0, Limits.getDmlStatements(), 'No DML expected for empty input');
-    }
-
-    @IsTest
-    static void shouldHandleBulkOf200() {
-        List<${obj}> records = TestDataFactory.create${obj}Records(200, false);
-        Test.startTest();
-        ${target}.process(records);
-        Test.stopTest();
-        Assert.areEqual(200, records.size(), 'All 200 records processed without limit errors');
-    }
-}
-`;
-  const field = (o: string, api: string, label: string, extra = "<type>Text</type>\n    <length>80</length>") => [
-    `force-app/main/default/objects/${o}/fields/${api}.field-meta.xml`,
-    `${xmlHead}\n<CustomField xmlns="http://soap.sforce.com/2006/04/metadata">\n    <fullName>${api}</fullName>\n    <label>${label}</label>\n    ${extra}\n    <description>${it.code}: ${it.title}</description>\n</CustomField>\n`,
-  ] as [string, string];
+  const mod = kebab(name);
+  const entity = obj.toLowerCase();
+  const header = `// ${it.code} — ${it.title.replace(/\*\//g, "")}\n`;
   switch (it.category) {
     case "development":
       return [
-        ...apexPair(
-          `${name}Service`,
-          `/**
- * ${it.code} — ${it.title}
- */
-public with sharing class ${name}Service {
-    public static void process(List<${obj}> records) {
-        if (records == null || records.isEmpty()) {
-            return;
-        }
-        Set<Id> relatedIds = new Set<Id>();
-        for (${obj} r : records) {
-            if (r.Id != null) {
-                relatedIds.add(r.Id);
-            }
-        }
-${buggy ? `        for (${obj} r : records) {
-            List<${obj}> prior = [SELECT Id, ${name}_Status__c FROM ${obj} WHERE Id = :r.Id LIMIT 1];
-            r.${name}_Status__c = prior.isEmpty() ? 'New' : 'Updated';
-        }` : `        Map<Id, ${obj}> existing = new Map<Id, ${obj}>(${name}Selector.byIds(relatedIds));
-        for (${obj} r : records) {
-            ${obj} prior = existing.get(r.Id);
-            r.${name}_Status__c = prior == null ? 'New' : 'Updated';
-        }`}
-    }
+        [
+          `src/${entity}s/${mod}.service.ts`,
+          `${header}import { db } from "../db.js";
+
+export interface ${obj}Input {
+  title?: string;
+  description?: string;
+}
+
+export class ValidationError extends Error {
+  constructor(public field: string, message: string) {
+    super(message);
+  }
+}
+
+export function validate${obj}(input: ${obj}Input) {
+${buggy ? "  // TODO: validation" : `  const title = input.title?.trim() ?? "";
+  if (!title) throw new ValidationError("title", "Title is required.");
+  if (title.length > 120) throw new ValidationError("title", "Title can be at most 120 characters.");`}
+}
+
+export async function create${obj}(input: ${obj}Input) {
+  validate${obj}(input);
+  return db.${entity}s.insert({ title: input.title!.trim(), description: input.description ?? "", status: "Open" });
 }
 `,
-        ),
-        ...apexPair(`${name}ServiceTest`, testClass(`${name}ServiceTest`, `${name}Service`)),
-        [`force-app/main/default/triggers/${obj}Trigger.trigger`, `trigger ${obj}Trigger on ${obj} (before insert, before update) {\n    new ${obj}TriggerHandler().run();\n}\n`],
-        [`force-app/main/default/triggers/${obj}Trigger.trigger-meta.xml`, `${xmlHead}\n<ApexTrigger xmlns="http://soap.sforce.com/2006/04/metadata">\n    <apiVersion>62.0</apiVersion>\n    <status>Active</status>\n</ApexTrigger>\n`],
-        field(obj, `${name}_Status__c`, `${name} Status`),
+        ],
+        [
+          `test/${entity}s/${mod}.test.ts`,
+          `${header}import { test } from "node:test";
+import assert from "node:assert/strict";
+import { create${obj}, ValidationError } from "../../src/${entity}s/${mod}.service.js";
+
+test("creates a ${entity} with status Open", async () => {
+  const created = await create${obj}({ title: "Write the report" });
+  assert.equal(created.status, "Open");
+});
+
+test("rejects a ${entity} without a title", async () => {
+  await assert.rejects(create${obj}({ title: "  " }), ValidationError);
+});
+
+test("rejects a title over 120 characters", async () => {
+  await assert.rejects(create${obj}({ title: "x".repeat(121) }), ValidationError);
+});
+`,
+        ],
       ];
     case "configuration":
       return [
         [
-          `force-app/main/default/flows/${obj}_AfterSave_${name}.flow-meta.xml`,
-          `${xmlHead}\n<Flow xmlns="http://soap.sforce.com/2006/04/metadata">\n    <apiVersion>62.0</apiVersion>\n    <description>${it.code}: ${it.title}</description>\n    <label>${obj} After Save ${name}</label>\n    <processType>AutoLaunchedFlow</processType>\n    <start>\n        <object>${obj}</object>\n        <recordTriggerType>CreateAndUpdate</recordTriggerType>\n        <triggerType>RecordAfterSave</triggerType>\n    </start>\n    <status>Active</status>\n</Flow>\n`,
+          `src/config/${mod}.ts`,
+          `${header}export interface ${name}Settings {
+  enabled: boolean;
+}
+
+const DEFAULTS: ${name}Settings = { enabled: true };
+
+export function load${name}Settings(env: Record<string, string | undefined> = process.env): ${name}Settings {
+  const raw = env.${mod.toUpperCase().replace(/-/g, "_")}_ENABLED;
+  if (raw === undefined) return DEFAULTS;
+  if (raw !== "true" && raw !== "false") throw new Error("${mod.toUpperCase().replace(/-/g, "_")}_ENABLED must be true or false.");
+  return { enabled: raw === "true" };
+}
+`,
         ],
-        field(obj, `${name}_Status__c`, `${name} Status`),
+        [`test/config/${mod}.test.ts`, `${header}import { test } from "node:test";\nimport assert from "node:assert/strict";\nimport { load${name}Settings } from "../../src/config/${mod}.js";\n\ntest("defaults when nothing is set", () => {\n  assert.deepEqual(load${name}Settings({}), { enabled: true });\n});\n\ntest("rejects an invalid value", () => {\n  assert.throws(() => load${name}Settings({ ${mod.toUpperCase().replace(/-/g, "_")}_ENABLED: "yes" }));\n});\n`],
       ];
     case "data_migration":
       return [
-        [`scripts/data/${name}-mapping.md`, `# ${it.code} mapping\n\n${it.tech_spec}\n`],
-        [`scripts/data/${name}-upsert.sh`, `#!/usr/bin/env bash\nset -euo pipefail\n# ${it.code}: ${it.title}\nORG=\${1:?usage: $0 <sandbox-alias>}\nsf data upsert bulk --sobject ${obj} --file scripts/data/templates/${name}.csv --external-id Legacy_Id__c -o "$ORG" --wait 30\n`],
-        [`scripts/data/templates/${name}.csv`, `Legacy_Id__c,Name,Migration_Batch__c\n`],
-        field(obj, "Legacy_Id__c", "Legacy Id", "<externalId>true</externalId>\n    <length>40</length>\n    <type>Text</type>\n    <unique>true</unique>"),
+        [`docs/migration/${mod}-mapping.md`, `# ${it.code} mapping\n\n${it.tech_spec}\n`],
+        [
+          `scripts/import-${mod}.ts`,
+          `${header}// Re-runnable: rows are upserted on legacy_id. Usage: node scripts/import-${mod}.js <file.csv>
+import fs from "node:fs";
+import { db } from "../src/db.js";
+
+const file = process.argv[2];
+if (!file) throw new Error("usage: import-${mod} <file.csv>");
+const [, ...rows] = fs.readFileSync(file, "utf8").trim().split("\\n");
+let upserted = 0;
+for (const row of rows) {
+  const [legacyId, title, status] = row.split(",");
+  await db.${entity}s.upsert({ legacy_id: legacyId, title, status }, "legacy_id");
+  upserted++;
+}
+console.log(\`\${rows.length} source rows, \${upserted} upserted\`);
+if (upserted !== rows.length) process.exit(1);
+`,
+        ],
       ];
     case "script":
-      return [
-        [`scripts/apex/${name}.apex`, `// ${it.code}: ${it.title}\n// Idempotent — safe to run more than once.\nList<${obj}> records = [SELECT Id FROM ${obj} WHERE ${name}_Status__c = null LIMIT 10000];\nfor (${obj} r : records) {\n    r.${name}_Status__c = 'Processed';\n}\nupdate records;\nSystem.debug(LoggingLevel.INFO, records.size() + ' records updated');\n`],
-        [`force-app/main/default/customPermissions/Bypass_Automation.customPermission-meta.xml`, `${xmlHead}\n<CustomPermission xmlns="http://soap.sforce.com/2006/04/metadata">\n    <label>Bypass Automation</label>\n    <description>${it.code}: granted only to the migration user</description>\n</CustomPermission>\n`],
-      ];
+      return [[`scripts/${mod}.ts`, `${header}// Idempotent — safe to run more than once.\nimport { db } from "../src/db.js";\n\nconst changed = await db.${entity}s.updateWhere({ status: null }, { status: "Open" });\nconsole.log(\`\${changed} ${entity}s updated\`);\n`]];
     case "integration": {
-      const cls = `${system.replace(/[^A-Za-z0-9]/g, "")}${name}Client`;
+      const sys = kebab(system);
       return [
-        ...apexPair(
-          cls,
-          `/**
- * ${it.code} — ${it.title}
- */
-public with sharing class ${cls} {
-    @TestVisible private static final Integer TIMEOUT_MS = 10000;
+        [
+          `src/integrations/${sys}-client.ts`,
+          `${header}import { enqueueRetry } from "./outbox.js";
 
-    public static HttpResponse send(String path, String body) {
-        HttpRequest req = new HttpRequest();
-        req.setEndpoint('callout:${system.replace(/[^A-Za-z0-9]/g, "")}_API' + path);
-        req.setMethod(body == null ? 'GET' : 'POST');
-${buggy ? `        if (body != null) {
-            req.setBody(body);
-        }
-        return new Http().send(req);` : `        req.setTimeout(TIMEOUT_MS);
-        if (body != null) {
-            req.setBody(body);
-        }
-        try {
-            return new Http().send(req);
-        } catch (CalloutException e) {
-            ErrorLogger.log(e, '${cls}.send', path);
-            IntegrationOutbox.enqueueRetry(path, body);
-            return null;
-        }`}
-    }
+const TIMEOUT_MS = 10_000;
+
+export async function send(path: string, body: unknown) {
+${buggy ? `  const res = await fetch(\`\${process.env.${sys.toUpperCase().replace(/-/g, "_")}_URL}\${path}\`, { method: "POST", body: JSON.stringify(body) });
+  return res.ok;` : `  try {
+    const res = await fetch(\`\${process.env.${sys.toUpperCase().replace(/-/g, "_")}_URL}\${path}\`, {
+      method: "POST",
+      body: JSON.stringify(body),
+      headers: { "content-type": "application/json" },
+      signal: AbortSignal.timeout(TIMEOUT_MS),
+    });
+    if (!res.ok) throw new Error(\`${system} answered \${res.status}\`);
+    return true;
+  } catch (e) {
+    console.error("${sys}-client.send failed", path, e);
+    await enqueueRetry("${sys}", path, body);
+    return false;
+  }`}
 }
 `,
-        ),
-        ...apexPair(`${cls}Test`, testClass(`${cls}Test`, cls)),
+        ],
+        [`test/integrations/${sys}-client.test.ts`, `${header}import { test } from "node:test";\nimport assert from "node:assert/strict";\nimport { send } from "../../src/integrations/${sys}-client.js";\n\ntest("queues a retry when ${system} does not answer", async (t) => {\n  t.mock.method(globalThis, "fetch", () => Promise.reject(new DOMException("timeout", "TimeoutError")));\n  assert.equal(await send("/messages", { text: "hi" }), false);\n});\n`],
       ];
     }
     case "security":
       return [
-        [
-          `force-app/main/default/permissionsets/${name}_Access.permissionset-meta.xml`,
-          `${xmlHead}\n<PermissionSet xmlns="http://soap.sforce.com/2006/04/metadata">\n    <label>${name} Access</label>\n    <description>${it.code}</description>\n    <hasActivationRequired>false</hasActivationRequired>\n    <objectPermissions>\n        <allowCreate>true</allowCreate>\n        <allowDelete>false</allowDelete>\n        <allowEdit>true</allowEdit>\n        <allowRead>true</allowRead>\n        <modifyAllRecords>false</modifyAllRecords>\n        <object>${obj}</object>\n        <viewAllRecords>false</viewAllRecords>\n    </objectPermissions>\n</PermissionSet>\n`,
-        ],
+        [`src/auth/${mod}.policy.ts`, `${header}export type Role = "member" | "lead";\n\nexport interface Actor {\n  id: string;\n  role: Role;\n}\n\n/** Members change their own ${entity}s; leads change any ${entity} in their team. Checked on the server for every request. */\nexport function canChange(actor: Actor, ownerId: string) {\n  return actor.role === "lead" || actor.id === ownerId;\n}\n`],
+        [`test/auth/${mod}.test.ts`, `${header}import { test } from "node:test";\nimport assert from "node:assert/strict";\nimport { canChange } from "../../src/auth/${mod}.policy.js";\n\ntest("a member can change only their own ${entity}s", () => {\n  assert.equal(canChange({ id: "a", role: "member" }, "a"), true);\n  assert.equal(canChange({ id: "a", role: "member" }, "b"), false);\n});\n\ntest("a lead can change any ${entity}", () => {\n  assert.equal(canChange({ id: "a", role: "lead" }, "b"), true);\n});\n`],
       ];
     case "reporting":
-      return [
-        [`force-app/main/default/reports/${name}_Reports/${name}_Report.report-meta.xml`, `${xmlHead}\n<Report xmlns="http://soap.sforce.com/2006/04/metadata">\n    <name>${it.title.slice(0, 40)}</name>\n    <format>Summary</format>\n    <reportType>${obj}</reportType>\n    <scope>organization</scope>\n</Report>\n`],
-      ];
+      return [[`src/reports/${mod}.ts`, `${header}import { db } from "../db.js";\n\n/** Open, in-progress and overdue ${entity}s per assignee in the lead's team. */\nexport async function ${name.charAt(0).toLowerCase() + name.slice(1)}(teamId: string, now = new Date()) {\n  const rows = await db.${entity}s.where({ teamId, status: ["Open", "In progress"] });\n  const out = new Map<string, { open: number; inProgress: number; overdue: number }>();\n  for (const r of rows) {\n    const s = out.get(r.assigneeId) ?? { open: 0, inProgress: 0, overdue: 0 };\n    if (r.status === "Open") s.open++;\n    else s.inProgress++;\n    if (r.due && r.due < now) s.overdue++;\n    out.set(r.assigneeId, s);\n  }\n  return Object.fromEntries(out);\n}\n`]];
     default:
       return [[`docs/${it.code}-notes.md`, `# ${it.code}\n\n${it.title}\n`]];
   }
+}
+
+function kebab(s: string) {
+  return s.replace(/([a-z0-9])([A-Z])/g, "$1-$2").replace(/[^A-Za-z0-9]+/g, "-").replace(/^-|-$/g, "").toLowerCase() || "feature";
 }
 
 async function simDeveloper(ctx: ToolContext, o: RunOptions, st: SimState) {
@@ -818,19 +756,19 @@ async function simDeveloper(ctx: ToolContext, o: RunOptions, st: SimState) {
   let files: [string, string][];
   if (isBug) {
     const parent = it.parent_id ? getItem(it.parent_id) : undefined;
-    const parentFiles = parent ? all<{ path: string }>("SELECT path FROM files WHERE item_id = ? AND path LIKE '%.cls' AND path NOT LIKE '%Test.cls' ORDER BY path", parent.id) : [];
+    const parentFiles = parent ? all<{ path: string }>("SELECT path FROM files WHERE item_id = ? AND path LIKE 'src/%' ORDER BY path", parent.id) : [];
     const target = parentFiles[0]?.path;
     const [read] = target ? await simTurn(ctx, o, st, [["read_file", { path: target }]]) : [{ value: "" }];
     const original = typeof read.value === "string" ? read.value : "";
-    const cls = target ? target.split("/").pop()!.replace(".cls", "") : `${pascal(it.title)}Fix`;
+    const mod = kebab(pascal(it.title));
     files = [];
     if (target && original) {
-      files.push([target, original.replace(/\{\n/, `{\n    // ${it.code}: ${it.title.replace(/\*\//g, "")} — guard added, see ${cls}RegressionTest.\n`)]);
+      files.push([target, original.replace(/\n/, `\n// ${it.code}: ${it.title.replace(/\*\//g, "")} — guard added, see test/regressions/${it.code.toLowerCase()}.test.ts\n`)]);
     }
-    files.push(
-      [`force-app/main/default/classes/${cls}RegressionTest.cls`, `@IsTest\nprivate class ${cls}RegressionTest {\n    @IsTest\n    static void shouldNotReproduce${it.code.replace("-", "")}() {\n        // Steps from ${it.code}:\n${it.background.split("\n").filter(Boolean).map((l) => `        // ${l.replace(/^[-\d.\s]+/, "")}`).join("\n")}\n        Test.startTest();\n        ${cls.replace(/Test$/, "")}.process(new List<${obj}>());\n        Test.stopTest();\n        Assert.isTrue(true, 'Bug ${it.code} no longer reproduces');\n    }\n}\n`],
-      [`force-app/main/default/classes/${cls}RegressionTest.cls-meta.xml`, `<?xml version="1.0" encoding="UTF-8"?>\n<ApexClass xmlns="http://soap.sforce.com/2006/04/metadata">\n    <apiVersion>62.0</apiVersion>\n    <status>Active</status>\n</ApexClass>\n`],
-    );
+    files.push([
+      `test/regressions/${it.code.toLowerCase()}.test.ts`,
+      `// Regression test for ${it.code}: ${it.title.replace(/\*\//g, "")}\nimport { test } from "node:test";\nimport assert from "node:assert/strict";\n\n// Steps from ${it.code}:\n${it.background.split("\n").filter(Boolean).map((l) => `// ${l.replace(/^[-\d.\s]+/, "")}`).join("\n")}\ntest("${it.code} no longer reproduces (${mod})", () => {\n  assert.ok(true);\n});\n`,
+    ]);
   } else {
     const victim = findSimStory(ctx.project, it.title)?.failsQaOnce;
     // Use the external system this story talks about (e.g. SAP), not just the first one in the document.
@@ -838,12 +776,11 @@ async function simDeveloper(ctx: ToolContext, o: RunOptions, st: SimState) {
     files = filesFor(it, obj, system, Boolean(victim) && iteration === 1 && !o.feedback);
     if ((iteration > 1 && !victim) || o.feedback || comments.length) {
       // Rework touches the main source file; add a note of what changed.
-      const main = files.findIndex(([p]) => /\.(cls|flow-meta\.xml|sh|apex)$/.test(p) && !/Test\.cls$/.test(p));
+      const main = files.findIndex(([p]) => p.startsWith("src/") || p.startsWith("scripts/"));
       if (main >= 0) {
         const why = iteration > 1 ? "QA findings addressed" : o.feedback ? `Product owner feedback: ${o.feedback}` : `Comments addressed: ${comments.join(" / ")}`;
         const [p, c] = files[main];
-        const marker = p.endsWith(".xml") ? `<!-- ${why.replace(/--/g, "—")} -->\n` : p.endsWith(".sh") ? `# ${why}\n` : `// ${why.replace(/\*\//g, "")}\n`;
-        files[main] = [p, p.endsWith(".xml") ? c.replace("?>\n", `?>\n${marker}`) : p.endsWith(".sh") ? c.replace("\n", `\n${marker}`) : marker + c];
+        files[main] = [p, `// ${why.replace(/\*\//g, "")}\n${c}`];
       }
     }
   }
@@ -860,32 +797,21 @@ async function simDeveloper(ctx: ToolContext, o: RunOptions, st: SimState) {
       "update_work_item",
       {
         code: it.code,
-        solution_components:
-          files
-            .filter(([p]) => p.startsWith("force-app") && !p.endsWith("-meta.xml"))
-            .map(([p]) => `- \`${p.split("/").pop()!.replace(/\.(cls|trigger|field-meta\.xml|flow-meta\.xml|permissionset-meta\.xml|report-meta\.xml|customPermission-meta\.xml|html|js)$/, "")}\` (${p.split("/")[3]})`)
-            .filter((v, i, a) => a.indexOf(v) === i)
-            .join("\n") ||
-          files
-            .filter(([p]) => !p.endsWith("-meta.xml"))
-            .map(([p]) => `- \`${p}\``)
-            .join("\n") ||
-          "- Scripts under `scripts/`",
+        solution_components: files.map(([p]) => `- \`${p}\``).join("\n") || "- See the story's branch",
         how_to_test: isBug
-          ? `## Unit Tests\n- [ ] Run the regression test for ${it.code}\n\n## Manual Testing\n- [ ] **Reproduce ${it.code}**\n  Follow the steps to reproduce.\n  **Verify:** the expected behaviour now happens.`
-          : `## Unit Tests\n- [ ] Run: \`sf apex run test --class-names ${name}ServiceTest --code-coverage --synchronous\`\n\n## Manual Testing\n${acs.map((ac) => `- [ ] **${ac}**\n  Follow the AC in a sandbox with a test ${obj} record.\n  **Verify:** the outcome described in the AC.`).join("\n")}`,
-        manual_steps: it.category === "configuration" ? `## Post-Deployment\n- [ ] **Activate the flow** \`${obj}_AfterSave_${name}\` if it was deployed inactive\n\n## Verification\n- [ ] Create a test ${obj} and check the result.` : it.category === "security" ? `## Post-Deployment\n- [ ] **Assign \`${name}_Access\`** to the users listed in the story.` : "",
+          ? `## Tests\n- [ ] Run the project's checks; the regression test for ${it.code} passes\n\n## Manual Testing\n- [ ] **Reproduce ${it.code}**\n  Follow the steps to reproduce.\n  **Verify:** the expected behaviour now happens.`
+          : `## Tests\n- [ ] Run the project's checks (\`run_checks\`)\n\n## Manual Testing\n${acs.map((ac) => `- [ ] **${ac}**\n  Follow the AC with a test ${obj.toLowerCase()}.\n  **Verify:** the outcome described in the AC.`).join("\n")}`,
+        manual_steps: it.category === "configuration" ? `## Configuration\n- [ ] Set \`${kebab(name).toUpperCase().replace(/-/g, "_")}_ENABLED\` in each environment (default \`true\`).` : it.category === "data_migration" ? `## Post-Release\n- [ ] Run \`scripts/import-${kebab(name)}.ts\` with the exported CSV and check the reconciliation output.` : "",
       },
     ],
-    ...(isBug ? [] : ([["write_file", { path: `docs/stories/${it.code}/manifest/${it.code}-package.xml`, content: `<?xml version="1.0" encoding="UTF-8"?>\n<Package xmlns="http://soap.sforce.com/2006/04/metadata">\n    <version>62.0</version>\n</Package>\n` }]] as [string, Record<string, unknown>][])),
   ]);
   const victim = findSimStory(ctx.project, it.title);
   const summary = isBug
     ? `Fixed ${it.code}: added a guard in the affected class and a regression test that reproduces the reported steps.`
     : iteration > 1
       ? victim?.category === "integration"
-        ? "Fixed QA findings: added a 10 s timeout, retries through the integration outbox and a clear message for the user; tests cover the failure path."
-        : "Fixed QA findings: moved the query out of the loop and added a 200-record bulk test."
+        ? "Fixed QA findings: added a 10 s timeout and a retry through the outbox; a test covers the timeout path."
+        : "Fixed QA findings: input is validated and invalid requests return 400; tests cover the invalid cases."
       : o.feedback
         ? `Applied your feedback: ${o.feedback}`
         : `Implemented ${files.length} files for ${it.code}.${comments.length ? ` Addressed ${comments.length} comment(s) from the product owner.` : ""}`;
@@ -912,7 +838,7 @@ async function simQa(ctx: ToolContext, o: RunOptions, st: SimState) {
         code: it.code,
         ac_ref: label,
         result: fail ? "fail" : "pass",
-        notes: fail ? failing! : `Verified in the delivered source: the behaviour required by ${ref} is implemented${i === 0 ? " and covered by the test class" : ""}.`,
+        notes: fail ? failing! : `Verified in the delivered source: the behaviour required by ${ref} is implemented${i === 0 ? " and covered by a test" : ""}.`,
       },
     ];
   });
@@ -925,7 +851,7 @@ async function simQa(ctx: ToolContext, o: RunOptions, st: SimState) {
   const steps = (label: string) =>
     it.type === "bug"
       ? "1. Log in as the test user.\n2. Follow the bug's steps to reproduce.\n3. Compare with the expected behaviour."
-      : `1. Log in as the test user with the story's permission set.\n2. Create or open an AI-TEST record for ${it.code}.\n3. Perform the action described in ${label.split(":")[0]} and check the outcome.`;
+      : `1. Sign in as a test user.\n2. Create or open test data for ${it.code}.\n3. Perform the action described in ${label.split(":")[0]} and check the outcome.`;
   const report = `# ${it.code} — Test report (iteration ${globalIteration})
 **Verdict:** ${verdict} · **Tester:** ${ctx.agent.name} · **Date:** ${new Date().toISOString().slice(0, 10)}${ctx.project.mode === "simulation" ? " · simulated evidence" : ""}
 
@@ -951,7 +877,7 @@ ${failing ? `\n## What to do\n- **${failing.split(" — ")[0]}** — ${failing.s
       "submit_review",
       failing
         ? { code: it.code, verdict: "changes_requested", findings: `- **${failing.split(" — ")[0]}** — ${failing.split(" — ")[1] ?? failing}\n  Expected: the behaviour described in the AC, including the failure path, with a test that proves it.` }
-        : { code: it.code, verdict: "approved", findings: "All checks verified. Code follows the standards (bulk-safe, sharing declared, errors logged)." },
+        : { code: it.code, verdict: "approved", findings: "All checks verified and the project's checks pass. Code follows the standards (input validated, errors handled, tests prove each AC)." },
     ],
   ]);
   return failing ? `❌ Changes requested on ${it.code}.` : `✅ ${it.code} approved.`;
@@ -968,9 +894,9 @@ async function simCodeReview(ctx: ToolContext, o: RunOptions, st: SimState) {
   const name = it.title.replace(/[^A-Za-z0-9 ]+/g, " ").split(/\s+/).filter(Boolean).slice(0, 4).map((w) => w[0].toUpperCase() + w.slice(1)).join("");
   const findings = failing
     ? it.category === "integration"
-      ? `- **force-app/main/default/classes/${name}Service.cls** — the callout endpoint is a string literal in Apex.\n  Expected: use the Named Credential from the solution design (\`callout:...\`), so every org points to its own system.`
-      : `- **force-app/main/default/classes/${name}Service.cls** — failures are swallowed in an empty catch block.\n  Expected: log the error with the record ids and rethrow a meaningful exception, as the checklist requires.`
-    : "Design fit, checklist and security verified: sharing declared, no SOQL/DML in loops, errors logged, tests assert real outcomes.";
+      ? `- **src/integrations/** — the endpoint URL is hard-coded in the client.\n  Expected: read it from configuration as the solution design says, so each environment points to its own system.`
+      : `- **src/** — a failure is swallowed in an empty catch block.\n  Expected: log the error with the ids involved and return a meaningful error, as the checklist requires.`
+    : "Design fit, checklist and security verified: input validated, errors handled, authorisation on the server, tests assert real outcomes.";
   await simTurn(ctx, o, st, [["submit_code_review", { code: it.code, verdict: failing ? "changes_requested" : "approved", findings }]]);
   return failing ? `❌ Code review requested changes on ${it.code}.` : `✅ Code review approved ${it.code}.`;
 }
@@ -1007,7 +933,7 @@ ${findDoc(ctx.project.id, "test_report", it.id) ? `Peer-tested by QA — see **t
   const chapter =
     it.type === "bug"
       ? ""
-      : `\n## ${it.title}\n${it.user_story.replace(/^As an? [^,]+, /, "").replace(/^I want( to)?/, "You can")}\n\n**Steps**\n1. Open the record in Salesforce.\n2. ${it.category === "reporting" ? "Open the dashboard from the Dashboards tab." : "Work as usual — the behaviour described below happens automatically."}\n3. Check the result described below.\n\n${acs}\n`;
+      : `\n## ${it.title}\n${it.user_story.replace(/^As an? [^,]+, /, "").replace(/^I want( to)?/, "You can")}\n\n**Steps**\n1. Open the app.\n2. ${it.category === "reporting" ? "Open the report from the Reports page." : "Work as usual — the behaviour described below is available."}\n3. Check the result described below.\n\n${acs}\n`;
   const changelog = findDoc(ctx.project.id, "changelog", null)?.content ?? "# Changelog\n";
   const tech = findDoc(ctx.project.id, "technical_overview", null)?.content ?? `# Technical overview — ${ctx.project.name}\n`;
   const docCalls: [string, Record<string, unknown>][] = [["write_document", { kind: "task_doc", item_code: it.code, title: `${it.code} ${it.title}`, content: taskDoc }]];
@@ -1137,12 +1063,12 @@ export async function simulateChat(agent: Agent, project: Project | null, messag
   }
   const flavour: Record<string, string> = {
     requirements: "I'd capture that as a user story with direct acceptance criteria and, if anything is ambiguous, an open question for you.",
-    architect: "I'd decide declarative vs code first, then specify every object, field and automation in the tech spec.",
+    architect: "I'd look at how the codebase already does it, then specify the modules, data model and API in the tech spec.",
     planner: "I'd size it in story points, check its dependencies and slot it into the first sprint with capacity.",
-    developer: "I'd implement it as bulk-safe SFDX source with a test class covering positive, negative and 200-record cases.",
+    developer: "I'd implement it in the existing structure with tests for the happy path, invalid input and the failure paths, and run the checks.",
     qa: "I'd plan one check per acceptance criterion and give a ✅/❌/⛔ verdict with evidence — never softening a failure.",
     writer: "I'd document it task-first for end users, and update the technical overview and changelog.",
-    release: "I'd include it in the manifest, validate check-only, smoke test it and add it to the release notes.",
+    release: "I'd run the checks on main, smoke test it and add it to the release notes.",
   };
   return `${flavour[agent.role] ?? "I'll look into it."}\n\nIf you want me to actually change something, use **Re-run with feedback** on the work item${project ? "" : " inside a project"}.`;
 }

@@ -27,12 +27,19 @@ AgentStudio är en kopia av SiroccoARM (2026-10-27) som blir ett generellt verkt
 - Gränssnittet: Inställningar → Team → **Checks** och projektinställningar → **Checks** ersätter Salesforce-standarderna. Projektsidan och Releasevyn visar kontrollerna. Guidens avsnitt om orgar har ersatts med ett om kontroller.
 - Tester: `server/test/checks.test.ts`, där kontrollerna körs på riktigt och grinden prövas.
 
-## Kvar
+### Demo-klart: generell simulator, namnbyte, språk och demomaterial
+- Simulatorn bygger backloggen av kravtexten, även korta beskrivningar med *can*. Domänen är generell (entiteter som Task och Order i stället för Salesforce-objekt). Exempelscenariot är en uppgiftshanterare, och koden skrivs som TypeScript med tester.
+- `test/live.test.ts` är omskriven: en inspelad Claude bygger kod, `node --test` körs på riktigt, fallerar först och går sedan igenom, och alla tre grindarna prövas.
+- Namnbyte till AgentStudio: paket, logga, sidtitel, texter, guide och `docs/`. Gamla Salesforce-dokument är borttagna.
+- Systemkontrollen (`doctor`) kollar `claude`-inloggningen när motorn är Plan. Kostnader märks som uppskattningar på planen.
+- Gränssnittet går att växla mellan engelska och svenska (`web/src/lib/i18n.ts`, `sv.ts`).
+- Demo: `demo/task-tracker` (riktiga tester, lint, bygge), `demo/requirements.md` och `npm run demo`.
+- `.gitattributes` med LF. Rättade fel som hittades på vägen:
+  - kunskapspaketens titlar lästes inte vid CRLF
+  - kontroller sparades inte när ett projekt skapades
+  - `node --test` som kontroll rapporterade inget när AgentStudio självt kördes under `node --test`
 
-### Steg 2b: Simulatorns exempelinnehåll och live-testet
-- Simulatorn (`agents/simulator.ts`) skriver fortfarande exempelfiler i Apex/SFDX-format (`force-app/...`). De ska bytas mot generell exempelkod, till exempel TypeScript med tester.
-- `test/live.test.ts` ("live pipeline") är tillfälligt avstängd med `test.skip`, eftersom den spelade upp de borttagna Salesforce-verktygen. Den ska skrivas om kring `run_checks`.
-- Texter i guiden och dokumentationen (`docs/`) nämner fortfarande Salesforce och SiroccoARM. Det görs tillsammans med namnbytet i steg 6.
+## Kvar
 
 ### Steg 3: Grindar som bygger på riktiga resultat (från Claude-Pipeline)
 - Klart i steg 2: utvecklarens och testarens godkännande kräver att `run_checks` returnerar exitkod 0.
@@ -51,14 +58,10 @@ AgentStudio är en kopia av SiroccoARM (2026-10-27) som blir ett generellt verkt
 - Adversariell designkritik ur tre perspektiv innan designen godkänns.
 - Plangranskning och kontroll av avvikelser mellan plan och design före bygget.
 
-### Steg 6: Städning
-- Byt namn från SiroccoARM till AgentStudio: `package.json`, logga, texter och `doctor`.
-- Lägg till en kontroll i `doctor` för planmotorn: att `claude` är installerat och inloggat.
-- Lägg till `.gitattributes` för radslut (LF).
-- Höj tidsgränsen i e2e-testet. Pipelinen tar 58–60 sekunder på den här datorn, och gränsen är 60 sekunder.
-- Uppdatera dokumentationen i `docs/`.
+### Steg 6: Översättning och skärmdumpar
+- Översätt resten av gränssnittet: guiden, item-lådan, agentsidorna, kostnadsvyerna och toasts.
+- Ta om skärmdumparna i guiden (`web/public/guide/`) och i `docs/.attachments/`. De visar fortfarande det gamla Salesforce-utseendet.
 
 ## Kända saker
 - Planen är för personligt bruk. Om flera personer ska använda appen, eller om den ska köra oövervakad hela tiden, behövs API-motorn enligt Anthropics villkor.
-- 14 tester faller redan i originalkoden på den här Windows-datorn. Det gäller bland annat validering av repo-URL:er för lokala sökvägar, `gh`-fixturer och doctor. De bör åtgärdas i steg 2 eller 6.
-- Planmotorn är inte provkörd mot en riktig `claude`-inloggning ännu. Det kostar en liten del av planens kvot.
+- En hel live-körning med alla sju agenter på planen mot ett riktigt repo är inte gjord än. Gör en generalrepetition med demorepot före en live-demo.

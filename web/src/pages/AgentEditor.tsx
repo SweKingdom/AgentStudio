@@ -109,7 +109,7 @@ export default function AgentEditor() {
             <div className="card-pad col" style={{ gap: 14 }}>
               <div className="grid g2">
                 <Field label="Name" help="Short name shown on avatars, the graph and in messages. Inside the prompt, {{name}} is replaced with it."><input className="input" value={draft.name} onChange={(e) => set("name", e.target.value)} /></Field>
-                <Field label="Title" help="The agent's job title, e.g. 'Salesforce Developer'. Shown under its name everywhere."><input className="input" value={draft.title} onChange={(e) => set("title", e.target.value)} /></Field>
+                <Field label="Title" help="The agent's job title, e.g. 'Software Developer'. Shown under its name everywhere."><input className="input" value={draft.title} onChange={(e) => set("title", e.target.value)} /></Field>
               </div>
               <Field label="Description" help="What this agent is responsible for, in one or two sentences. Shown on its card; other agents don't see it."><textarea className="textarea" style={{ minHeight: 60 }} value={draft.description} onChange={(e) => set("description", e.target.value)} /></Field>
               <Field label="Why this name" help="The story behind the agent's name — where it comes from and why it fits the role. Shown on the agent's card on the Agents page. Start with the region and a full stop (e.g. 'Asturias. …') to show it as a tag. Agents don't see it."><textarea className="textarea" style={{ minHeight: 60 }} value={draft.name_story ?? ""} onChange={(e) => set("name_story", e.target.value)} placeholder="Region. The myth, and how it fits this agent's role." /></Field>

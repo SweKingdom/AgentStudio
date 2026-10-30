@@ -15,7 +15,7 @@ Every project runs through the same pipeline. Agents hand work to each other thr
 | 7 | **Approve release** | *You* | Gate: everything is built, tested and documented. |
 | 8 | Deploy · Smoke test · Release | Nuberu | Manifest, validation, smoke tests and versioned release notes. With environments, one step per environment, each with its own optional approval. |
 
-Gates can be switched off per project (autopilot). Environment approvals are separate from these gates: see [Salesforce orgs and environments](Salesforce-Orgs-and-Environments.md).
+Gates can be switched off per project (autopilot).
 
 ![A running project](.attachments/project-running.png)
 
@@ -38,15 +38,15 @@ When the analyst finds something ambiguous ("to be decided", "approx."), it rais
 
 ## Simulation and live
 
-**Simulation** runs the real pipeline with scripted agents, without calling Claude or Salesforce:
+**Simulation** runs the real pipeline with scripted agents, without calling Claude:
 
-- The requirements PDF is read locally and turned into a backlog by rules: numbered sections become epics and features, each requirement becomes a story with persona, category, Salesforce object, acceptance criteria and open questions. A scanned PDF without text falls back to a sample scenario.
+- The requirements (a PDF or a description) are read locally and turned into a backlog by rules: numbered sections become epics and features, each requirement (a sentence with *must*, *should*, *can*…) becomes a story with persona, category, acceptance criteria and a technical specification.
 - The same orchestrator, gates, tools, board, network and timing as a live run are used.
-- Code (Apex, triggers, flows, fields, permission sets, tests, `package.xml`, documents) is generated from templates into a real git repository, with a branch per story and merges. When the project opts in, it is pushed and pull requests are opened.
+- Code (TypeScript modules with tests, scripts, documents) is generated from templates into a real git repository, with a branch per story and merges.
 - Cost: token counts are modelled on what a live call would send (context, cache, reasoning) and priced at real model rates. Nothing is billed.
-- Salesforce deploys, test results and QA evidence (a drawing of the record page) are simulated and labelled as such.
+- The project's checks are not run, and QA evidence (a drawing of the app page) is simulated and labelled as such.
 
-**Live** sends each agent turn to the Claude API, with the PDF attached for the analyst, adaptive thinking, the agent's effort level and prompt caching. Salesforce work runs in the registered org through the Salesforce CLI.
+**Live** runs each agent on Claude — your Claude plan through the Agent SDK, or the Claude API with a key — with the PDF attached for the analyst, adaptive thinking and the agent's effort level. The project's checks really run, in the story's worktree.
 
 | Where you see the mode | Simulation | Live |
 |---|---|---|

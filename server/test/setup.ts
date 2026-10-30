@@ -11,6 +11,11 @@ delete process.env.ANTHROPIC_API_KEY;
 delete process.env.ANTHROPIC_AUTH_TOKEN;
 // Without a key the backend falls back to the Claude plan; keep that off so no test starts a real `claude` process.
 process.env.ARM_DISABLE_SUBSCRIPTION = "1";
+// Test projects use made-up https:// remotes: no system git config (e.g. a credential manager window), no prompts.
+process.env.GIT_CONFIG_NOSYSTEM = "1";
+process.env.GIT_TERMINAL_PROMPT = "0";
+// Only local file:// remotes in tests: a made-up https:// remote fails at once instead of going out on the network.
+process.env.GIT_ALLOW_PROTOCOL = "file";
 
 /** A file:// URL for a local path that git accepts on every platform (file:///C:/… on Windows, file:///tmp/… elsewhere). */
 export const fileUrl = (p: string) => pathToFileURL(p).href;

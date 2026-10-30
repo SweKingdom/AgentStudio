@@ -36,6 +36,7 @@ import CostsView from "../../components/CostsView";
 import EstimateAccuracy from "../../components/EstimateAccuracy";
 import { ActivityFeed } from "../../components/Feeds";
 import type { Activity as ActivityRow } from "../../lib/api";
+import { t } from "../../lib/i18n";
 
 const STAGE_HELP: Record<string, string> = {
   requirements: "The analyst reads the document and builds epics, features and stories with acceptance criteria and open questions.",
@@ -89,7 +90,7 @@ function ExportMenu({ p }: { p: Project }) {
     return () => document.removeEventListener("mousedown", close);
   }, []);
   const items = [
-    { href: `/api/projects/${p.id}/export/workspace.zip`, icon: FileArchive, label: "Workspace (.zip)", help: "Everything the team produced: SFDX source (force-app), manifest, scripts, all documents and both CSV files." },
+    { href: `/api/projects/${p.id}/export/workspace.zip`, icon: FileArchive, label: "Workspace (.zip)", help: "Everything the team produced: the source, all documents and both CSV files." },
     { href: `/api/projects/${p.id}/export/backlog.csv`, icon: Sheet, label: "Backlog (CSV for Excel)", help: "Every work item with all template sections, estimates, states, rework loops and AI cost per item." },
     { href: `/api/projects/${p.id}/export/azure-devops.csv`, icon: Sheet, label: "Azure DevOps import (CSV)", help: "Boards → Work items → Import Work Items. Epics, features and stories keep their hierarchy; all arrive as New." },
     { href: `/print/${p.key}/report?auto=1`, icon: Printer, label: "Project report (PDF)", help: "A branded A4 report: cover, executive summary with KPIs, team, backlog per epic and feature, quality, timing, cost, releases, questions and the living documents.", newTab: true },
@@ -103,7 +104,7 @@ function ExportMenu({ p }: { p: Project }) {
           {items.map((i) => (
             <Hint key={i.label} text={i.help} block>
               <a role="menuitem" className="menu-item" href={i.href} target={i.newTab ? "_blank" : undefined} rel="noreferrer" onClick={() => setOpen(false)}>
-                <i.icon size={14} /> {i.label}
+                <i.icon size={14} /> {t(i.label)}
               </a>
             </Hint>
           ))}
@@ -194,7 +195,7 @@ export default function ProjectPage() {
             </div>
           </div>
           <div className="row">
-            <Hint text="Edit the project: name, context, git repository, approval gates, lanes, budget, rework limit and target org.">
+            <Hint text="Edit the project: name, context, git repository, approval gates, lanes, budget, rework limit and checks.">
               <button className="btn" onClick={() => setEditing(true)}><Settings2 size={14} /> Settings</button>
             </Hint>
             <ExportMenu p={p} />
@@ -203,7 +204,7 @@ export default function ProjectPage() {
             ) : p.jobs.length ? (
               null
             ) : gate ? (
-              <button className="btn primary" onClick={() => act.mutate("approve")}><CheckCircle2 size={14} /> Approve: {gate.label}</button>
+              <button className="btn primary" onClick={() => act.mutate("approve")}><CheckCircle2 size={14} /> {t("Approve:")} {t(gate.label)}</button>
             ) : p.status !== "completed" ? (
               <button className="btn primary" onClick={() => act.mutate("start")}><Play size={14} /> {p.started_at ? "Resume" : "Start"}</button>
             ) : null}
@@ -222,13 +223,13 @@ export default function ProjectPage() {
           <div className="banner warn">
             <Hand size={16} color="var(--warn)" />
             <div style={{ flex: 1 }}>
-              <b>{gate.label}</b> —{" "}
+              <b>{t(gate.label)}</b> —{" "}
               {gate.key === "review_backlog" ? "review the backlog the analyst built and answer any open questions, then approve to start technical refinement." :
                gate.key === "approve_plan" ? "check the estimates, priorities and sprint plan, then approve to start building." :
                "every story is built, tested and documented. Approve to deploy, smoke test and publish the release."}
               {p.openQuestions > 0 && <> <NavLink to={`${base}/questions`} style={{ color: "var(--text)", textDecoration: "underline" }}>{p.openQuestions} open question(s)</NavLink>.</>}
             </div>
-            {canWrite && <button className="btn primary sm" onClick={() => act.mutate("approve")}>Approve & continue</button>}
+            {canWrite && <button className="btn primary sm" onClick={() => act.mutate("approve")}>{t("Approve & continue")}</button>}
           </div>
         )}
         {p.error && (
@@ -240,9 +241,9 @@ export default function ProjectPage() {
         )}
       </div>
       <nav className="subnav">
-        {tabs.map((t) => (
-          <NavLink key={t.to} to={t.to} end={t.end}>
-            <t.icon size={14} /> {t.label} {t.badge ? <span className="badge">{t.badge}</span> : null}
+        {tabs.map((tab) => (
+          <NavLink key={tab.to} to={tab.to} end={tab.end}>
+            <tab.icon size={14} /> {t(tab.label)} {tab.badge ? <span className="badge">{tab.badge}</span> : null}
           </NavLink>
         ))}
       </nav>

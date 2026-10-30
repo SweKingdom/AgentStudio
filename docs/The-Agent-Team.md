@@ -9,12 +9,12 @@ The team has seven agents, one per role. Each one can be tailored (model, effort
 | Agent | Role | Produces |
 |---|---|---|
 | **Meiga** | Business Process & Requirements Analyst | Project brief; epics → features → stories in the story template, with acceptance criteria, categories and open questions. |
-| **Basajaun** | Salesforce Solution Architect | Declarative-vs-code decisions, each story's technical specification, the solution design and, optionally, code reviews. |
+| **Basajaun** | Solution Architect | Fits each story to the existing codebase: its technical specification, the solution design and, optionally, code reviews. |
 | **Mari** | Backlog & Delivery Planner | Story points, MoSCoW, WSJF, dependencies, rank, sprints and the delivery plan. |
-| **Trasgu** | Salesforce Developer | SFDX source per story (Apex, triggers, flows, LWC, metadata, scripts) with tests, how-to-test, manual steps and a story manifest. |
+| **Trasgu** | Software Developer | Code per story in the repository's own structure, with tests; runs the project's checks until they pass. |
 | **Cuélebre** | QA & Peer Tester | One ✅ / ❌ / ⛔ verdict per acceptance criterion with evidence, a test report, and approve or send back for rework. |
 | **Xana** | Technical Writer | A task document per story, plus the living user manual, technical overview and changelog. |
-| **Nuberu** | Release Manager | `package.xml`, validation, smoke tests and versioned release notes with a rollback plan. |
+| **Nuberu** | Release Manager | Runs the checks on the base branch, smoke tests and versioned release notes with a rollback plan. |
 
 ## Why these names
 
@@ -41,7 +41,7 @@ Open an agent from the **Agents** page.
 | Effort | `low` → `max`: how hard the model thinks. More effort means better reasoning and more output tokens. |
 | Max turns | The maximum number of model calls in one run. |
 | Knowledge | Role knowledge packs you can switch on and off, plus **custom knowledge**: your own Markdown, always applied and taking priority over the packs. Shared packs live in *Agents → Knowledge library*. |
-| Prompt and tools | The core instructions and the tools the agent may call. The developer and release agents also have Salesforce settings: default target org, check-only or deploy, test level. |
+| Prompt and tools | The core instructions and the tools the agent may call. |
 | Versions | Every change to prompt, knowledge, tools or model creates a version with its runs, cost and QA rework rate. Compare any version with the current one and restore it. |
 
 *Reset to role defaults* restores the built-in definition. **Chat** lets you ask the agent questions; it answers from its real runs, costs and knowledge.
@@ -50,14 +50,14 @@ Open an agent from the **Agents** page.
 
 ### Built-in knowledge packs
 
-Stored in `server/knowledge/`: the story template, the DevOps workflow, the Rudolf peer-testing method and Salesforce engineering standards for Apex, Flow, LWC, SOQL, testing, metadata, integration, data migration, release management and documentation.
+Stored in `server/knowledge/`: the story template, the DevOps workflow, the Rudolf peer-testing method, solution architecture, engineering and testing standards, release management and documentation standards.
 
 ## Team settings
 
 **Settings → Team** holds what every agent follows:
 
 - **Conventions:** deliverables language, branch, commit and merge formats, the pull request description, the code review checklist, and Azure DevOps area, iterations and tags.
-- **Salesforce defaults:** API version, minimum coverage, name prefix, namespace and which tests run when a story is validated. Each project can override them.
-- **Export & import the team:** the whole team as one JSON file (agents, custom knowledge, conventions, Salesforce defaults, project defaults, model prices) to move it to another computer. Import shows a preview first. API keys, org aliases, logins, git credentials, spend limits and the mode are never included.
+- **Checks:** the commands every story must pass. Empty: detected from each repository's `package.json`. Each project can override them.
+- **Export & import the team:** the whole team as one JSON file (agents, custom knowledge, conventions, checks, project defaults, model prices) to move it to another computer.
 
 ![Team settings](.attachments/settings-team.png)

@@ -632,12 +632,13 @@ const TOOLS: Record<string, ToolSpec> = {
       const file = `evidence/${slug}-i${ctx.iteration}.svg`;
       const svg = renderEvidenceSvg({
         item: it,
-        object: detectObject(`${it.title} ${it.tech_spec}`, "Account"),
+        object: detectObject(`${it.title} ${it.tech_spec}`, "Item"),
         acRef: String(i.ac_ref),
         result,
         notes: String(i.notes ?? ""),
         iteration: ctx.iteration,
         simulated: ctx.project.mode === "simulation",
+        appName: ctx.project.name,
       });
       recordFile(ctx.project.id, `docs/stories/${it.code}/${file}`, svg, ctx.agent.id, it.id);
       const icon = result === "pass" ? "✅" : result === "fail" ? "❌" : "⛔";

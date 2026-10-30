@@ -1,4 +1,4 @@
-/* SiroccoARM — Sirocco Group brand: primary ink #282B34, sand #DACBB4, cream #F5F0EA (accent = sand on dark, ink on light). */
+/* AgentStudio — brand: primary ink #282B34, sand #DACBB4, cream #F5F0EA (accent = sand on dark, ink on light). */
 :root {
   --font: "Museo Sans", "Nunito Sans", ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
   --mono: "Geist Mono", ui-monospace, "SF Mono", Menlo, monospace;
@@ -470,7 +470,7 @@ hr.sep { border: 0; border-top: 1px solid var(--line); margin: 14px 0; }
 .wcard .grip { color: var(--faint); margin-left: -4px; }
 .lane.drop-target { border-color: var(--accent); background: var(--accent-soft); }
 
-/* ---------- Path (chevron stage bar, Salesforce Path style) ---------- */
+/* ---------- Path (chevron stage bar) ---------- */
 .path { --arrow: 13px; --h: 40px; display: flex; list-style: none; margin: 0; padding: 0; min-width: 0; }
 .path.compact { --h: 32px; --arrow: 11px; }
 .path-step { flex: 1 1 0; min-width: 0; height: var(--h); position: relative; margin-left: calc(var(--arrow) * -1 + 4px); background: var(--panel-3); color: var(--muted);
@@ -490,7 +490,7 @@ hr.sep { border: 0; border-top: 1px solid var(--line); margin: 14px 0; }
 /* Done: brand sand */
 .path-step.done { background: var(--sand); color: var(--brand-primary); }
 .path-step.done:hover { filter: brightness(1.05); }
-/* Current: Sirocco brand blue with moving sheen */
+/* Current: brand blue with moving sheen */
 .path-step.running { background: var(--brand-blue); color: #fff; }
 .path-step.running::after { content: ""; position: absolute; inset: 0; background: linear-gradient(100deg, transparent 30%, rgba(255, 255, 255, 0.28) 50%, transparent 70%); background-size: 220% 100%; animation: sheen 1.8s linear infinite; pointer-events: none; }
 @keyframes sheen { from { background-position: 120% 0; } to { background-position: -120% 0; } }

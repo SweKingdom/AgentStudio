@@ -536,7 +536,7 @@ async function integrateItem(projectId: string, itemId: string, dev: Agent | und
     if (m.conflicts.length) {
       logActivity({ projectId, agentId: "orchestrator", itemId, type: "gate", summary: `⚠ ${it.code}: merge conflicts with ${base} in ${m.conflicts.join(", ")}` });
       if (isSimulated(project()) || !dev) {
-        m = await finishMerge(project(), { ...it, body, via }, { author: "SiroccoARM", email: "arm@siroccoarm.local", keep: "task" });
+        m = await finishMerge(project(), { ...it, body, via }, { author: "AgentStudio", email: "arm@agentstudio.local", keep: "task" });
         logActivity({ projectId, agentId: "orchestrator", itemId, type: "note", summary: `Conflicts on ${it.code} resolved automatically by keeping the task's version (simulation)` });
       } else {
         checkpoint(projectId);

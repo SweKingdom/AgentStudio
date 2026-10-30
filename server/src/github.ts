@@ -1,5 +1,5 @@
 /**
- * GitHub pull requests through the `gh` CLI. SiroccoARM never sees a token: `gh` uses this machine's own login
+ * GitHub pull requests through the `gh` CLI. AgentStudio never sees a token: `gh` uses this machine's own login
  * (`gh auth login`), and every call names the repository explicitly (`--repo owner/name`) so it never depends on — or
  * touches — a local checkout. Prompts are disabled, so a missing login fails fast instead of hanging.
  *

@@ -52,7 +52,7 @@ export function SystemCheck() {
         <div className="row" style={{ gap: 8 }}>
           {data && <span className="small" style={{ color: fails ? "var(--bad)" : warns ? "var(--warn)" : "var(--good)" }}>{fails ? `${fails} problem(s)` : "Ready"}{warns ? ` · ${warns} warning(s)` : ""}</span>}
           <button className="btn sm" disabled={isFetching} onClick={() => (network ? refetch() : setNetwork(true))} title="Also checks GitHub access and access to each agent's Claude model">
-            {isFetching ? <Loader2 size={13} className="spin" /> : <RefreshCw size={13} />} {network ? "Run again" : "Full check (GitHub, orgs, models)"}
+            {isFetching ? <Loader2 size={13} className="spin" /> : <RefreshCw size={13} />} {network ? "Run again" : "Full check (GitHub, models)"}
           </button>
         </div>
       </div>

@@ -8,15 +8,15 @@ This page takes you from a fresh clone to a first project running in simulation,
 |---|---|---|
 | Node.js | 22.5 or newer (CI uses 25) | The app. The database uses the built-in `node:sqlite`. |
 | git | 2.25 or newer | Every project's repository and its per-story worktrees. |
-| Salesforce CLI (`sf`) | Current | Optional. Org connections and live deploys. `npm install -g @salesforce/cli` |
+| Claude Code (`claude`) | Current | For live mode on your Claude plan: log in with `claude /login`. Not needed with an API key. |
 | GitHub CLI (`gh`) | Current | Optional. Pull requests on GitHub repositories. |
 | Google Chrome | Current | Optional. Real screenshots as QA evidence in live mode. |
 
 ## Install and run
 
 ```bash
-git clone <repository-url> SiroccoARM
-cd SiroccoARM
+git clone <repository-url> AgentStudio
+cd AgentStudio
 npm install
 cp .env.example .env      # leave the values empty for simulation
 npm start                 # builds the web app and serves everything on http://localhost:4100
@@ -30,7 +30,7 @@ Then check the machine:
 npm run doctor
 ```
 
-The system check is read-only and free. It reports Node.js, the data folder, git and its login, the Salesforce CLI and registered orgs, the Claude API key and the Azure DevOps token, each with a fix when something is missing. The same check is in **Settings → System check**.
+The system check is read-only and free. It reports Node.js, the data folder, git and its login, the Claude login or API key and the Azure DevOps token.
 
 ![System check](.attachments/settings-system.png)
 

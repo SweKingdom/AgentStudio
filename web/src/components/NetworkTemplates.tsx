@@ -115,7 +115,7 @@ export function NetworkTemplates() {
   );
 }
 
-/** "Save as template" from a project: its team roles, run settings and environment slots (orgs left out). */
+/** "Save as template" from a project: its team roles and run settings. */
 export function SaveAsTemplateModal({ p, onClose }: { p: Pick<Project, "id" | "name" | "key">; onClose: () => void }) {
   const qc = useQueryClient();
   const [name, setName] = useState(`${p.name} setup`);
@@ -132,7 +132,7 @@ export function SaveAsTemplateModal({ p, onClose }: { p: Pick<Project, "id" | "n
       footer={<><button className="btn ghost" onClick={onClose}>Cancel</button><button className="btn primary" disabled={!name.trim() || save.isPending} onClick={() => save.mutate()}><BookmarkPlus size={14} /> Save template</button></>}
     >
       <div className="col" style={{ gap: 12 }}>
-        <div className="small muted">Saves this project's team roles, run settings and environment chain. Org aliases are left out — each new project maps its own.</div>
+        <div className="small muted">Saves this project's team roles and run settings.</div>
         <Field label="Template name" help="Shown in “Start from a template” on the New project page and in Settings → Team.">
           <input className="input" value={name} maxLength={60} onChange={(e) => setName(e.target.value)} autoFocus />
         </Field>

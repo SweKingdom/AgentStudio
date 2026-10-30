@@ -15,7 +15,8 @@ const CUSTOM_DIR = path.join(DATA_DIR, "knowledge");
 fs.mkdirSync(CUSTOM_DIR, { recursive: true });
 
 function parse(file: string, custom: boolean): KnowledgePack {
-  const raw = fs.readFileSync(file, "utf8");
+  // A Windows checkout can turn the files into CRLF; the front matter must still be found.
+  const raw = fs.readFileSync(file, "utf8").replace(/\r\n/g, "\n");
   const m = raw.match(/^---\n([\s\S]*?)\n---\n?([\s\S]*)$/);
   const meta: Record<string, string> = {};
   let content = raw;

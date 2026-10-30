@@ -31,7 +31,7 @@ Tests never touch real systems. External tools are replaced by stand-ins:
 | System | Stand-in |
 |---|---|
 | Claude API | A scripted client injected with `setAnthropicClientForTests` (see `test/live.test.ts`). It calls the real tools, so the live loop, guards and cost recording are exercised. |
-| Salesforce CLI | `test/fixtures/fake-sf.mjs`, selected with `ARM_SF_BIN`. It logs every call for assertions. |
+| Claude Agent SDK | A scripted `query` set with `setSdkQueryForTests`; nothing starts a real `claude` process (`ARM_DISABLE_SUBSCRIPTION=1` in tests). |
 | GitHub CLI | A fake `gh` script selected with `ARM_GH_BIN`. |
 | Git remotes | Local bare repositories through `file://` URLs. |
 | Azure DevOps | A local HTTP server started inside the test. |
@@ -51,7 +51,7 @@ Both run `npm ci`, the typecheck, the tests and the web build on every push and 
 
 - **Language:** everything in English: UI text, code comments, documentation, test names.
 - **No credentials in code or data:** use machine logins and `.env` only. Never log or print tokens, and never put secrets in URLs.
-- **No personal data** in code, documentation, fixtures, commit messages or screenshots. Use neutral examples (`DEMO-SANDBOX`, `example/nordic-field-service`).
+- **No personal data** in code, documentation, fixtures, commit messages or screenshots. Use neutral examples (`example/task-tracker`).
 - **Every form input has a help tooltip** (`Field` in `web/src/components/Hint.tsx`); required fields use `required`.
 - **Brand tokens** live in `web/src/styles.css` (`--brand-primary`, `--brand-sand`, `--brand-cream`, `--brand-blue`, `--live`). Light and dark themes use the same tokens. Animations respect `prefers-reduced-motion`.
 - **Database changes:** new columns via `addColumn(...)` at the end of the migration block in `server/src/db.ts`; new tables with `CREATE TABLE IF NOT EXISTS`.

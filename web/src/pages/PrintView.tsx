@@ -2,7 +2,7 @@ import { useEffect } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { useLocation } from "react-router-dom";
 import { Printer } from "lucide-react";
-import siroccoLogo from "../assets/sirocco-logo.svg?raw";
+import brandLogo from "../assets/agentstudio-logo.svg?raw";
 import { api, storyAssetBase, type Doc } from "../lib/api";
 import { DOC_KINDS } from "../lib/constants";
 import { dateTime } from "../lib/format";
@@ -39,7 +39,7 @@ export default function PrintView() {
         <button className="btn primary" onClick={() => window.print()}><Printer size={14} /> Print / Save as PDF</button>
       </div>
       <header className="print-cover">
-        <span className="print-logo" dangerouslySetInnerHTML={{ __html: siroccoLogo }} />
+        <span className="print-logo" dangerouslySetInnerHTML={{ __html: brandLogo }} />
         <h1>{docId ? single?.title : book?.project.name}</h1>
         <div className="muted">{docId ? DOC_KINDS[single?.kind ?? ""] : "Project documentation"} · {key} · generated {dateTime(new Date().toISOString())}{book?.project.mode === "simulation" ? " · simulation" : ""}</div>
         {!docId && docs.length > 1 && (

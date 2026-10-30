@@ -179,10 +179,10 @@ const ADDED_TOOLS: Partial<Record<Role, string[]>> = {
 /** Names before the Iberian-mythology rename (agents still carrying them are renamed once, as a restorable version). */
 const PREVIOUS_NAMES: Partial<Record<Role, string>> = { requirements: "Iris", architect: "Atlas", planner: "Nova", developer: "Forge", qa: "Rudolf", writer: "Quill", release: "Helm" };
 
-/** Commit email for an agent: accents folded, safe characters only (e.g. "Cuélebre" → cuelebre@siroccoarm.local). */
+/** Commit email for an agent: accents folded, safe characters only (e.g. "Cuélebre" → cuelebre@agentstudio.local). */
 export function agentEmail(name: string) {
   const local = name.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase().replace(/[^a-z0-9]+/g, ".").replace(/^\.+|\.+$/g, "");
-  return `${local || "agent"}@siroccoarm.local`;
+  return `${local || "agent"}@agentstudio.local`;
 }
 
 export function seedAgents() {

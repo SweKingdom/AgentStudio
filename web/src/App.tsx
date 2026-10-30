@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { Link, Navigate, NavLink, Route, Routes, useLocation, useNavigate } from "react-router-dom";
-import { Bot, BookOpen, FolderKanban, LayoutDashboard, Moon, Plus, Settings2, Sun, X } from "lucide-react";
-import siroccoLogo from "./assets/sirocco-logo.svg?raw";
+import { Bot, BookOpen, FolderKanban, Languages, LayoutDashboard, Moon, Plus, Settings2, Sun, X } from "lucide-react";
+import brandLogo from "./assets/agentstudio-logo.svg?raw";
 import { useLiveInvalidation, useConnected } from "./lib/live";
 import { useMeta, useProjects } from "./lib/queries";
 import { closeTab, openTab, useTabs } from "./lib/tabs";
@@ -23,14 +23,14 @@ import Login from "./pages/Login";
 import { SidebarUser } from "./components/Users";
 import { useAuth, useCan } from "./lib/auth";
 import ProjectPage from "./pages/project/ProjectPage";
+import { setLang, t, useLang } from "./lib/i18n";
 
 function Brand() {
   return (
     <div className="brand">
-      <span className="brand-logo" dangerouslySetInnerHTML={{ __html: siroccoLogo }} />
+      <span className="brand-logo" dangerouslySetInnerHTML={{ __html: brandLogo }} />
       <div className="brand-product">
-        <span className="brand-name">ARM</span>
-        <span className="brand-sub">Agent Relationship Management</span>
+        <span className="brand-sub">{t("AI delivery team")}</span>
       </div>
     </div>
   );
@@ -45,8 +45,18 @@ function ThemeToggle() {
     setTheme(next);
   };
   return (
-    <button className="btn ghost sm" onClick={flip} title="Toggle theme">
-      {theme === "dark" ? <Sun size={13} /> : <Moon size={13} />} {theme === "dark" ? "Light" : "Dark"}
+    <button className="btn ghost sm" onClick={flip} title={t("Toggle theme")}>
+      {theme === "dark" ? <Sun size={13} /> : <Moon size={13} />} {theme === "dark" ? t("Light") : t("Dark")}
+    </button>
+  );
+}
+
+/** English ⇄ Swedish for the interface. Agents keep writing in the team's deliverables language. */
+function LangToggle() {
+  const lang = useLang();
+  return (
+    <button className="btn ghost sm" onClick={() => setLang(lang === "en" ? "sv" : "en")} title={t("Switch the interface language")} aria-label={t("Switch the interface language")}>
+      <Languages size={13} /> {lang === "en" ? "EN" : "SV"}
     </button>
   );
 }
@@ -61,14 +71,14 @@ function Sidebar() {
     <aside className="sidebar">
       <Brand />
       <nav className="nav">
-        <NavLink to="/" end><LayoutDashboard size={16} /> Overview</NavLink>
-        <NavLink to="/agents"><Bot size={16} /> Agents</NavLink>
-        <NavLink to="/guide"><BookOpen size={16} /> Guide</NavLink>
-        <NavLink to="/settings"><Settings2 size={16} /> Settings</NavLink>
+        <NavLink to="/" end><LayoutDashboard size={16} /> {t("Overview")}</NavLink>
+        <NavLink to="/agents"><Bot size={16} /> {t("Agents")}</NavLink>
+        <NavLink to="/guide"><BookOpen size={16} /> {t("Guide")}</NavLink>
+        <NavLink to="/settings"><Settings2 size={16} /> {t("Settings")}</NavLink>
       </nav>
       <div className="nav-label">
-        Projects
-        {canWrite && <button className="btn ghost sm icon" onClick={() => nav("/projects/new")} title="New project"><Plus size={14} /></button>}
+        {t("Projects")}
+        {canWrite && <button className="btn ghost sm icon" onClick={() => nav("/projects/new")} title={t("New project")}><Plus size={14} /></button>}
       </div>
       <nav className="nav projects-nav">
         {projects?.map((p) => (
@@ -78,16 +88,19 @@ function Sidebar() {
             <span className="key">{p.key}</span>
           </NavLink>
         ))}
-        {!projects?.length && <div className="faint small" style={{ padding: "4px 10px" }}>No projects yet</div>}
-        {canWrite && <button className="navlink" onClick={() => nav("/projects/new")}><Plus size={15} /> New project</button>}
+        {!projects?.length && <div className="faint small" style={{ padding: "4px 10px" }}>{t("No projects yet")}</div>}
+        {canWrite && <button className="navlink" onClick={() => nav("/projects/new")}><Plus size={15} /> {t("New project")}</button>}
       </nav>
       <div className="sidebar-foot">
-        <div className="row mode-status" title={connected ? "Updates from the server arrive as they happen" : "Lost the connection to the server — reconnecting"}>
+        <div className="row mode-status" title={connected ? t("Updates from the server arrive as they happen") : t("Lost the connection to the server — reconnecting")}>
           <span className="dot" style={{ background: connected ? "var(--good)" : "var(--bad)" }} />
-          <span>{connected ? "Connected" : "Reconnecting…"}</span>
+          <span>{connected ? t("Connected") : t("Reconnecting…")}</span>
         </div>
         <SidebarUser />
-        <ThemeToggle />
+        <div className="row" style={{ gap: 4 }}>
+          <ThemeToggle />
+          <LangToggle />
+        </div>
       </div>
     </aside>
   );
@@ -100,19 +113,19 @@ function ModeBadge() {
   if (!meta) return null;
   if (meta.mode === "live")
     return (
-      <Link to="/settings/general" className="mode-badge live" title="Live mode: agents call the Claude API and every call is billed. Change it in Settings → General.">
-        <span className="pulse" /> LIVE
+      <Link to="/settings/general" className="mode-badge live" title={meta.backend === "subscription" ? "Live mode: agents run on your Claude plan and use its limits. Change it in Settings → General." : "Live mode: agents call the Claude API and every call is billed. Change it in Settings → General."}>
+        <span className="pulse" /> LIVE{meta.backend === "subscription" ? " · plan" : ""}
       </Link>
     );
   if (meta.settings.mode === "live")
     return (
-      <Link to="/settings/general" className="mode-badge pending" title="Live is selected but there's no ANTHROPIC_API_KEY in .env — agents keep simulating.">
-        Live · no API key
+      <Link to="/settings/general" className="mode-badge pending" title="Live is selected with the API backend but there's no ANTHROPIC_API_KEY in .env — agents keep simulating. Switch the backend to Plan, or add the key.">
+        {t("Live · no API key")}
       </Link>
     );
   return (
-    <Link to="/settings/general" className="mode-badge sim" title="Simulation: nothing is sent to Claude or Salesforce and nothing is billed. Change it in Settings → General.">
-      <span className="sim-dot" /> Simulation
+    <Link to="/settings/general" className="mode-badge sim" title="Simulation: nothing is sent to Claude, no checks run and nothing is billed. Change it in Settings → General.">
+      <span className="sim-dot" /> {t("Simulation")}
     </Link>
   );
 }
@@ -123,6 +136,8 @@ function TopTabs() {
   const loc = useLocation();
   const nav = useNavigate();
   const total = projects?.reduce((n, p) => n + p.costUsd, 0) ?? 0;
+  const { data: meta } = useMeta();
+  const planBackend = meta?.backend === "subscription" && meta.mode === "live";
   const running = projects?.filter((p) => p.running).length ?? 0;
   const current = loc.pathname.match(/^\/p\/([^/]+)/)?.[1];
   return (
@@ -139,7 +154,7 @@ function TopTabs() {
               {p?.running && <span className="live-dot" style={{ width: 6, height: 6 }} />}
               <button
                 className="x"
-                aria-label="Close tab"
+                aria-label={t("Close tab")}
                 onClick={(e) => {
                   e.stopPropagation();
                   closeTab(key);
@@ -154,9 +169,9 @@ function TopTabs() {
       </div>
       <div className="topbar-right">
         <GlobalPauseButton />
-        {running > 0 && <span className="row"><span className="live-dot" /> {running} running</span>}
+        {running > 0 && <span className="row"><span className="live-dot" /> {t("{n} running", { n: running })}</span>}
         <ModeBadge />
-        <span>Total spend <b className="num" style={{ color: "var(--text)" }}><Count value={total} format={(n) => money(n)} /></b></span>
+        <span title={planBackend ? "On your Claude plan nothing is billed per call: this is what the same work would cost on the API." : undefined}>{planBackend ? t("Est. spend") : t("Total spend")} <b className="num" style={{ color: "var(--text)" }}><Count value={total} format={(n) => money(n)} /></b></span>
       </div>
     </div>
   );
@@ -172,6 +187,7 @@ function Toasts() {
 }
 
 export default function App() {
+  useLang(); // re-render everything when the interface language changes
   const auth = useAuth();
   useLiveInvalidation();
   const { data: meta } = useMeta();

@@ -12,7 +12,7 @@ export interface AuditEntry { id: number; user_id: string | null; username: stri
 export const UNAUTHORIZED_EVENT = "arm:unauthorized";
 
 export const ROLE_INFO: Record<UserRole, { label: string; help: string }> = {
-  admin: { label: "Admin", help: "Everything, including users, app settings, team conventions and the Salesforce org registry." },
+  admin: { label: "Admin", help: "Everything, including users, app settings and team conventions." },
   member: { label: "Member", help: "Runs projects: create, start, pause, approve and edit work. Can't change users or app-wide settings." },
   viewer: { label: "Viewer", help: "Read-only: sees projects, documents, code and costs but can't change anything." },
 };

@@ -13,6 +13,7 @@ import { RepoFields, repoUrlError } from "../components/Repo";
 import { toast } from "../lib/toast";
 import { Field, Hint, Req } from "../components/Hint";
 import { CodeReviewField, type CodeReviewMode } from "../components/CodeReviewField";
+import { t } from "../lib/i18n";
 
 const STAGES: { role: string; label: string }[] = [
   { role: "requirements", label: "Requirements" },
@@ -51,7 +52,7 @@ export function EstimatePanel({ est, loading, compact, reason }: { est: Estimate
   return (
     <div className="col" style={{ gap: 14, opacity: loading ? 0.6 : 1, transition: "opacity .2s" }}>
       <div>
-        <div className="label">Estimated AI cost</div>
+        <div className="label">{t("Estimated AI cost")}</div>
         <div className="row" style={{ alignItems: "baseline", gap: 10 }}>
           <span className="kpi-value accent" style={{ fontSize: compact ? 26 : 32 }}>{money(est.totalUsd)}</span>
           {loading && <Loader2 size={14} className="spin" color="var(--muted)" />}
@@ -65,7 +66,7 @@ export function EstimatePanel({ est, loading, compact, reason }: { est: Estimate
       <div className="grid g3" style={{ gap: 8 }}>
         <div className="stat"><span className="v">{num(est.stories)}</span><span className="l">{est.basis === "backlog" ? "stories" : est.basis === "document" ? "stories found" : "stories (rough)"}</span></div>
         <div className="stat"><span className="v">{num(est.storyPoints)}</span><span className="l">story points</span></div>
-        <div className="stat"><span className="v">{est.minutes < 90 ? `${Math.round(est.minutes)} min` : hours(est.minutes / 60)}</span><span className="l">AI wall-clock</span></div>
+        <div className="stat"><span className="v">{est.minutes < 90 ? `${Math.round(est.minutes)} min` : hours(est.minutes / 60)}</span><span className="l">{t("AI wall-clock")}</span></div>
       </div>
       <div className="col" style={{ gap: 6 }}>
         {est.agents.map((a) => {
@@ -250,14 +251,14 @@ export default function NewProject() {
     <div className="page">
       <div className="page-head">
         <div>
-          <h1 className="page-title">New project</h1>
-          <div className="page-sub">Drop the requirements PDF, pick which agents to involve, and check the estimate before anything runs. Fields marked <Req /> are required.</div>
+          <h1 className="page-title">{t("New project")}</h1>
+          <div className="page-sub">{t("Drop the requirements PDF or describe the work, pick which agents to involve, and check the estimate before anything runs. Fields marked")} <Req /> {t("are required.")}</div>
         </div>
       </div>
       <div className="grid" style={{ gridTemplateColumns: "minmax(0, 1fr) 360px", alignItems: "start" }}>
         <div className="col" style={{ gap: 14 }}>
           <div className="card">
-            <div className="card-head"><div className="card-title"><span className="code-tag">1</span> Requirements<Req /></div><span className="card-sub">A PDF, or a description of the work below</span></div>
+            <div className="card-head"><div className="card-title"><span className="code-tag">1</span> {t("Requirements")}<Req /></div><span className="card-sub">{t("A PDF, or a description of the work below")}</span></div>
             <div className="card-pad col" style={{ gap: 14 }}>
               {file ? (
                 <div className="selectable on" style={{ alignItems: "center" }}>
@@ -282,24 +283,24 @@ export default function NewProject() {
                   onDrop={(e) => { e.preventDefault(); setDrag(false); pick(e.dataTransfer.files[0]); }}
                 >
                   <FileUp size={26} color="var(--accent)" />
-                  <div className="strong" style={{ marginTop: 8 }}>Drop the requirements PDF here{!description.trim() && <Req />}</div>
-                  <div className="small muted">or click to browse · up to 32 MB · the analyst reads it natively, tables and diagrams included</div>
+                  <div className="strong" style={{ marginTop: 8 }}>{t("Drop the requirements PDF here")}{!description.trim() && <Req />}</div>
+                  <div className="small muted">{t("or click to browse · up to 32 MB · the analyst reads it natively, tables and diagrams included")}</div>
                   <input ref={inputRef} type="file" accept="application/pdf,.pdf" hidden onChange={(e) => pick(e.target.files?.[0])} />
                 </div>
                 </Hint>
               )}
-              <Field label="Project name" required help="Name of the project. A short key (e.g. NFS) is generated from it for work item references and the project tab."><input className="input" value={name} onChange={(e) => setName(e.target.value)} placeholder="e.g. Service Cloud rollout" /></Field>
+              <Field label={t("Project name")} required help="Name of the project. A short key (e.g. NFS) is generated from it for work item references and the project tab."><input className="input" value={name} onChange={(e) => setName(e.target.value)} placeholder={t("e.g. Task tracker")} /></Field>
               <RepoFields {...repo} onChange={setRepo} />
-              <Field label={file ? "Context for the team (optional with a PDF)" : "Context for the team — describe the requirements (no PDF)"} required={!file} help="Extra context every agent receives: client, goals, constraints, technical details, priorities. Without a PDF, describe the requirements here — each sentence with 'must', 'shall' or 'should' becomes a story.">
-                <textarea className="textarea" value={description} onChange={(e) => setDescription(e.target.value)} placeholder="Client, goals, constraints, technical details, what matters most… Without a PDF, describe the problem here." />
+              <Field label={file ? t("Context for the team (optional with a PDF)") : t("Context for the team — describe the requirements (no PDF)")} required={!file} help="Extra context every agent receives: client, goals, constraints, technical details, priorities. Without a PDF, describe the requirements here — each sentence with 'must', 'shall' or 'should' becomes a story.">
+                <textarea className="textarea" value={description} onChange={(e) => setDescription(e.target.value)} placeholder={t("Client, goals, constraints, technical details, what matters most… Without a PDF, describe the problem here.")} />
               </Field>
             </div>
           </div>
 
           <div className="card">
             <div className="card-head">
-              <div className="card-title"><span className="code-tag">2</span> Team<Req /></div>
-              <span className="card-sub">{team.length} agent(s) selected</span>
+              <div className="card-title"><span className="code-tag">2</span> {t("Team")}<Req /></div>
+              <span className="card-sub">{t("{n} agent(s) selected", { n: team.length })}</span>
             </div>
             <div className="card-pad col" style={{ gap: 14 }}>
               <PathBar
@@ -335,26 +336,26 @@ export default function NewProject() {
           </div>
 
           <div className="card">
-            <div className="card-head"><div className="card-title"><span className="code-tag">3</span> Run settings</div></div>
+            <div className="card-head"><div className="card-title"><span className="code-tag">3</span> {t("Run settings")}</div></div>
             <div className="card-pad grid g4" style={{ gap: 16 }}>
-              <Field label="Approval gates" help="On: the pipeline pauses for you after the backlog, after the plan and before release. Off (autopilot): it runs end to end without stopping."><div className="row" style={{ height: 34 }}><Switch on={gates} onChange={setGates} /><span className="small muted">{gates ? "On" : "Autopilot"}</span></div></Field>
-              <Field label="Parallel lanes" help="How many stories are built, tested and documented at the same time. More lanes = faster, same total cost."><input className="input" type="number" min={1} max={8} value={parallelism} onChange={(e) => setParallelism(Math.max(1, Number(e.target.value)))} /></Field>
-              <Field label="Budget cap (USD)" help="The pipeline pauses when the project's AI cost reaches this amount; you can raise it and resume. 0 = no limit."><input className="input" type="number" min={0} value={budget} onChange={(e) => setBudget(Number(e.target.value))} /></Field>
-              <Field label="Max QA rework" help="How many times QA can send a story back to the developer before it's marked Blocked for you to review."><input className="input" type="number" min={0} max={5} value={maxRework} onChange={(e) => setMaxRework(Number(e.target.value))} /></Field>
+              <Field label={t("Approval gates")} help="On: the pipeline pauses for you after the backlog, after the plan and before release. Off (autopilot): it runs end to end without stopping."><div className="row" style={{ height: 34 }}><Switch on={gates} onChange={setGates} /><span className="small muted">{gates ? t("On") : t("Autopilot")}</span></div></Field>
+              <Field label={t("Parallel lanes")} help="How many stories are built, tested and documented at the same time. More lanes = faster, same total cost."><input className="input" type="number" min={1} max={8} value={parallelism} onChange={(e) => setParallelism(Math.max(1, Number(e.target.value)))} /></Field>
+              <Field label={t("Budget cap (USD)")} help="The pipeline pauses when the project's AI cost reaches this amount; you can raise it and resume. 0 = no limit."><input className="input" type="number" min={0} value={budget} onChange={(e) => setBudget(Number(e.target.value))} /></Field>
+              <Field label={t("Max QA rework")} help="How many times QA can send a story back to the developer before it's marked Blocked for you to review."><input className="input" type="number" min={0} max={5} value={maxRework} onChange={(e) => setMaxRework(Number(e.target.value))} /></Field>
               {roles.has("architect") && <CodeReviewField value={codeReview} onChange={setCodeReview} />}
             </div>
           </div>
         </div>
 
         <div className="card card-pad col" style={{ gap: 16, position: "sticky", top: 16 }}>
-          <div className="card-title"><Rocket size={15} /> Estimate</div>
+          <div className="card-title"><Rocket size={15} /> {t("Estimate")}</div>
           <EstimatePanel est={est?.estimate ?? null} loading={loading} reason={est?.reason} />
-          {meta?.mode === "simulation" && <div className="banner accent tiny">Simulation mode: the run is free and uses a sample scenario. The estimate shows what a live run would cost.</div>}
+          {meta?.mode === "simulation" && <div className="banner accent tiny">{t("Simulation mode: the run is free and no checks are run. The estimate shows what a live run would cost.")}</div>}
           {est?.estimate && budget > 0 && est.estimate.highUsd > budget && <div className="banner warn tiny"><TriangleAlert size={13} /> The high estimate exceeds your {money(budget)} budget — the run may pause before finishing.</div>}
           <div className="col" style={{ gap: 8 }}>
-            <button className="btn primary" style={{ justifyContent: "center", height: 38 }} disabled={!canCreate || create.isPending} onClick={() => create.mutate(true)}><Play size={15} /> Create & start</button>
-            <button className="btn" style={{ justifyContent: "center" }} disabled={!canCreate || create.isPending} onClick={() => create.mutate(false)}>Create without starting</button>
-            {missing.length > 0 && <div className="tiny" style={{ color: "var(--muted)" }}><Req /> Still needed: {missing.join(" · ")}</div>}
+            <button className="btn primary" style={{ justifyContent: "center", height: 38 }} disabled={!canCreate || create.isPending} onClick={() => create.mutate(true)}><Play size={15} /> {t("Create & start")}</button>
+            <button className="btn" style={{ justifyContent: "center" }} disabled={!canCreate || create.isPending} onClick={() => create.mutate(false)}>{t("Create without starting")}</button>
+            {missing.length > 0 && <div className="tiny" style={{ color: "var(--muted)" }}><Req /> {t("Still needed:")} {missing.join(" · ")}</div>}
           </div>
         </div>
       </div>

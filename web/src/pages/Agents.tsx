@@ -109,7 +109,7 @@ function KnowledgeLibrary() {
   return (
     <>
       <div className="row" style={{ marginBottom: 12 }}>
-        <div className="muted small">Built-in packs distil the DevOps story template, the Rudolf peer-testing method and the Salesforce engineering standards. Add your own shared packs for anything else.</div>
+        <div className="muted small">Built-in packs distil the DevOps story template, the Rudolf peer-testing method and engineering and testing standards. Add your own shared packs for anything else.</div>
         <span className="spacer" />
         <button className="btn" onClick={() => setEdit("new")}><Plus size={14} /> New pack</button>
       </div>

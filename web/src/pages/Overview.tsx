@@ -9,6 +9,7 @@ import { ActivityFeed } from "../components/Feeds";
 import { AgentBars } from "../components/Charts";
 import { Count } from "../components/Count";
 import { useCan } from "../lib/auth";
+import { t } from "../lib/i18n";
 
 export function ProjectProgress({ p }: { p: Project }) {
   const c = p.counts;
@@ -36,8 +37,8 @@ function ProjectCard({ p }: { p: Project }) {
         <StatusPill status={p.running ? "running" : p.status} />
       </div>
       <div className="row small muted" style={{ gap: 14 }}>
-        <span>{p.counts.stories} items · {p.counts.points} pts</span>
-        <span>{p.counts.done}/{p.counts.stories} deployed</span>
+        <span>{t("{n} items · {p} pts", { n: p.counts.stories, p: p.counts.points })}</span>
+        <span>{t("{d}/{n} deployed", { d: p.counts.done, n: p.counts.stories })}</span>
         <span className="spacer" />
         <span className="num" style={{ color: "var(--text)" }}>{money(p.costUsd)}</span>
       </div>
@@ -51,8 +52,8 @@ function ProjectCard({ p }: { p: Project }) {
           ))}
         </div>
         <span className="spacer" />
-        {p.openQuestions > 0 && <span className="pill" style={{ color: "var(--warn)", background: "rgba(245,184,74,.1)" }}><HelpCircle size={12} /> {p.openQuestions} open</span>}
-        {p.mode === "simulation" && <span className="pill" style={{ color: "var(--muted)", border: "1px solid var(--line-2)" }}>simulated</span>}
+        {p.openQuestions > 0 && <span className="pill" style={{ color: "var(--warn)", background: "rgba(245,184,74,.1)" }}><HelpCircle size={12} /> {t("{n} open", { n: p.openQuestions })}</span>}
+        {p.mode === "simulation" && <span className="pill" style={{ color: "var(--muted)", border: "1px solid var(--line-2)" }}>{t("simulated")}</span>}
         <span className="tiny faint">{ago(p.created_at)}</span>
       </div>
     </Link>
@@ -78,29 +79,28 @@ export default function Overview() {
     <div className="page">
       <div className="page-head">
         <div>
-          <h1 className="page-title">Overview</h1>
-          <div className="page-sub">Your AI delivery team at a glance — projects, who is working on what, and what it costs.</div>
+          <h1 className="page-title">{t("Overview")}</h1>
+          <div className="page-sub">{t("Your AI delivery team at a glance — projects, who is working on what, and what it costs.")}</div>
         </div>
-        {canWrite && <button className="btn primary" onClick={() => nav("/projects/new")}><Plus size={15} /> New project</button>}
+        {canWrite && <button className="btn primary" onClick={() => nav("/projects/new")}><Plus size={15} /> {t("New project")}</button>}
       </div>
 
       {meta?.mode === "simulation" && (
         <div className="banner accent" style={{ marginBottom: 16 }}>
           <Sparkles size={16} color="var(--accent)" />
           <div style={{ flex: 1 }}>
-            <b>Simulation mode.</b> Agents run a representative scenario without calling the Claude API, so you can explore the
-            full flow at no cost. Add <code className="code-tag">ANTHROPIC_API_KEY</code> to <code className="code-tag">.env</code> and restart to go live.
+            <b>{t("Simulation mode.")}</b> {t("Agents work through your requirements without calling Claude and without running any checks, so you can explore the full flow at no cost. To go live, switch the mode in Settings — agents then run on your Claude plan (claude /login) or an API key.")}
           </div>
-          <Link to="/settings" className="btn sm">Settings</Link>
+          <Link to="/settings" className="btn sm">{t("Settings")}</Link>
         </div>
       )}
 
       <div className="grid g5 stagger" style={{ marginBottom: 16 }}>
-        <Kpi label="Projects" icon={<FolderKanban size={13} />} value={<Count value={projects?.length ?? 0} format={(n) => String(Math.round(n))} />} foot={`${projects?.filter((p) => p.running).length ?? 0} running now`} />
-        <Kpi label="Items deployed" icon={<CheckCircle2 size={13} />} value={`${delivered}/${items}`} foot={`${points} story points planned`} />
-        <Kpi label="AI spend" icon={<Coins size={13} />} value={<Count value={spend} format={(n) => money(n)} />} foot={items ? `${money(spend / Math.max(1, items))} per item` : "—"} accent />
-        <Kpi label="Human-equivalent effort" icon={<Clock size={13} />} value={<Count value={humanHours} format={(n) => hours(n)} />} foot={`≈ ${money(humanHours * (meta?.settings.humanHourlyRateUsd ?? 65), 0)} at team rates`} />
-        <Kpi label="Agents" icon={<Bot size={13} />} value={<Count value={agents?.length ?? 0} format={(n) => String(Math.round(n))} />} foot={`${activeAgents} working right now`} />
+        <Kpi label={t("Projects")} icon={<FolderKanban size={13} />} value={<Count value={projects?.length ?? 0} format={(n) => String(Math.round(n))} />} foot={t("{n} running now", { n: projects?.filter((p) => p.running).length ?? 0 })} />
+        <Kpi label={t("Items deployed")} icon={<CheckCircle2 size={13} />} value={`${delivered}/${items}`} foot={t("{n} story points planned", { n: points })} />
+        <Kpi label={t("AI spend")} icon={<Coins size={13} />} value={<Count value={spend} format={(n) => money(n)} />} foot={items ? t("{m} per item", { m: money(spend / Math.max(1, items)) }) : "—"} accent />
+        <Kpi label={t("Human-equivalent effort")} icon={<Clock size={13} />} value={<Count value={humanHours} format={(n) => hours(n)} />} foot={t("≈ {m} at team rates", { m: money(humanHours * (meta?.settings.humanHourlyRateUsd ?? 65), 0) })} />
+        <Kpi label={t("Agents")} icon={<Bot size={13} />} value={<Count value={agents?.length ?? 0} format={(n) => String(Math.round(n))} />} foot={t("{n} working right now", { n: activeAgents })} />
       </div>
 
       <div className="grid" style={{ gridTemplateColumns: "minmax(0, 1.5fr) minmax(0, 1fr)", alignItems: "start" }}>
@@ -111,17 +111,17 @@ export default function Overview() {
             <div className="card">
               <Empty
                 icon={<FolderKanban size={20} />}
-                title="No projects yet"
-                action={canWrite && <button className="btn primary" onClick={() => nav("/projects/new")}><Plus size={15} /> Create your first project</button>}
+                title={t("No projects yet")}
+                action={canWrite && <button className="btn primary" onClick={() => nav("/projects/new")}><Plus size={15} /> {t("Create your first project")}</button>}
               >
-                Upload a requirements PDF, choose which agents to involve and get a cost and time estimate before anything runs. New here? The <Link to="/guide/quick-start" style={{ textDecoration: "underline" }}>Guide</Link> walks through everything.
+                {t("Upload a requirements PDF or describe the work, choose which agents to involve and get a cost and time estimate before anything runs.")} <Link to="/guide/quick-start" style={{ textDecoration: "underline" }}>{t("Guide")}</Link>
               </Empty>
             </div>
           )}
           <div className="card">
             <div className="card-head">
-              <div className="card-title">Who works the most</div>
-              <span className="card-sub">Model calls per agent, all projects</span>
+              <div className="card-title">{t("Who works the most")}</div>
+              <span className="card-sub">{t("Model calls per agent, all projects")}</span>
             </div>
             <div className="card-pad">
               <AgentBars fmt="count" rows={(agents ?? []).map((a) => ({ agent: a, value: a.stats.calls }))} />
@@ -130,8 +130,8 @@ export default function Overview() {
         </div>
         <div className="card">
           <div className="card-head">
-            <div className="card-title"><ActivityIcon size={15} /> Live activity</div>
-            <span className="card-sub">{num(activity?.length ?? 0)} latest events</span>
+            <div className="card-title"><ActivityIcon size={15} /> {t("Live activity")}</div>
+            <span className="card-sub">{t("{n} latest events", { n: num(activity?.length ?? 0) })}</span>
           </div>
           <div style={{ maxHeight: 640, overflow: "auto" }}>
             <ActivityFeed items={activity ?? []} showProject compact />

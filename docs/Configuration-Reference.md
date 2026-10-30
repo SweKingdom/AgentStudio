@@ -11,10 +11,9 @@ Copy `.env.example` to `.env`. The file is read when the server starts, so resta
 | `AZURE_DEVOPS_PAT` | – | Personal access token with Work Items read & write. Only for *Sync to Azure DevOps*. |
 | `PORT` | `4100` | Port of the server. It always listens on `127.0.0.1`. |
 | `ARM_DATA_DIR` | `./data` | Where the database, uploads and project repositories live. |
-| `ARM_SF_BIN` | `sf` | Path to the Salesforce CLI. |
 | `ARM_GH_BIN` | `gh` | Path to the GitHub CLI. |
 | `ARM_CHROME_PATH` | auto-detected | Chrome or Chromium binary for real screenshots. |
-| `HTTPS_PROXY` | – | Honoured by git, the Salesforce CLI and the Claude SDK. The system check notes when it's set. |
+| `HTTPS_PROXY` | – | Honoured by git and the Claude SDK. The system check notes when it's set. |
 
 Test-only switches (`ARM_DISABLE_DOTENV`, `ARM_FORCE_GITHUB`) are set by the test setup; don't use them in normal runs.
 
@@ -25,9 +24,8 @@ Stored in the database and edited in **Settings**. Each section has its own addr
 | Section | Settings |
 |---|---|
 | **General** | Mode (Simulation / Live); simulation speed; refusal fallback (lets the Claude API answer a declined request with a fallback model; Opus, Sonnet and Fable only); daily and monthly spend limits (USD, 0 = none) with auto-resume. |
-| **System check** | Read-only readiness check. *Full check* also tests GitHub, every org and access to each agent's model. |
-| **Salesforce orgs** | The org registry: alias, type, login URL, *Allow* for production orgs; *Test* and *Log in* per org. |
-| **Team** | Conventions, Salesforce defaults, export & import the team. See [The agent team](The-Agent-Team.md#team-settings). |
+| **System check** | Read-only readiness check. *Full check* also tests GitHub and access to each agent's model. |
+| **Team** | Conventions, checks, export & import the team. See [The agent team](The-Agent-Team.md#team-settings). |
 | **Projects** | Defaults for new projects (gates, parallel lanes, budget, max QA rework); the human-team baseline (hours per story point, hourly rate); currency (USD or EUR, with the exchange rate). |
 | **Model prices** | Price per million tokens for each model: input, output, cache read, cache write. |
 | **Users & access** | Optional login, users and roles, audit log. |
@@ -47,7 +45,7 @@ Stored in the database and edited in **Settings**. Each section has its own addr
 
 ## Per-project settings
 
-*Project header → Settings*: name, context, git repository (URL, branch, push), approval gates, lanes, budget, max QA rework, architect code review, target org or environments, Salesforce overrides (API version, coverage, prefix, namespace, test level) and Azure DevOps.
+*Project header → Settings*: name, context, git repository (URL, branch, push), approval gates, lanes, budget, max QA rework, architect code review, the project's checks and Azure DevOps.
 
 ## Team conventions
 
@@ -63,13 +61,11 @@ Defaults, editable in *Settings → Team*:
 | Review checklist | Bulk safety, sharing, CRUD/FLS, no hard-coded IDs or credentials, and more |
 | Azure DevOps | Area path, iteration root, tags |
 
-## Salesforce defaults
+## Checks
 
 | Setting | Default | Meaning |
 |---|---|---|
-| API version | `62.0` | Used in generated metadata and `package.xml`. |
-| Minimum coverage | 75 % | QA can't approve below it in live mode. |
-| Name prefix / namespace | none | Applied to generated components. |
-| Test level for story validation | `RunSpecifiedTests` | Which tests run when a story is validated in the org (`RunSpecifiedTests` or `RunLocalTests`). |
+| Commands | empty | Run in order on every story; empty = detected from `package.json` (`typecheck`, `lint`, `test`, `build`). A project's own list replaces the team's. |
+| Timeout per check | 15 min | A check that runs longer is stopped and counts as failed. |
 
 Each project can override these in its settings.

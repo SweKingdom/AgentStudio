@@ -1,4 +1,4 @@
-// `npm run doctor` — checks this machine is ready to run SiroccoARM (and live work). Read-only, spends nothing.
+// `npm run doctor` — checks this machine is ready to run AgentStudio (and live work). Read-only, spends nothing.
 import { runChecks } from "../src/doctor.js";
 
 const ICON = { ok: "✅", warn: "⚠️ ", fail: "❌", info: "ℹ️ " } as const;

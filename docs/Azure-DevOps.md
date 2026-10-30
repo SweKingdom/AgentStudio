@@ -1,6 +1,6 @@
 # Azure DevOps
 
-SiroccoARM can send a project's backlog to Azure Boards, either by syncing directly or by exporting a CSV file to import.
+AgentStudio can send a project's backlog to Azure Boards, either by syncing directly or by exporting a CSV file to import.
 
 ## Sync to Azure Boards
 
@@ -21,7 +21,7 @@ What is sent: title, an HTML description built from the story template, acceptan
 
 | Mode | Use when |
 |---|---|
-| **Same names** | Your process is customised with SiroccoARM's state names. |
+| **Same names** | Your process is customised with AgentStudio's state names. |
 | **Agile mapping** | The standard Agile process. States are mapped to New, Active, Resolved, Closed and Removed (cancelled items). |
 
 If Azure DevOps refuses a state name, that item is sent with the Agile mapping and the sync result says so.

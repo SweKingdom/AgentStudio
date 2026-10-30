@@ -364,7 +364,14 @@ api.post("/projects", wrap(async (req, res) => {
   const agentIds: string[] = Array.isArray(body.agentIds) ? body.agentIds : [];
   if (!agentIds.length) return res.status(400).json({ error: "Select at least one agent" });
   const s = appSettings();
+  let checks: ReturnType<typeof cleanChecksOverride>;
+  try {
+    checks = cleanChecksOverride(body.settings?.checks);
+  } catch (e) {
+    return res.status(400).json({ error: e instanceof Error ? e.message : String(e) });
+  }
   const settings = {
+    ...(Object.keys(checks).length ? { checks } : {}),
     gates: body.settings?.gates ?? s.defaultGates,
     parallelism: Number(body.settings?.parallelism ?? s.defaultParallelism),
     budgetUsd: Number(body.settings?.budgetUsd ?? s.defaultBudgetUsd),

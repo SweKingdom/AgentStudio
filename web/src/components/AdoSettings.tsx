@@ -85,7 +85,7 @@ export function AdoSettings({ projectId, value, onChange }: { projectId: string;
           <input className="input mono" value={value.iterationRoot} onChange={(e) => set({ iterationRoot: e.target.value })} placeholder="Project\Release 1" spellCheck={false} />
         </Field>
       </div>
-      <Field label="States" help="Same names: send SiroccoARM's states as they are — for a process that uses the same states (Ready for Sprint, In Peer Testing…). Agile mapping: New / Active / Resolved / Closed / Removed, Blocked becomes Active with a Blocked tag. If Azure DevOps refuses a state name, that item is sent with the Agile mapping and the sync reports it.">
+      <Field label="States" help="Same names: send AgentStudio's states as they are — for a process that uses the same states (Ready for Sprint, In Peer Testing…). Agile mapping: New / Active / Resolved / Closed / Removed, Blocked becomes Active with a Blocked tag. If Azure DevOps refuses a state name, that item is sent with the Agile mapping and the sync reports it.">
         <Seg value={value.stateMode} onChange={(v) => set({ stateMode: v })} options={[{ value: "same", label: "Same names" }, { value: "agile", label: "Agile mapping" }]} />
       </Field>
       <div className="row wrap" style={{ gap: 10, alignItems: "flex-start" }}>
@@ -107,7 +107,7 @@ export function AdoSettings({ projectId, value, onChange }: { projectId: string;
       <div className="ado-token-note tiny">
         <KeyRound size={12} />
         <span>
-          The Personal Access Token is never stored by SiroccoARM. Put it in <code className="code-tag">.env</code> as <code className="code-tag">AZURE_DEVOPS_PAT=…</code> (scope: Work Items read &amp; write) and restart.
+          The Personal Access Token is never stored by AgentStudio. Put it in <code className="code-tag">.env</code> as <code className="code-tag">AZURE_DEVOPS_PAT=…</code> (scope: Work Items read &amp; write) and restart.
           {status && (status.tokenPresent ? <b style={{ color: "var(--good)" }}> Token found.</b> : <b style={{ color: "var(--warn)" }}> No token yet.</b>)}
         </span>
       </div>
@@ -142,7 +142,7 @@ export function AdoSyncButton({ p }: { p: Project }) {
   const last = status?.lastSync;
   const busy = sync.isPending || status?.running;
   const help = !status?.tokenPresent
-    ? "Add AZURE_DEVOPS_PAT=… to .env and restart to enable the sync. The token is never stored by SiroccoARM."
+    ? "Add AZURE_DEVOPS_PAT=… to .env and restart to enable the sync. The token is never stored by AgentStudio."
     : `Creates or updates every epic, feature, story, task and bug in ${p.settings.ado!.project}. Parents first; items deleted in Azure DevOps are created again.${last ? ` Last sync ${dateTime(last.at)}: ${summaryText(last)}.` : ""}`;
   return (
     <div className="row ado-sync" style={{ gap: 6 }}>

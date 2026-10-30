@@ -1,8 +1,8 @@
 {
-  "name": "sirocco-arm",
+  "name": "agentstudio",
   "version": "0.1.0",
   "private": true,
-  "description": "SiroccoARM \u2014 Agent Relationship Management: create, customise and orchestrate AI agents that deliver Salesforce solutions.",
+  "description": "AgentStudio \u2014 AI delivery studio: create, customise and orchestrate AI agents that deliver Salesforce solutions.",
   "workspaces": [
     "server",
     "web"
@@ -13,7 +13,8 @@
     "start": "npm run build && npm run start -w server",
     "typecheck": "npm run typecheck -w server && npm run typecheck -w web",
     "test": "npm test -w server",
-    "doctor": "npm run doctor -w server --silent --"
+    "doctor": "npm run doctor -w server --silent --",
+    "demo": "node scripts/demo-setup.mjs"
   },
   "devDependencies": {
     "concurrently": "^10.0.6"

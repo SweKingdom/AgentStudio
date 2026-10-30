@@ -1,7 +1,7 @@
 import { useState, type FormEvent } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { Loader2, LogIn, ShieldCheck } from "lucide-react";
-import siroccoLogo from "../assets/sirocco-logo.svg?raw";
+import brandLogo from "../assets/agentstudio-logo.svg?raw";
 import { api } from "../lib/api";
 import { afterSignIn, type AuthStatus } from "../lib/auth";
 import { Field } from "../components/Hint";
@@ -44,7 +44,7 @@ export function SetupForm({ onDone, compact }: { onDone?: () => void; compact?: 
           <input className="input" autoComplete="name" value={displayName} onChange={(e) => setDisplayName(e.target.value)} placeholder="Optional" aria-label="Display name" />
         </Field>
       </div>
-      <Field label="Password" help={`At least ${MIN_PASSWORD} characters. It is stored only as a salted scrypt hash — nobody, including SiroccoARM, can read it back.`}>
+      <Field label="Password" help={`At least ${MIN_PASSWORD} characters. It is stored only as a salted scrypt hash — nobody, including AgentStudio, can read it back.`}>
         <input className="input" type="password" autoComplete="new-password" value={password} onChange={(e) => setPassword(e.target.value)} required minLength={MIN_PASSWORD} aria-label="Password" />
       </Field>
       <Field label="Repeat password" help="Type it again to rule out a typo — there's no e-mail reset, another admin has to set a new one.">
@@ -100,10 +100,9 @@ export default function Login({ mode = "signin" }: { mode?: "signin" | "setup" }
     <div className="login-page">
       <div className="login-card card">
         <div className="login-brand">
-          <span className="brand-logo login-logo" dangerouslySetInnerHTML={{ __html: siroccoLogo }} />
+          <span className="brand-logo login-logo" dangerouslySetInnerHTML={{ __html: brandLogo }} />
           <div className="brand-product">
-            <span className="brand-name">ARM</span>
-            <span className="brand-sub">Agent Relationship Management</span>
+            <span className="brand-sub">AI delivery team</span>
           </div>
         </div>
         <div className="col" style={{ gap: 4 }}>
@@ -111,12 +110,12 @@ export default function Login({ mode = "signin" }: { mode?: "signin" | "setup" }
           <p className="login-sub">
             {mode === "setup"
               ? "Once an admin exists, everyone needs to sign in. The admin then adds members and viewers in Settings → Users & access."
-              : "This ARM is shared — sign in to see projects and agents."}
+              : "This AgentStudio is shared — sign in to see projects and agents."}
           </p>
         </div>
         {mode === "setup" ? <SetupForm /> : <SignInForm />}
       </div>
-      <div className="login-foot">Sirocco Group · you stay signed in for 12 hours after your last activity</div>
+      <div className="login-foot">You stay signed in for 12 hours after your last activity</div>
     </div>
   );
 }

@@ -124,17 +124,39 @@ Projektsidan visar hur många kontroller som gäller. **No checks** betyder att 
 
 **Köra om en story:** öppna storyn och välj att köra om den med feedback, så går den genom bygge, test och dokumentation igen.
 
-## 7. Agenterna och teamet
+## 7. Språk
+
+Knappen **EN/SV** längst ner i sidomenyn byter gränssnittet mellan engelska och svenska. Valet sparas i webbläsaren. Menyer, översikten, Nytt projekt, projektsidan och inställningarnas huvuddelar är översatta. Text som saknar översättning, till exempel den inbyggda guiden, visas på engelska.
+
+Språket i agenternas arbete (backlogg, dokument, kodkommentarer) styrs separat under **Settings → Team → Deliverables language**.
+
+## 8. Demo
+
+Repot har ett färdigt demoexempel: en liten uppgifts-API (`demo/task-tracker`) med riktiga tester, lint och bygge, och en kravtext (`demo/requirements.md`).
+
+1. Skapa demorepot. Skriptet skriver ut adressen du ska använda:
+
+   ```bash
+   npm run demo
+   ```
+
+2. **New project:** klistra in adressen som **Git repository**, och klistra in innehållet i `demo/requirements.md` i **Context for the team** (eller ladda upp den som PDF).
+3. Kontrollerna hittas automatiskt i demorepots `package.json`: `npm run lint`, `npm test` och `npm run build`.
+4. För en snabb simulerad demo: sätt **Settings → General → Simulation speed** till runt `0.2`. För en live-demo: välj **Live** och **Plan**, och kör en generalrepetition först.
+
+Börja om med en ren kopia med `npm run demo -- --reset`. För helt rena projektlistor stoppar du servern och tar bort mappen `data/`.
+
+## 9. Agenterna och teamet
 
 - **Agents:** ändra en agents modell, effort, verktyg, kunskapspaket och egna instruktioner. Varje ändring sparas som en ny version som går att återställa.
 - **Settings → Team:** gemensamma konventioner (språk, grennamn, commit- och PR-mallar, granskningschecklista), kontrollerna och export/import av hela teamet som en fil.
 - **Settings → Projects / Model prices:** standardvärden för nya projekt och de priser kostnadsberäkningarna bygger på.
 
-## 8. Var data sparas
+## 10. Var data sparas
 
 Allt ligger lokalt i mappen `data/`: databasen, uppladdade PDF:er och varje projekts repo och worktrees. Mappen ignoreras av git. Ta bort den för att börja om från noll med servern stoppad.
 
-## 9. Felsökning
+## 11. Felsökning
 
 | Problem | Lösning |
 |---|---|

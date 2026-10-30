@@ -55,7 +55,6 @@ The full documentation is in [`docs/`](docs/Home.md) and can be published as the
 | [Estimates, costs and limits](docs/Estimates-Costs-and-Limits.md) | How the estimate is calculated, budgets and spend limits |
 | [Git and pull requests](docs/Git-and-Pull-Requests.md) | Branch per story, merges, push, GitHub PRs |
 | [Quality and code review](docs/Quality-and-Code-Review.md) | The Rudolf method, evidence, architect review |
-| [Salesforce orgs and environments](docs/Salesforce-Orgs-and-Environments.md) | Org registry, production opt-in, release chain |
 | [Azure DevOps](docs/Azure-DevOps.md) | Boards sync, CSV import, Azure Pipelines |
 | [Going live](docs/Going-Live.md) | Checklist for the real Claude API |
 | [Security and access](docs/Security-and-Access.md) | Credentials, stored data, roles, audit log |

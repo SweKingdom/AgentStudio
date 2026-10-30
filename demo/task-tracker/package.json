@@ -1,0 +1,13 @@
+{
+  "name": "task-tracker",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Demo repository for AgentStudio: a tiny task API with real checks.",
+  "type": "module",
+  "scripts": {
+    "start": "node src/server.js",
+    "lint": "node scripts/lint.js",
+    "test": "node --test",
+    "build": "node --check src/server.js && node --check src/tasks.js"
+  }
+}

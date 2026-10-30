@@ -1,5 +1,5 @@
 /**
- * System check: is this machine ready to run SiroccoARM — and live work in particular? Used by Settings → System check
+ * System check: is this machine ready to run AgentStudio — and live work in particular? Used by Settings → System check
  * and by `npm run doctor`. Every check is read-only and free: no tokens are spent and nothing is changed anywhere.
  */
 import { execFile } from "node:child_process";
@@ -8,7 +8,7 @@ import path from "node:path";
 import { promisify } from "node:util";
 import Anthropic from "@anthropic-ai/sdk";
 import { DATA_DIR } from "./db.js";
-import { appSettings, effectiveMode, hasApiKey } from "./settings.js";
+import { appSettings, claudeBackend, effectiveMode, hasApiKey } from "./settings.js";
 import { listAgents } from "./agents/store.js";
 import { adoConfigOf, adoProjects, hasAdoToken, NO_TOKEN, testAdo } from "./ado.js";
 
@@ -64,7 +64,7 @@ export async function runChecks(o: { network?: boolean } = {}): Promise<Check[]>
     add({ id: "data", group: "App", label: "Data folder", status: "fail", detail: `${DATA_DIR}: ${e instanceof Error ? e.message : e}`, fix: "Give this user write access to the data folder, or set ARM_DATA_DIR." });
   }
   const mode = effectiveMode();
-  add({ id: "mode", group: "App", label: "Mode", status: "info", detail: mode === "live" ? "Live — agents call the Claude API (real cost)" : `Simulation${appSettings().mode === "live" ? " (Live is selected but there's no API key)" : ""} — nothing is sent to Claude` });
+  add({ id: "mode", group: "App", label: "Mode", status: "info", detail: mode === "live" ? (claudeBackend() === "subscription" ? "Live — agents run on your Claude plan" : "Live — agents call the Claude API (real cost)") : `Simulation${appSettings().mode === "live" ? " (Live is selected but no backend is available)" : ""} — nothing is sent to Claude` });
   const proxy = process.env.HTTPS_PROXY || process.env.https_proxy;
   if (proxy) add({ id: "proxy", group: "App", label: "Proxy", status: "info", detail: `HTTPS_PROXY is set — git and the Claude SDK must both be able to use it.` });
 
@@ -103,8 +103,27 @@ export async function runChecks(o: { network?: boolean } = {}): Promise<Check[]>
   }
 
   // ---------------------------------------------------------------- Claude API
+  // The plan backend runs agents through this machine's `claude` login; check it the way the user would.
+  const planOn = claudeBackend() === "subscription" && !process.env.ARM_DISABLE_SUBSCRIPTION;
+  if (planOn) {
+    const c = await run("claude", ["auth", "status"]);
+    const status = (() => {
+      try {
+        return JSON.parse(c.out) as { loggedIn?: boolean; authMethod?: string };
+      } catch {
+        return null;
+      }
+    })();
+    if (c.missing) add({ id: "claude-login", group: "Claude API", label: "Claude login", status: "fail", detail: "Claude Code (claude) is not installed", fix: "Install Claude Code, run `claude /login`, or switch the backend to API in Settings → General." });
+    else if (status?.loggedIn) add({ id: "claude-login", group: "Claude API", label: "Claude login", status: "ok", detail: `Logged in (${status.authMethod ?? "claude"}) — live agents use your Claude plan` });
+    else add({ id: "claude-login", group: "Claude API", label: "Claude login", status: "fail", detail: "Not logged in", fix: "Run `claude /login` on this computer." });
+  }
   if (!hasApiKey()) {
-    add({ id: "api-key", group: "Claude API", label: "API key", status: "warn", detail: "Not set — the app runs in simulation", fix: "Add ANTHROPIC_API_KEY=… to the .env file in the project folder and restart." });
+    add(
+      planOn
+        ? { id: "api-key", group: "Claude API", label: "API key", status: "info", detail: "Not needed — the backend is your Claude plan" }
+        : { id: "api-key", group: "Claude API", label: "API key", status: "warn", detail: "Not set — the app runs in simulation", fix: "Add ANTHROPIC_API_KEY=… to .env and restart, or switch the backend to Plan in Settings → General." },
+    );
   } else {
     add({ id: "api-key", group: "Claude API", label: "API key", status: "ok", detail: "Set (not shown)" });
     if (o.network) {

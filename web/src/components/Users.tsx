@@ -44,12 +44,12 @@ export function UsersAccess() {
         <div className="card-head"><div className="card-title"><ShieldCheck size={15} /> Login is off</div></div>
         <div className="card-pad col" style={{ gap: 12 }}>
           <div className="small" style={{ lineHeight: 1.6, maxWidth: 720 }}>
-            Right now anyone who can open this ARM can use it — fine while it only listens on this computer. Turn on login when several
+            Right now anyone who can open this AgentStudio can use it — fine while it only listens on this computer. Turn on login when several
             people share it: you create the first <b>admin</b>, then add <b>members</b> (run projects) and <b>viewers</b> (read-only).
             Every important change — deleting a project, approving a gate, changing settings or the team — is recorded in an audit log.
           </div>
           <div className="small muted" style={{ maxWidth: 720 }}>
-            Passwords are stored only as salted hashes and sessions end after 12 hours without activity. This doesn't affect git, Salesforce
+            Passwords are stored only as salted hashes and sessions end after 12 hours without activity. This doesn't affect git
             or Claude — they keep using this machine's own logins.
           </div>
           <div><button className="btn primary" onClick={() => setSetup(true)}><ShieldCheck size={14} /> Create admin & turn on login</button></div>
