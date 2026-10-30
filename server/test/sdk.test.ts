@@ -60,9 +60,21 @@ test("runs isolated on the plan login and returns the final text and usage", asy
   assert.equal(o.env.ANTHROPIC_API_KEY, undefined, "an API key would bill the API account instead of the plan");
 });
 
-test("a rejected plan window pauses with the reset time", async () => {
+test("a window report alone doesn't stop the run; it is reported", async () => {
   const resetsAt = Math.floor(Date.now() / 1000) + 3600;
-  script([{ type: "rate_limit_event", rate_limit_info: { status: "rejected", resetsAt, rateLimitType: "five_hour" } }]);
+  const reports: unknown[] = [];
+  script([{ type: "rate_limit_event", rate_limit_info: { status: "rejected", resetsAt, rateLimitType: "five_hour", overageStatus: "allowed" } }, result()]);
+  const r = await sdkRun({ agent, system: "s", content: [], maxTurns: 1, effort: "low", onRateLimit: (l) => reports.push(l) });
+  assert.equal(r.text, "Done.", "the calls kept going (e.g. on extra usage)");
+  assert.equal(reports.length, 1);
+});
+
+test("a refused call pauses until the reported window resets", async () => {
+  const resetsAt = Math.floor(Date.now() / 1000) + 3600;
+  script([
+    { type: "rate_limit_event", rate_limit_info: { status: "rejected", resetsAt, rateLimitType: "five_hour" } },
+    { type: "assistant", parent_tool_use_id: null, error: "rate_limit", message: { content: [] } },
+  ]);
   await assert.rejects(sdkRun({ agent, system: "s", content: [], maxTurns: 1, effort: "low" }), (e: unknown) => {
     assert.ok(e instanceof LimitReachedError);
     assert.equal(e.kind, "rate_limit");

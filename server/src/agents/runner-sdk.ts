@@ -1,6 +1,6 @@
 // Live agents on the user's own Claude plan: the Claude Agent SDK drives the loop through the local `claude` login
 // instead of an API key. Same inputs and outputs as the API loop in runner.ts, so the orchestrator can't tell them apart.
-import { createSdkMcpServer, query as sdkQuery, type Options, type SDKMessage, type SDKUserMessage } from "@anthropic-ai/claude-agent-sdk";
+import { createSdkMcpServer, query as sdkQuery, type Options, type SDKMessage, type SDKRateLimitInfo, type SDKUserMessage } from "@anthropic-ai/claude-agent-sdk";
 import { z } from "zod";
 import { logActivity } from "../store.js";
 import { AbortedError, BudgetExceededError, LimitReachedError } from "../errors.js";
@@ -97,6 +97,8 @@ export async function sdkRun(o: {
   budgetLeftUsd?: number;
   signal?: AbortSignal;
   onText?: (text: string) => void;
+  /** The plan's usage window as Claude reports it (a warning or a rejection) — shown in the activity, not a stop. */
+  onRateLimit?: (info: SDKRateLimitInfo) => void;
 }): Promise<SdkRun> {
   const options = baseOptions(o.agent, o.system, o.signal);
   options.maxTurns = o.maxTurns;
@@ -114,14 +116,20 @@ export async function sdkRun(o: {
 
   const started = Date.now();
   let text = "";
+  // The latest window report: it names which window and when it resets once a call is really refused.
+  let limit: SDKRateLimitInfo | undefined;
   try {
     for await (const m of query({ prompt: prompt(), options })) {
       if (o.signal?.aborted) throw new AbortedError("Stopped by user");
-      if (m.type === "rate_limit_event" && m.rate_limit_info.status === "rejected") {
-        throw planLimit(m.rate_limit_info.resetsAt, m.rate_limit_info.rateLimitType);
+      // A window report is information, not a refusal: with extra usage (overage) or a window that resets mid-run the
+      // calls keep going. Only a refused call (below) pauses the work.
+      if (m.type === "rate_limit_event") {
+        limit = m.rate_limit_info;
+        if (limit.status !== "allowed") o.onRateLimit?.(limit);
+        continue;
       }
       if (m.type === "assistant" && m.parent_tool_use_id === null) {
-        if (m.error) throw assistantError(m.error);
+        if (m.error) throw assistantError(m.error, limit);
         const t = m.message.content.filter((b) => b.type === "text").map((b) => (b as { text: string }).text).join("\n").trim();
         if (t) {
           text = t;
@@ -136,7 +144,7 @@ export async function sdkRun(o: {
         }));
         if (m.subtype === "error_max_budget_usd") throw Object.assign(new BudgetExceededError("Project budget reached during the run."), { calls });
         if (m.subtype === "error_during_execution") throw Object.assign(new Error(m.errors.join("; ") || "The agent run failed."), { calls });
-        if (m.subtype === "success" && m.is_error) throw Object.assign(textError(m.result), { calls });
+        if (m.subtype === "success" && m.is_error) throw Object.assign(textError(m.result, limit), { calls });
         if (m.subtype === "success" && m.result.trim()) text = m.result.trim();
         if (m.subtype === "error_max_turns" && !text) text = `Stopped after ${o.maxTurns} turns.`;
         return { text, calls };
@@ -156,10 +164,10 @@ function planLimit(resetsAt?: number, type?: string) {
   return new LimitReachedError(`Your Claude plan's ${window} limit is reached — resumes when it resets.`, "rate_limit", when);
 }
 
-function assistantError(err: string) {
+function assistantError(err: string, limit?: SDKRateLimitInfo) {
   switch (err) {
     case "rate_limit":
-      return planLimit();
+      return planLimit(limit?.resetsAt, limit?.rateLimitType);
     case "overloaded":
       return new LimitReachedError("Claude is overloaded — retrying in 3 min.", "overloaded", new Date(Date.now() + 180_000).toISOString());
     case "authentication_failed":
@@ -173,8 +181,8 @@ function assistantError(err: string) {
   }
 }
 
-function textError(result: string) {
-  if (/rate.?limit|usage limit|limit reached/i.test(result)) return planLimit();
+function textError(result: string, limit?: SDKRateLimitInfo) {
+  if (/rate.?limit|usage limit|limit reached/i.test(result)) return planLimit(limit?.resetsAt, limit?.rateLimitType);
   if (/not logged in|log ?in|authenticat|invalid api key/i.test(result)) return assistantError("authentication_failed");
   return new Error(result || "The agent run failed.");
 }
