@@ -156,8 +156,6 @@ test("member can start a project but not change app-wide settings or users", asy
   assert.equal((await call("PUT", "/models", [], m)).status, 403);
   assert.equal((await call("PUT", "/team", {}, m)).status, 403);
   assert.equal((await call("POST", "/team/import", {}, m)).status, 403);
-  assert.equal((await call("POST", "/salesforce/orgs", { alias: "x" }, m)).status, 403);
-  assert.equal((await call("DELETE", "/salesforce/orgs/x", undefined, m)).status, 403);
   assert.equal((await call("GET", "/auth/users", undefined, m)).status, 403);
   assert.equal((await call("POST", "/auth/users", { username: "sneaky", role: "admin", password: "sneaky-password" }, m)).status, 403);
 

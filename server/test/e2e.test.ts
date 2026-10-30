@@ -258,17 +258,6 @@ test("an item with open questions can't advance until they're answered", async (
   assert.equal((await api("GET", `/items/${q.item_id}`)).state, "Release Ready");
 });
 
-test("deleting a target org clears it from the release agent and projects", async () => {
-  await api("POST", "/salesforce/orgs", { alias: "E2E-SANDBOX", type: "sandbox" });
-  await api("PUT", "/agents/agt_release", { config: { targetOrg: "E2E-SANDBOX", deployMode: "validate" } });
-  await api("PATCH", "/projects/NFS", { settings: { targetOrg: "E2E-SANDBOX" } });
-  assert.equal((await project()).targetOrg.alias, "E2E-SANDBOX");
-  const res = await api("DELETE", "/salesforce/orgs/E2E-SANDBOX");
-  assert.deepEqual(res.orgs, []);
-  assert.equal((await api("GET", "/agents/agt_release")).config.targetOrg, undefined);
-  assert.equal((await project()).targetOrg, null);
-});
-
 test("re-run one story with feedback goes back through build, test and docs", async () => {
   const story = (await items()).find((i) => i.title === "Create a work order from a case in one click")!;
   await api("POST", `/items/${story.id}/rerun`, { role: "developer", feedback: "Also copy the preferred technician." });
@@ -309,14 +298,13 @@ test("chat with an agent answers from its real state", async () => {
   assert.match(reply.content, new RegExp(story.code));
   assert.match(reply.content, /❌/);
   const k = await api<any[]>("POST", "/agents/agt_developer/chat", { message: "What do you know?" });
-  assert.match(k.at(-1).content, /Apex development standards/);
+  assert.match(k.at(-1).content, /Engineering standards/);
 });
 
 test("exports: ZIP, backlog CSV and Azure DevOps CSV", async () => {
   const res = await fetch(`${base}/api/projects/NFS/export/workspace.zip`);
   assert.equal(res.status, 200);
   const files = Object.keys(unzipSync(new Uint8Array(await res.arrayBuffer())));
-  assert.ok(files.includes("NFS/manifest/package.xml"));
   assert.ok(!files.some((f) => f.startsWith("NFS/.git/")), "no .git in the export");
   assert.ok(files.includes("NFS/backlog.csv"));
   assert.ok(files.some((f) => f.startsWith("NFS/force-app/main/default/classes/")));

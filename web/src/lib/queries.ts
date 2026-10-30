@@ -1,5 +1,5 @@
 import { useQuery } from "@tanstack/react-query";
-import { api, type Agent, type Meta, type Project, type SfOrg } from "./api";
+import { api, type Agent, type Meta, type Project } from "./api";
 
 export function useMeta() {
   return useQuery({ queryKey: ["meta"], queryFn: () => api.get<Meta>("/meta"), staleTime: 30_000 });
@@ -7,10 +7,6 @@ export function useMeta() {
 
 export function useAgents() {
   return useQuery({ queryKey: ["agents"], queryFn: () => api.get<Agent[]>("/agents") });
-}
-
-export function useOrgs() {
-  return useQuery({ queryKey: ["orgs"], queryFn: () => api.get<SfOrg[]>("/salesforce/orgs") });
 }
 
 export function useProjects() {

@@ -28,17 +28,13 @@ import {
   type WorkItem,
 } from "../store.js";
 import type { Agent } from "./store.js";
-import { describeTarget, resolveTargetOrg, type TargetOrg } from "../salesforce.js";
 import { renderEvidenceSvg } from "../evidence.js";
-import { captureOrgScreenshot, orgPath, ScreenshotUnavailable } from "../screenshots.js";
 import { detectObject } from "./simplan.js";
 import { sections, toc } from "./context.js";
-import { projectSalesforce, sfdxProjectJson } from "../team.js";
 import { changedOnBranch, commitWork, tagRelease } from "../git.js";
-import { deploySource, describeObject, formatDeploy, query, runAnonymousApex, sfAccess, sf, parseDeploy } from "../sf.js";
+import { formatChecks, runChecks } from "../checks.js";
 import { effectiveMode } from "../settings.js";
 import { agentEmail, listAgents } from "./store.js";
-import { buildEnvironment, type ReleaseEnvironment } from "../environments.js";
 
 const pexec = promisify(execFile);
 
@@ -56,15 +52,11 @@ export interface ToolContext {
     codeReview?: { verdict: "approved" | "changes_requested"; findings: string };
     released?: { version: string };
     validation?: { ok: boolean; output: string };
-    /** Last deploy_story result in this run (live with an org only). */
-    orgDeploy?: { ok: boolean };
-    /** Last run_apex_tests result in this run (live with an org only). */
-    apexTests?: { ok: boolean };
+    /** Last run_checks result in this run: the gate for complete_development, an approval and a release. */
+    checks?: { ok: boolean };
   };
   /** Lets consult_agent run another agent (injected by the runner to avoid import cycles). */
   consult?: (target: Agent, question: string, ctx: ToolContext) => Promise<string>;
-  /** The environment a release run works on (projects with environments): its org, deploy mode and test level. */
-  environment?: ReleaseEnvironment;
 }
 
 type Handler = (input: Record<string, any>, ctx: ToolContext) => Promise<unknown> | unknown;
@@ -488,7 +480,7 @@ const TOOLS: Record<string, ToolSpec> = {
     label: "List workspace files",
     def: {
       name: "list_files",
-      description: "List files in the project workspace (SFDX project). While you work on a task you see its own git branch: the base branch plus that task's changes. Optional path prefix filter.",
+      description: "List files in the project workspace. While you work on a task you see its own git branch: the base branch plus that task's changes. Optional path prefix filter.",
       input_schema: { type: "object", properties: { prefix: { type: "string" } } },
     },
     handler: (i, ctx) => {
@@ -528,7 +520,7 @@ const TOOLS: Record<string, ToolSpec> = {
     def: {
       name: "write_file",
       description:
-        "Create or overwrite a file in the project workspace (SFDX layout, e.g. force-app/main/default/classes/CaseService.cls). Always send the complete file.",
+        "Create or overwrite a file in the project workspace, at the path the repository keeps that kind of code (e.g. src/services/orders.ts). Always send the complete file.",
       input_schema: {
         type: "object",
         properties: { path: { type: "string" }, content: { type: "string" } },
@@ -563,9 +555,9 @@ const TOOLS: Record<string, ToolSpec> = {
     },
     handler: (i, ctx) => {
       req(i, "summary");
-      // Live with a target org: the story must have validated in the org in this run before it goes to QA.
-      if (sfAccess(ctx.project, ctx.environment).live && ctx.agent.tools.includes("deploy_story") && !ctx.outcome.orgDeploy?.ok) {
-        throw new Error("Validate the story in the org first: call deploy_story and fix every error until it succeeds, then call complete_development.");
+      // The story goes to QA only when the project's own checks passed on its branch in this run.
+      if (ctx.agent.tools.includes("run_checks") && !ctx.outcome.checks?.ok) {
+        throw new Error(ctx.outcome.checks ? "The project's checks failed — fix every failure and run run_checks again, then call complete_development." : "Run the project's checks with run_checks first; complete_development needs them to pass.");
       }
       ctx.outcome.devCompleted = String(i.summary);
       return "Development marked complete. QA will be notified by the orchestrator.";
@@ -654,54 +646,6 @@ const TOOLS: Record<string, ToolSpec> = {
     },
   },
 
-  capture_screenshot: {
-    label: "Take a real screenshot of the org",
-    def: {
-      name: "capture_screenshot",
-      description:
-        "Take a real screenshot of a page in the project's Salesforce org (headless Chrome, logged in through the Salesforce CLI) as evidence for one acceptance criterion. `path` is a page inside the org, e.g. /lightning/r/Case/<Id>/view or /lightning/o/Case/list. Returns a Markdown image line to paste into the test report. Live mode with an org only; otherwise use capture_evidence.",
-      input_schema: {
-        type: "object",
-        properties: {
-          code: { type: "string", description: "Story code; defaults to the story under test." },
-          ac_ref: { type: "string", description: "The check, e.g. 'AC 2 — negative path'" },
-          caption: { type: "string", description: "What the screenshot shows (used as the image's alt text)." },
-          path: { type: "string", description: "Page inside the org, starting with /lightning/ or /. No external URLs." },
-          wait_for_text: { type: "string", description: "Optional text to wait for before taking the screenshot (e.g. the record name)." },
-        },
-        required: ["ac_ref", "caption", "path"],
-      },
-    },
-    handler: async (i, ctx) => {
-      req(i, "ac_ref", "caption", "path");
-      const it = i.code ? itemOrThrow(ctx, String(i.code)) : ctx.item;
-      if (!it) throw new Error("Missing required field(s): code");
-      const target = orgPath(String(i.path)); // refuse external URLs even in simulation
-      const access = sfAccess(ctx.project, ctx.environment);
-      if (!access.live) return `Simulation — use capture_evidence. (${access.reason})`;
-      const slug = String(i.ac_ref).toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "").slice(0, 40) || "check";
-      const dir = `docs/stories/${it.code}/evidence`;
-      let n = 1;
-      while (fs.existsSync(safeWorkspacePath(ctx.project, `${dir}/${slug}-${n}.png`, it.code).abs)) n++;
-      let shot;
-      try {
-        shot = await captureOrgScreenshot({ alias: access.org.alias, path: target, waitForText: i.wait_for_text ? String(i.wait_for_text) : undefined });
-      } catch (e) {
-        if (e instanceof ScreenshotUnavailable) return e.message;
-        throw e;
-      }
-      const file = `evidence/${slug}-${n}.png`;
-      writeWorkspaceBinary(ctx.project, `${dir}/${slug}-${n}.png`, shot.png, it.code, ctx.agent.id);
-      const caption = String(i.caption).replace(/[[\]\n]/g, " ").trim();
-      logActivity({ projectId: ctx.project.id, agentId: ctx.agent.id, runId: ctx.runId, itemId: it.id, type: "test", summary: `📸 Screenshot for ${it.code} ${i.ac_ref} from ${access.org.alias} (${target.split("?")[0]})` });
-      return {
-        image: file,
-        markdown: `![${String(i.ac_ref).replace(/[[\]]/g, "")} — ${caption}](${file})`,
-        ...(shot.textFound === false ? { warning: `"${i.wait_for_text}" did not appear on the page within 45 s — check the screenshot before using it as a pass.` } : {}),
-      };
-    },
-  },
-
   submit_review: {
     label: "Approve or request changes",
     def: {
@@ -719,8 +663,8 @@ const TOOLS: Record<string, ToolSpec> = {
     },
     handler: (i, ctx) => {
       req(i, "verdict");
-      if (i.verdict === "approved" && sfAccess(ctx.project, ctx.environment).live && ctx.agent.tools.includes("run_apex_tests") && !ctx.outcome.apexTests?.ok) {
-        throw new Error(ctx.outcome.apexTests ? "The story's Apex tests failed in the org — you can't approve it. Request changes with the failures." : "Run the story's Apex tests in the org with run_apex_tests before approving.");
+      if (i.verdict === "approved" && ctx.agent.tools.includes("run_checks") && !ctx.outcome.checks?.ok) {
+        throw new Error(ctx.outcome.checks ? "The project's checks failed on the story's branch — you can't approve it. Request changes with the failures." : "Run the project's checks with run_checks before approving.");
       }
       ctx.outcome.review = {
         verdict: i.verdict === "approved" ? "approved" : "changes_requested",
@@ -834,117 +778,31 @@ const TOOLS: Record<string, ToolSpec> = {
     },
   },
 
-  describe_object: {
-    label: "Describe a Salesforce object (org)",
+  run_checks: {
+    label: "Run the project's checks (tests, build, lint)",
     def: {
-      name: "describe_object",
+      name: "run_checks",
       description:
-        "Describe an object in the project's target Salesforce org: fields (API name, label, type, length, references, required, picklist values) and record types. Use it to build on the org's real data model instead of assuming it.",
-      input_schema: { type: "object", properties: { object: { type: "string", description: "API name, e.g. Case or Work_Order__c" } }, required: ["object"] },
-    },
-    handler: async (i, ctx) => {
-      req(i, "object");
-      const access = sfAccess(ctx.project, ctx.environment);
-      if (!access.live) return `${access.reason} Use standard Salesforce knowledge of ${i.object} and state your assumptions.`;
-      const d = await describeObject(access.org.alias, String(i.object));
-      logActivity({ projectId: ctx.project.id, agentId: ctx.agent.id, runId: ctx.runId, itemId: ctx.item?.id, type: "note", summary: `Described ${d.name} in ${access.org.alias} (${d.fields.length} fields)` });
-      return d;
-    },
-  },
-
-  run_soql: {
-    label: "Query the org (read-only SOQL)",
-    def: {
-      name: "run_soql",
-      description: "Run one read-only SOQL SELECT against the project's target org (max 200 rows returned). For checking data, configuration and smoke tests. No DML.",
-      input_schema: { type: "object", properties: { soql: { type: "string" } }, required: ["soql"] },
-    },
-    handler: async (i, ctx) => {
-      req(i, "soql");
-      const access = sfAccess(ctx.project, ctx.environment);
-      if (!access.live) return `${access.reason} The query was not run.`;
-      const r = await query(access.org.alias, String(i.soql));
-      logActivity({ projectId: ctx.project.id, agentId: ctx.agent.id, runId: ctx.runId, itemId: ctx.item?.id, type: "note", summary: `SOQL on ${access.org.alias}: ${r.totalSize} row(s)`, detail: String(i.soql) });
-      return r;
-    },
-  },
-
-  deploy_story: {
-    label: "Deploy/validate the story in the org",
-    def: {
-      name: "deploy_story",
-      description:
-        "Deploy the Salesforce metadata this story changed on its branch to the project's target org and run the story's Apex test classes. Check-only (validation) unless the developer is configured to deploy to a non-production org. Returns component errors with file and line, test failures and coverage: fix them and call again until it succeeds.",
-      input_schema: { type: "object", properties: {} },
-    },
-    handler: async (_i, ctx) => deployItem(ctx, "development"),
-  },
-
-  run_apex_tests: {
-    label: "Run the story's Apex tests (org)",
-    def: {
-      name: "run_apex_tests",
-      description:
-        "Run the story's Apex test classes in the project's target org (check-only deploy of the story's branch with those tests — nothing is saved in the org). Returns test failures and per-class coverage. Record results with record_test_result.",
-      input_schema: { type: "object", properties: {} },
-    },
-    handler: async (_i, ctx) => deployItem(ctx, "qa"),
-  },
-
-  run_anonymous_apex: {
-    label: "Run anonymous Apex (smoke test)",
-    def: {
-      name: "run_anonymous_apex",
-      description:
-        "Run a short anonymous Apex script in the target org for a smoke test after a real deployment (e.g. call a service and System.assert the outcome). Returns success, compile problems, exceptions and USER_DEBUG lines. Not allowed on production orgs.",
-      input_schema: { type: "object", properties: { code: { type: "string" } }, required: ["code"] },
-    },
-    handler: async (i, ctx) => {
-      req(i, "code");
-      const access = sfAccess(ctx.project, ctx.environment);
-      if (!access.live) return `${access.reason} The script was not run.`;
-      if (access.org.type === "production") throw new Error("Anonymous Apex is not run on production orgs — use run_soql to smoke-test instead.");
-      const r = await runAnonymousApex(access.org.alias, String(i.code));
-      logActivity({ projectId: ctx.project.id, agentId: ctx.agent.id, runId: ctx.runId, type: "validation", summary: `${r.ok ? "✅" : "❌"} Anonymous Apex on ${access.org.alias}${r.problem ? `: ${r.problem}` : ""}`, detail: String(i.code) });
-      return r;
-    },
-  },
-
-  build_manifest: {
-    label: "Generate package.xml",
-    def: {
-      name: "build_manifest",
-      description: "Generate manifest/package.xml from every metadata file under force-app/. Returns the manifest.",
-      input_schema: { type: "object", properties: {} },
-    },
-    handler: (_i, ctx) => {
-      const xml = buildPackageXml(listWorkspaceFiles(ctx.project), projectSalesforce(ctx.project).apiVersion);
-      recordFile(ctx.project.id, "manifest/package.xml", xml, ctx.agent.id, null);
-      logActivity({ projectId: ctx.project.id, agentId: ctx.agent.id, runId: ctx.runId, type: "file", summary: "Built manifest/package.xml" });
-      return xml;
-    },
-  },
-
-  validate_deployment: {
-    label: "Validate deployment (check-only)",
-    def: {
-      name: "validate_deployment",
-      description:
-        "Validate (and, if the release agent is configured to, deploy) the release against the project's target Salesforce org — the project's override or the release agent's default; with environments, the environment this release step works on, with its deploy mode and test level. Production orgs must be allowed in the registry. Without a target org, runs static validation only.",
+        "Run the project's own checks (typecheck, lint, test, build — whatever the project configured or package.json defines) on the story's branch, or on the base branch in a release run. Stops at the first failure and returns each check's exit code and the failing output. Fix every failure and run it again until it passes; handing over, approving and releasing need a passing run.",
       input_schema: { type: "object", properties: {} },
     },
     handler: async (_i, ctx) => {
-      const result = await validateWorkspace(ctx.project, ctx.agent, ctx.environment);
-      ctx.outcome.validation = result;
+      const code = ctx.agent.role === "release" ? null : ctx.item?.code;
+      const report = await runChecks(ctx.project, code);
+      ctx.outcome.checks = { ok: report.ok };
+      if (ctx.agent.role === "release") ctx.outcome.validation = { ok: report.ok, output: formatChecks(report) };
+      const text = formatChecks(report);
+      const failed = report.results.find((r) => !r.ok);
       logActivity({
         projectId: ctx.project.id,
         agentId: ctx.agent.id,
         runId: ctx.runId,
+        itemId: ctx.item?.id,
         type: "validation",
-        summary: `${result.ok ? "✅ Validation passed" : "❌ Validation failed"} (${result.mode})`,
-        detail: result.output,
+        summary: `${report.ok ? "✅" : "❌"} Checks${code ? ` on ${code}` : ""}: ${report.note ? "none configured" : failed ? `${failed.name} failed (exit ${failed.exitCode ?? "none"})` : `${report.results.length} passed${report.simulated ? " (simulated)" : ""}`}`,
+        detail: text,
       });
-      return result;
+      return text;
     },
   },
 
@@ -961,9 +819,8 @@ const TOOLS: Record<string, ToolSpec> = {
     },
     handler: async (i, ctx) => {
       req(i, "version", "notes");
-      // With environments, notes and tag are published once — after the last environment.
-      if (ctx.environment && !ctx.environment.final) {
-        throw new Error(`Don't publish yet: ${ctx.environment.name} is environment ${ctx.environment.index + 1} of ${ctx.environment.total}. The release is published after the last environment.`);
+      if (ctx.agent.tools.includes("run_checks") && !ctx.outcome.checks?.ok) {
+        throw new Error("Run the project's checks on the base branch with run_checks first; a release needs them to pass.");
       }
       const id = uid("rel");
       insert("releases", {
@@ -979,7 +836,7 @@ const TOOLS: Record<string, ToolSpec> = {
       ctx.outcome.released = { version: i.version };
       emit({ type: "project", projectId: ctx.project.id });
       try {
-        // Commit what's pending (manifest, notes) and tag the release in the project repository.
+        // Commit what's pending (notes) and tag the release in the project repository.
         await commitWork(ctx.project, { author: `${ctx.agent.name} (${ctx.agent.title})`, email: agentEmail(ctx.agent.name), message: `release: ${i.version}` });
         const tag = await tagRelease(ctx.project, i.version, String(i.notes).split("\n")[0]);
         return `Release ${i.version} published and tagged ${tag}.`;
@@ -989,62 +846,6 @@ const TOOLS: Record<string, ToolSpec> = {
     },
   },
 };
-
-/** deploy_story / run_apex_tests: deploy the task branch's metadata (check-only unless allowed) with its test classes. */
-async function deployItem(ctx: ToolContext, purpose: "development" | "qa") {
-  const it = ctx.item;
-  if (!it) throw new Error("No story is assigned to this run.");
-  const changed = (await changedOnBranch(ctx.project, it.code)).filter((f) => f.startsWith("force-app/"));
-  const testClasses = changed.filter((f) => /\/classes\/[^/]+(Test|_Test)\.cls$/.test(f)).map((f) => f.split("/").pop()!.replace(".cls", ""));
-  const apex = changed.filter((f) => /\/(classes|triggers)\/[^/]+\.(cls|trigger)$/.test(f) && !/(Test|_Test)\.cls$/.test(f));
-  const access = sfAccess(ctx.project, ctx.environment);
-  if (!access.live) {
-    const checks = staticChecks(ctx.project, listWorkspaceFiles(ctx.project, it.code), it.code, false);
-    const text = [
-      `${access.reason}`,
-      `Would ${purpose === "qa" ? "run" : "validate"} ${changed.length} file(s) from ${it.branch ?? "the workspace"}${testClasses.length ? ` with tests ${testClasses.join(", ")}` : ""}.`,
-      checks.problems.length ? `Static checks:\n${checks.problems.map((p) => `- ${p}`).join("\n")}` : "Static checks passed.",
-    ].join("\n");
-    return text;
-  }
-  if (apex.length && !testClasses.length) throw new Error(`The story changes Apex (${apex.map((f) => f.split("/").pop()).join(", ")}) but has no test class on its branch. Write one first.`);
-  // Bundles deploy as a folder; Apex/trigger sources travel with their -meta.xml.
-  const paths = new Set<string>();
-  for (const f of changed) {
-    const bundle = f.match(/^(force-app\/main\/default\/(?:lwc|aura)\/[^/]+)\//);
-    if (bundle) paths.add(bundle[1]);
-    else if (/\.(cls|trigger)-meta\.xml$/.test(f)) paths.add(f.replace(/-meta\.xml$/, ""));
-    else paths.add(f);
-  }
-  for (const p of [...paths]) if (/\.(cls|trigger)$/.test(p)) paths.add(`${p}-meta.xml`);
-  const isProd = access.org.type === "production";
-  // With environments the build environment says whether stories are deployed there or only validated.
-  const build = buildEnvironment(ctx.project.settings);
-  const checkOnly = purpose === "qa" || isProd || (build ? build.deployMode !== "deploy" : ctx.agent.config?.deployMode !== "deploy");
-  const where = `${access.org.alias} (${access.org.type})`;
-  const sfs = projectSalesforce(ctx.project);
-  const report = await deploySource({ alias: access.org.alias, cwd: rootFor(ctx.project, it.code), paths: [...paths], checkOnly, tests: testClasses, testLevel: sfs.devTestLevel });
-  // The team's coverage rule: every Apex class the story changed must reach the minimum.
-  const changedClasses = apex.map((f) => f.split("/").pop()!.replace(/\.(cls|trigger)$/, ""));
-  const low = report.coverage.filter((c) => changedClasses.includes(c.name) && c.percent < sfs.coverageMin);
-  if (report.ok && low.length) {
-    report.ok = false;
-    report.message = `Coverage below the team minimum of ${sfs.coverageMin}%: ${low.map((c) => `${c.name} ${c.percent}%`).join(", ")}. Add tests.`;
-  }
-  if (purpose === "qa") ctx.outcome.apexTests = { ok: report.ok && report.tests.run > 0 };
-  else ctx.outcome.orgDeploy = { ok: report.ok };
-  const text = formatDeploy(report, where);
-  logActivity({
-    projectId: ctx.project.id,
-    agentId: ctx.agent.id,
-    runId: ctx.runId,
-    itemId: it.id,
-    type: "validation",
-    summary: `${report.ok ? "✅" : "❌"} ${it.code}: ${purpose === "qa" ? `${report.tests.run} Apex test(s) in` : checkOnly ? "validated in" : "deployed to"} ${access.org.alias}${report.ok ? "" : ` — ${report.componentErrors.length} component error(s), ${report.tests.failures.length} test failure(s)`}`,
-    detail: text,
-  });
-  return text;
-}
 
 /** JSON replacer: leave out null / empty values (they cost tokens and say nothing). */
 function dropEmpty(_k: string, v: unknown) {
@@ -1086,171 +887,5 @@ export async function executeTool(name: string, input: unknown, ctx: ToolContext
     return { ok: true, content: typeof out === "string" ? out : (JSON.stringify(out, dropEmpty) ?? JSON.stringify(out) ?? "") };
   } catch (e) {
     return { ok: false, content: e instanceof Error ? e.message : String(e) };
-  }
-}
-
-// ---------- Manifest & validation helpers ----------
-
-const TYPE_BY_DIR: Record<string, string> = {
-  classes: "ApexClass",
-  triggers: "ApexTrigger",
-  flows: "Flow",
-  lwc: "LightningComponentBundle",
-  aura: "AuraDefinitionBundle",
-  permissionsets: "PermissionSet",
-  permissionsetgroups: "PermissionSetGroup",
-  layouts: "Layout",
-  flexipages: "FlexiPage",
-  customMetadata: "CustomMetadata",
-  labels: "CustomLabels",
-  staticresources: "StaticResource",
-  tabs: "CustomTab",
-  applications: "CustomApplication",
-  reports: "Report",
-  dashboards: "Dashboard",
-  quickActions: "QuickAction",
-  queues: "Queue",
-  globalValueSets: "GlobalValueSet",
-  namedCredentials: "NamedCredential",
-  externalCredentials: "ExternalCredential",
-  remoteSiteSettings: "RemoteSiteSetting",
-  email: "EmailTemplate",
-  customPermissions: "CustomPermission",
-};
-
-export function buildPackageXml(files: string[], apiVersion = "62.0") {
-  const members = new Map<string, Set<string>>();
-  const add = (type: string, name: string) => {
-    if (!members.has(type)) members.set(type, new Set());
-    members.get(type)!.add(name);
-  };
-  for (const f of files) {
-    const m = f.match(/^force-app\/main\/default\/([^/]+)\/(.+)$/);
-    if (!m) continue;
-    const [, dir, rest] = m;
-    if (dir === "objects") {
-      const parts = rest.split("/");
-      const obj = parts[0];
-      if (parts[1] === "fields") add("CustomField", `${obj}.${parts[2].replace(/\.field-meta\.xml$/, "")}`);
-      else if (parts[1] === "validationRules") add("ValidationRule", `${obj}.${parts[2].replace(/\.validationRule-meta\.xml$/, "")}`);
-      else if (parts[1] === "recordTypes") add("RecordType", `${obj}.${parts[2].replace(/\.recordType-meta\.xml$/, "")}`);
-      else if (parts[1] === "listViews") add("ListView", `${obj}.${parts[2].replace(/\.listView-meta\.xml$/, "")}`);
-      else if (parts[1]?.endsWith(".object-meta.xml")) add("CustomObject", obj);
-      continue;
-    }
-    const type = TYPE_BY_DIR[dir];
-    if (!type) continue;
-    if (type === "LightningComponentBundle" || type === "AuraDefinitionBundle") {
-      add(type, rest.split("/")[0]);
-      continue;
-    }
-    if (rest.endsWith("-meta.xml") && (type === "ApexClass" || type === "ApexTrigger")) continue;
-    if (type === "Report" || type === "Dashboard" || type === "EmailTemplate") {
-      if (!rest.includes("/")) continue; // folder metadata
-      add(type, rest.replace(/\.[^/.]+-meta\.xml$/, ""));
-      continue;
-    }
-    add(type, rest.replace(/\.[^/]+-meta\.xml$/, "").replace(/\.(cls|trigger)$/, "").replace(/\/.*$/, ""));
-  }
-  const types = [...members.keys()].sort();
-  const body = types
-    .map(
-      (t) =>
-        `    <types>\n${[...members.get(t)!].sort().map((m) => `        <members>${m}</members>`).join("\n")}\n        <name>${t}</name>\n    </types>`,
-    )
-    .join("\n");
-  return `<?xml version="1.0" encoding="UTF-8"?>\n<Package xmlns="http://soap.sforce.com/2006/04/metadata">\n${body}\n    <version>${apiVersion}</version>\n</Package>\n`;
-}
-
-function staticChecks(project: Project, files: string[], itemCode?: string | null, needManifest = true) {
-  const problems: string[] = [];
-  const root = rootFor(project, itemCode);
-  for (const f of files) {
-    if (/\.(cls|trigger)$/.test(f) && !files.includes(`${f}-meta.xml`)) problems.push(`Missing ${f}-meta.xml`);
-    if (f.endsWith(".xml")) {
-      const c = fs.readFileSync(path.join(root, f), "utf8");
-      if (!c.trimStart().startsWith("<?xml") && !c.trimStart().startsWith("<")) problems.push(`Not XML: ${f}`);
-      const open = (c.match(/<[A-Za-z][^>]*?(?<!\/)>/g) ?? []).length;
-      const close = (c.match(/<\/[A-Za-z][^>]*>/g) ?? []).length;
-      if (Math.abs(open - close) > 0 && !f.endsWith("package.xml")) problems.push(`Unbalanced tags in ${f} (${open} open / ${close} close)`);
-    }
-  }
-  const classes = files.filter((f) => /classes\/[^/]+\.cls$/.test(f)).map((f) => f.split("/").pop()!.replace(".cls", ""));
-  for (const c of classes) {
-    if (/Test$/.test(c)) continue;
-    if (!classes.includes(`${c}Test`) && !classes.includes(`${c}_Test`)) problems.push(`No test class for ${c}`);
-  }
-  if (needManifest && !files.includes("manifest/package.xml")) problems.push("manifest/package.xml not built");
-  return { ok: problems.filter((p) => !p.startsWith("No test class")).length === 0, problems, classes };
-}
-
-export async function validateWorkspace(project: Project, agent?: Agent, env?: ReleaseEnvironment): Promise<{ ok: boolean; mode: string; output: string; org: TargetOrg | null }> {
-  const files = listWorkspaceFiles(project);
-  const checks = staticChecks(project, files);
-  const staticText = checks.problems.length ? checks.problems.map((p) => `- ${p}`).join("\n") : `All ${files.length} files passed static validation.`;
-  // With environments the step's environment decides the org, mode and test level; the production step before the
-  // approval is always check-only.
-  const org = env ? (env.org ? describeTarget(env.org, "environment", env.name) : null) : await resolveTargetOrg(project, agent?.role === "release" ? agent : undefined);
-  const deployMode = env ? (env.phase === "validate" ? "validate" : env.deployMode) : (agent?.config?.deployMode ?? "validate");
-  const testLevel = env ? env.testLevel : (agent?.config?.testLevel ?? "RunLocalTests");
-  const envText = env ? ` (${env.name} environment, ${env.index + 1} of ${env.total})` : "";
-
-  if (!org) return { ok: checks.ok, mode: env ? `static (${env.name}: no org mapped)` : "static (no target org)", output: staticText, org: null };
-  if (!org.selectable) {
-    return {
-      ok: false,
-      mode: `refused → ${org.alias}`,
-      output: `Refused: ${org.alias} is ${org.type === "unknown" ? "not a registered org" : "a production org that isn't allowed as a target"}. Allow it in Settings → Salesforce orgs if it's meant to be one (e.g. a Trailhead Playground).`,
-      org,
-    };
-  }
-  const where = `${org.alias} (${org.type}${org.instanceUrl ? `, ${org.instanceUrl}` : ""})${envText}`;
-
-  // Simulation never touches Salesforce: the deployment is simulated against the chosen org.
-  if (project.mode === "simulation" || effectiveMode() === "simulation") {
-    const components = (buildPackageXml(files).match(/<members>/g) ?? []).length;
-    const tests = testLevel === "NoTestRun" ? 0 : checks.classes.filter((c) => /Test$/.test(c)).length * 3;
-    return {
-      ok: checks.ok,
-      mode: `simulated ${deployMode === "deploy" ? "deploy" : "check-only"} → ${org.alias}${env ? ` (${env.name})` : ""}`,
-      output: [
-        `Simulated ${deployMode === "deploy" ? "deployment" : "check-only validation"} to ${where} — nothing was sent to Salesforce.`,
-        `Components: ${components} · Test level: ${testLevel} · Tests run: ${tests} (simulated) · Result: ${checks.ok ? "Succeeded" : "Failed"}`,
-        staticText,
-      ].join("\n"),
-      org,
-    };
-  }
-
-  try {
-    const dir = workspaceDir(project);
-    if (!fs.existsSync(path.join(dir, "sfdx-project.json"))) {
-      fs.writeFileSync(path.join(dir, "sfdx-project.json"), sfdxProjectJson(project));
-    }
-    const validatedKey = env ? `envValidation:${project.id}:${env.key}` : null;
-    // The deploy after a production approval ships the release validated before it (quick deploy) when possible.
-    const validated = validatedKey && env?.phase === "deploy" ? getSetting<{ jobId: string } | null>(validatedKey, null) : null;
-    if (validated && deployMode === "deploy") {
-      setSetting(validatedKey!, null);
-      const quick = parseDeploy(await sf(["project", "deploy", "quick", "--job-id", validated.jobId, "--target-org", org.alias, "--wait", "30"], dir), false);
-      if (quick.ok) return { ok: true, mode: `sf quick deploy (validated release) → ${org.alias}`, output: formatDeploy(quick, where), org };
-    }
-    // Production (e.g. a Trailhead Playground) requires tests on deploy; NoTestRun is only valid on non-production orgs.
-    const level = org.type === "production" && testLevel === "NoTestRun" ? "RunLocalTests" : testLevel;
-    const base = ["--manifest", "manifest/package.xml", "--test-level", level, "--target-org", org.alias, "--wait", "30"];
-    const raw = await sf(["project", "deploy", "validate", ...base], dir);
-    const validation = parseDeploy(raw, true);
-    let ok = validation.ok;
-    let output = formatDeploy(validation, where);
-    const jobId = raw.result?.id ? String(raw.result.id) : null;
-    if (ok && env?.phase === "validate" && validatedKey && jobId) setSetting(validatedKey, { jobId, at: new Date().toISOString() });
-    if (ok && deployMode === "deploy") {
-      const deploy = parseDeploy(await sf(["project", "deploy", "start", ...base], dir), false);
-      ok = deploy.ok;
-      output += `\n\n${formatDeploy(deploy, where)}`;
-    }
-    return { ok, mode: `sf ${deployMode === "deploy" ? "validate + deploy" : "validate"} → ${org.alias}${env ? ` (${env.name})` : ""}`, output, org };
-  } catch (e) {
-    return { ok: false, mode: `sf → ${org.alias}`, output: `sf CLI failed: ${e instanceof Error ? e.message : e}`, org };
   }
 }

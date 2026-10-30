@@ -206,7 +206,7 @@ test("first sync creates every item parents-first with the right JSON-patch", as
   assert.equal(s["System.AreaPath"], "Demo\\Team A");
   assert.equal(s["System.IterationPath"], "Demo\\Release 1\\Sprint 2");
   assert.equal(s["System.State"], "New");
-  assert.deepEqual(String(s["System.Tags"]).split("; "), ["dispatch", "SiroccoARM", "development", `ARM ${story.code}`]);
+  assert.deepEqual(String(s["System.Tags"]).split("; "), ["dispatch", "AgentStudio", "development", `ARM ${story.code}`]);
   assert.deepEqual(ado(story).relations, [{ rel: "System.LinkTypes.Hierarchy-Reverse", url: `${adoBase}/fakeorg/_apis/wit/workItems/${getItem(feature.id)!.ado_id}` }]);
   assert.deepEqual(ado(epic).relations, []);
   assert.equal(ado(epic).fields["System.IterationPath"], "Demo\\Release 1", "no sprint → the iteration root");

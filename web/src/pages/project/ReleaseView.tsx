@@ -4,8 +4,6 @@ import { Hint } from "../../components/Hint";
 import { toast } from "../../lib/toast";
 import { useItems } from "./hooks";
 import { Field } from "../../components/Hint";
-import { AddOrgModal, OrgBadge, OrgPicker } from "../../components/Orgs";
-import { EnvironmentChain } from "../../components/Environments";
 import { useState } from "react";
 import { api, type Project, type Release, type TestResult, type WorkItem } from "../../lib/api";
 import { useOpenItem } from "./hooks";
@@ -24,12 +22,6 @@ export default function ReleaseView({ p }: { p: Project }) {
   const qc = useQueryClient();
   const { data: items } = useItems(p.id);
   const ready = (items ?? []).filter((i) => i.state === "Release Ready");
-  const [addingOrg, setAddingOrg] = useState(false);
-  const setOrg = useMutation({
-    mutationFn: (alias: string | null) => api.patch(`/projects/${p.id}`, { settings: { targetOrg: alias } }),
-    onSuccess: () => { qc.invalidateQueries({ queryKey: ["project"] }); toast("Target org updated"); },
-    onError: (e: Error) => toast(e.message, "bad"),
-  });
 
   return (
     <div className="grid" style={{ gridTemplateColumns: "minmax(0, 1fr) 360px", alignItems: "start" }}>
@@ -42,7 +34,7 @@ export default function ReleaseView({ p }: { p: Project }) {
               <div className="card-head">
                 <div className="card-title"><Rocket size={16} color="var(--accent)" /> Release {r.version}</div>
                 <div className="row small muted" style={{ gap: 10 }}>
-                  {v && <span className="pill" style={{ color: v.ok ? "var(--good)" : "var(--bad)", background: v.ok ? "rgba(62,207,142,.1)" : "rgba(242,85,90,.1)" }}>{v.ok ? "✓ validation passed" : "✗ validation failed"} · {v.mode}</span>}
+                  {v && <span className="pill" style={{ color: v.ok ? "var(--good)" : "var(--bad)", background: v.ok ? "rgba(62,207,142,.1)" : "rgba(242,85,90,.1)" }}>{v.ok ? "✓ checks passed" : "✗ checks failed"}</span>}
                   {dateTime(r.created_at)}
                 </div>
               </div>
@@ -50,24 +42,16 @@ export default function ReleaseView({ p }: { p: Project }) {
             </div>
           );
         }) : (
-          <div className="card"><Empty icon={<Rocket size={20} />} title="No release yet">When every story is release-ready, the release manager builds the manifest, validates the deployment (check-only), smoke-tests each story and publishes release notes.</Empty></div>
+          <div className="card"><Empty icon={<Rocket size={20} />} title="No release yet">When every story is release-ready, the release manager runs the project's checks on the base branch, smoke-tests each story and publishes release notes with a git tag.</Empty></div>
         )}
       </div>
       <div className="col" style={{ gap: 14 }}>
         <div className="card card-pad col" style={{ gap: 10 }}>
-          <div className="card-title">{p.settings.environments?.length ? "Environments" : "Target org"}</div>
-          {p.settings.environments?.length ? (
-            <>
-              <EnvironmentChain envs={p.settings.environments} />
-              <div className="tiny muted">Stories are built on the build environment; releases walk the others in order, pausing where approval is on. Change them in the project's Settings.</div>
-            </>
-          ) : <>
-          {p.targetOrg ? <div><OrgBadge alias={p.targetOrg.alias} type={p.targetOrg.type} /> <span className="tiny muted">{p.targetOrg.source === "project" ? "set for this project" : "release agent's default"}</span></div> : <div className="small muted">None — static validation only.</div>}
-          <Field label="Deploy this project to" help="Overrides the release agent's default org for this project only. Leave it on the default to follow the agent. In simulation the deployment is simulated against this org.">
-            <OrgPicker value={p.settings.targetOrg ?? null} onChange={(v) => setOrg.mutate(v)} emptyLabel="Release agent's default" onAdd={() => setAddingOrg(true)} />
-          </Field>
-          {addingOrg && <AddOrgModal onClose={() => setAddingOrg(false)} onAdded={(a) => setOrg.mutate(a)} />}
-          </>}
+          <div className="card-title">Checks</div>
+          {p.checks.length ? (
+            <ul className="small" style={{ margin: 0, paddingLeft: 18 }}>{p.checks.map((c) => <li key={c.name}><span className="mono">{c.command}</span></li>)}</ul>
+          ) : <div className="small muted">None found — add them in the project's Settings, or add test and build scripts to package.json.</div>}
+          <div className="tiny muted">Every story passes them before QA, and the release runs them again on the base branch.</div>
         </div>
         <div className="card card-pad col" style={{ gap: 10 }}>
           <div className="card-title"><ShieldCheck size={15} /> Quality</div>
@@ -168,11 +152,9 @@ function ReadyToRelease({ p, ready, releases }: { p: Project; ready: WorkItem[];
       <div className="card-head" style={{ borderTop: "1px solid var(--line)", borderBottom: 0, flexWrap: "wrap" }}>
         <div className="small muted">
           <b style={{ color: "var(--text)" }}>{selected.length}</b> of {ready.length} selected · {points} pts · next version <b className="mono" style={{ color: "var(--text)" }}>v{next.version}</b> ({next.kind})
-          {p.settings.environments?.length
-            ? <> · goes through <b>{p.settings.environments.filter((e, _i, all) => e.purpose !== "build" || all.every((x) => x.purpose === "build")).map((e) => e.name).join(" → ")}</b> — releasing now counts as your approval for each{p.mode === "simulation" ? " (simulated)" : ""}</>
-            : p.targetOrg ? <> · deploys to <b>{p.targetOrg.alias}</b>{p.mode === "simulation" ? " (simulated)" : ""}</> : " · no target org — static validation only"}
+          {p.mode === "simulation" ? " · simulated" : ""}
         </div>
-        <Hint text={busy ? "Wait until the pipeline or the running job finishes." : "The release manager builds the manifest, validates the deployment, smoke-tests each selected item, publishes the release notes and tags the repository."}>
+        <Hint text={busy ? "Wait until the pipeline or the running job finishes." : "The release manager runs the project's checks on the base branch, smoke-tests each selected item, publishes the release notes and tags the repository."}>
           <button className="btn primary" disabled={!selected.length || busy || release.isPending} onClick={() => release.mutate()}>
             <Rocket size={14} /> Release {selected.length} item{selected.length === 1 ? "" : "s"} as v{next.version}
           </button>

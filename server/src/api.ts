@@ -18,7 +18,6 @@ import { approveGate, buildStages, fixBug, humanTransition, isPausing, pauseAll,
 import { chat, chatHistory } from "./chat.js";
 import { autoResumeAllowed, globalPause, spendStatus } from "./pause.js";
 import { ensureRepo, gitLog, listBranches, providerOf, repoName, testRemoteUrl, validateRepoUrl, webUrlOf } from "./git.js";
-import { sf } from "./sf.js";
 import { runChecks } from "./doctor.js";
 import { cleanAdoConfig } from "./ado.js";
 import { registerAdo } from "./routes/ado.js";
@@ -26,11 +25,10 @@ import { registerAuth } from "./routes/auth.js";
 import { registerAccuracy } from "./routes/accuracy.js";
 import { codeReviewMode } from "./review.js";
 import { CUSTOM_AGENTS_ENABLED } from "./team.js";
-import { cleanEnvironments, type Environment } from "./environments.js";
 import { registerTemplates } from "./routes/templates.js";
 import { audit } from "./auth.js";
-import { DEFAULT_TEAM, applyImport, cleanSalesforceOverride, exportTeam, planImport, saveTeamSettings, teamSettings } from "./team.js";
-import { addManualOrg, listOrgs, loginUrlFor, removeManualOrg, resolveTargetOrg, setAllowProduction, type OrgType } from "./salesforce.js";
+import { DEFAULT_TEAM, applyImport, cleanChecksOverride, exportTeam, planImport, saveTeamSettings, teamSettings } from "./team.js";
+import { checksFor } from "./checks.js";
 import { adoImportCsv, backlogCsv, workspaceZip } from "./exports.js";
 import {
   createItem,
@@ -93,7 +91,6 @@ api.get("/meta", (_req, res) => {
     mode: effectiveMode(),
     hasApiKey: hasApiKey(),
     backend: claudeBackend(),
-    sfOrgCount: listOrgs().orgs.length,
     globalPause: (() => {
       const gp = globalPause();
       return gp ? { ...gp, autoResume: autoResumeAllowed(gp) } : null;
@@ -279,7 +276,7 @@ function projectSummary(p: Project) {
     running: isRunning(p.id),
     pipelineRunning: pipelineRunning(p.id),
     pausing: isPausing(p.id),
-    targetOrg: resolveTargetOrg(p),
+    checks: checksFor(p),
     repoInfo: p.settings.repo?.url
       ? { url: p.settings.repo.url, branch: p.settings.repo.branch || "main", push: p.settings.repo.push === true, provider: providerOf(p.settings.repo.url), name: repoName(p.settings.repo.url), webUrl: webUrlOf(p.settings.repo.url) }
       : null,
@@ -367,20 +364,12 @@ api.post("/projects", wrap(async (req, res) => {
   const agentIds: string[] = Array.isArray(body.agentIds) ? body.agentIds : [];
   if (!agentIds.length) return res.status(400).json({ error: "Select at least one agent" });
   const s = appSettings();
-  let environments: Environment[] | undefined;
-  try {
-    environments = cleanEnvironments(body.settings?.environments);
-  } catch (e) {
-    return res.status(400).json({ error: e instanceof Error ? e.message : String(e) });
-  }
   const settings = {
-    ...(environments?.length ? { environments } : {}),
     gates: body.settings?.gates ?? s.defaultGates,
     parallelism: Number(body.settings?.parallelism ?? s.defaultParallelism),
     budgetUsd: Number(body.settings?.budgetUsd ?? s.defaultBudgetUsd),
     maxRework: Number(body.settings?.maxRework ?? s.maxRework),
     codeReview: codeReviewMode(body.settings?.codeReview),
-    targetOrg: body.settings?.targetOrg ? String(body.settings.targetOrg) : null,
     repo: { url: repoCheck.url, branch, push: body.settings?.repo?.push === true },
   };
   const id = uid("prj");
@@ -470,17 +459,9 @@ api.patch("/projects/:pid", wrap(async (req, res) => {
       return res.status(400).json({ error: e instanceof Error ? e.message : String(e) });
     }
   }
-  if (body.settings?.salesforce !== undefined) {
+  if (body.settings?.checks !== undefined) {
     try {
-      body.settings.salesforce = cleanSalesforceOverride(body.settings.salesforce);
-    } catch (e) {
-      return res.status(400).json({ error: e instanceof Error ? e.message : String(e) });
-    }
-  }
-  if (body.settings?.environments !== undefined) {
-    if (isRunning(p.id)) return res.status(409).json({ error: "Pause the project before changing its environments" });
-    try {
-      body.settings.environments = cleanEnvironments(body.settings.environments, { previous: p.settings.environments }) ?? [];
+      body.settings.checks = cleanChecksOverride(body.settings.checks);
     } catch (e) {
       return res.status(400).json({ error: e instanceof Error ? e.message : String(e) });
     }
@@ -493,7 +474,7 @@ api.patch("/projects/:pid", wrap(async (req, res) => {
       const old = p.stages.find((o) => o.key === s.key);
       return old && (old.status === "done" || old.status === "awaiting_approval") ? { ...s, status: old.status } : s;
     });
-  } else if ((body.settings?.gates !== undefined || body.settings?.environments !== undefined) && !isRunning(p.id)) {
+  } else if (body.settings?.gates !== undefined && !isRunning(p.id)) {
     const fresh = buildStages({ agent_ids: p.agent_ids, settings: patch.settings! });
     patch.stages = fresh.map((s) => {
       const old = p.stages.find((o) => o.key === s.key);
@@ -798,17 +779,13 @@ api.post("/projects/:pid/release-now", (req, res) => {
   }
 });
 
-// ---------------------------------------------------------------- Salesforce orgs (manual registry, no credentials)
-
-api.get("/salesforce/orgs", (_req, res) => res.json(listOrgs().orgs));
-
-/** Is this machine ready? `network=1` also checks GitHub, each org and Claude model access (all free, read-only). */
+/** Is this machine ready? `network=1` also checks GitHub and Claude model access (all free, read-only). */
 api.get(
   "/system/check",
   wrap(async (req, res) => res.json(await runChecks({ network: req.query.network === "1" }))),
 );
 
-// ---------------------------------------------------------------- team: conventions, Salesforce defaults, templates
+// ---------------------------------------------------------------- team: conventions, checks, templates
 
 api.get("/team", (_req, res) => res.json({ ...teamSettings(), defaults: DEFAULT_TEAM }));
 
@@ -822,10 +799,10 @@ api.put("/team", (req, res) => {
   }
 });
 
-/** Download the team as a portable template file (no API keys, org aliases or credentials). */
+/** Download the team as a portable template file (no API keys or credentials). */
 api.get("/team/export", (req, res) => {
   const t = exportTeam({ name: req.query.name ? String(req.query.name) : undefined, description: req.query.description ? String(req.query.description) : undefined });
-  const file = `${t.name.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "") || "team"}.siroccoarm-team.json`;
+  const file = `${t.name.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "") || "team"}.agentstudio-team.json`;
   res.setHeader("Content-Disposition", `attachment; filename="${file}"`);
   res.type("application/json").send(JSON.stringify(t, null, 2));
 });
@@ -848,96 +825,6 @@ api.post("/team/import", (req, res) => {
   } catch (e) {
     res.status(400).json({ error: e instanceof Error ? e.message : String(e) });
   }
-});
-
-const registered = (alias: string) => listOrgs().orgs.find((o) => o.alias === alias);
-
-/** Is the Salesforce CLI logged in to this alias? A read-only query of the Organization record — no tokens are read
- *  or shown. You start it, so it works in any mode. */
-api.post(
-  "/salesforce/orgs/:alias/test",
-  wrap(async (req, res) => {
-    const org = registered(String(req.params.alias));
-    if (!org) return res.status(404).json({ error: "Org not registered" });
-    try {
-      const r = await sf(["data", "query", "--query", "SELECT Id, Name, OrganizationType, IsSandbox, InstanceName, TrialExpirationDate FROM Organization", "--target-org", org.alias], undefined, 60_000);
-      const rec = r.result?.records?.[0];
-      if (r.status !== 0 || !rec) return res.json({ ok: false, error: cleanSfError(r.message ?? "No answer from the org.") });
-      const actual = rec.IsSandbox ? "sandbox" : /developer/i.test(rec.OrganizationType ?? "") ? "developer" : "production";
-      res.json({
-        ok: true,
-        name: rec.Name,
-        orgType: rec.OrganizationType,
-        isSandbox: !!rec.IsSandbox,
-        instance: rec.InstanceName,
-        trialExpires: rec.TrialExpirationDate ?? null,
-        warning:
-          actual === "sandbox" && org.type !== "sandbox"
-            ? "Salesforce reports a sandbox — update the type."
-            : !rec.IsSandbox && org.type === "sandbox"
-              ? "Salesforce reports this is NOT a sandbox — register it with its real type."
-              : org.type === "production" && !org.selectable
-                ? "Connected, but agents can't use it until you allow this production org."
-                : null,
-      });
-    } catch (e) {
-      res.json({ ok: false, error: cleanSfError(e instanceof Error ? e.message : String(e)) });
-    }
-  }),
-);
-
-/** The CLI's messages carry flag-parsing noise ("Parsing --target-org … See more help with --help"). */
-function cleanSfError(m: string) {
-  return m.replace(/^Parsing --[\w-]+\s*/i, "").replace(/\s*See more help with --help\.?\s*$/i, "").replace(/\s+/g, " ").trim();
-}
-
-api.patch("/salesforce/orgs/:alias", (req, res) => {
-  try {
-    setAllowProduction(String(req.params.alias), req.body?.allowProduction === true);
-    audit(req, "org.update", String(req.params.alias), { allowProduction: req.body?.allowProduction === true });
-    emit({ type: "project" });
-    res.json(listOrgs().orgs);
-  } catch (e) {
-    res.status(400).json({ error: e instanceof Error ? e.message : String(e) });
-  }
-});
-
-/** Start the Salesforce CLI's own browser login for this alias. You sign in in the browser; the CLI keeps the session —
- *  SiroccoARM never sees or stores the credentials. */
-api.post(
-  "/salesforce/orgs/:alias/login",
-  wrap(async (req, res) => {
-    const org = registered(String(req.params.alias));
-    if (!org) return res.status(404).json({ error: "Org not registered" });
-    const url = loginUrlFor(org);
-    try {
-      const r = await sf(["org", "login", "web", "--alias", org.alias, "--instance-url", url], undefined, 5 * 60_000);
-      res.json(r.status === 0 ? { ok: true, url } : { ok: false, url, error: cleanSfError(r.message ?? "Login didn't complete.") });
-    } catch (e) {
-      res.json({ ok: false, error: e instanceof Error ? e.message : String(e) });
-    }
-  }),
-);
-
-api.post("/salesforce/orgs", (req, res) => {
-  const b = req.body ?? {};
-  const type = (["sandbox", "scratch", "developer", "production"].includes(b.type) ? b.type : "sandbox") as OrgType;
-  try {
-    addManualOrg({ alias: String(b.alias ?? ""), type, instanceUrl: b.instanceUrl ? String(b.instanceUrl) : null, allowProduction: b.allowProduction === true });
-    audit(req, "org.add", String(b.alias), { type });
-    emit({ type: "project" });
-    res.json(listOrgs().orgs);
-  } catch (e) {
-    res.status(400).json({ error: e instanceof Error ? e.message : String(e) });
-  }
-});
-
-api.delete("/salesforce/orgs/:alias", (req, res) => {
-  const cleared = removeManualOrg(String(req.params.alias));
-  audit(req, "org.remove", String(req.params.alias), { cleared });
-  emit({ type: "project" });
-  emit({ type: "agent" });
-  res.json({ orgs: listOrgs().orgs, cleared });
 });
 
 // ---------------------------------------------------------------- chat with an agent
@@ -1087,7 +974,7 @@ api.get(
       generatedAt: now(),
       project: {
         key: p.key, name: p.name, description: p.description, status: p.status, mode: p.mode, createdAt: p.created_at, startedAt: p.started_at, finishedAt: p.finished_at,
-        pdfName: p.pdf_name, repo: p.settings.repo ?? null, targetOrg: resolveTargetOrg(p), gates: p.settings.gates, budgetUsd: p.settings.budgetUsd,
+        pdfName: p.pdf_name, repo: p.settings.repo ?? null, gates: p.settings.gates, budgetUsd: p.settings.budgetUsd,
       },
       kpis: {
         epics: items.filter((i) => i.type === "epic").length, features: items.filter((i) => i.type === "feature").length, items: deliverables.length, points,

@@ -6,15 +6,15 @@ summary: Estimation in story points, MoSCoW + WSJF prioritisation, dependency or
 
 ## Estimation (story points, Fibonacci 1, 2, 3, 5, 8, 13)
 
-Estimate relative effort + complexity + uncertainty, not hours. Reference scale for Salesforce work:
+Estimate relative effort + complexity + uncertainty, not hours. Reference scale:
 
 | Points | Typical example |
 |---|---|
 | 1 | Add a field to a layout, simple validation rule |
-| 2 | New field + permission set + simple before-save flow |
-| 3 | Record-triggered flow with a few branches, or a small Apex service with tests |
-| 5 | Apex service + trigger handler + test class, or a screen flow with several screens |
-| 8 | Integration callout with error handling, or a non-trivial LWC with Apex controller |
+| 2 | A new field end to end (migration, model, API, UI) with tests |
+| 3 | A small service or endpoint with a few branches, with tests |
+| 5 | A feature across several modules, or a multi-step UI flow, with tests |
+| 8 | An integration with error handling and retries, or a non-trivial UI component with its API |
 | 13 | Too big — split it. Only allowed for spikes or data migrations with many objects |
 
 Anything > 8 should be split into smaller stories (by workflow step, business rule, data variation, or happy/unhappy path).
@@ -38,4 +38,4 @@ Sections: **Summary** (scope, total points, number of sprints, key risks) · **S
 
 ## Definition of Done (team level)
 
-Code + metadata built, tests ≥ 90 % coverage on new Apex, QA verdict approved with every AC ✅, task documentation written, user manual updated, included in a release manifest, smoke test passed.
+Code built with tests for every AC, the project's checks passing, QA verdict approved with every AC ✅, task documentation written, user manual updated, merged and released, smoke test passed.

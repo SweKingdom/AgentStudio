@@ -16,7 +16,7 @@ Two kinds of documents:
 ## What was built     — bullets: components and their purpose (API names)
 ## How it works       — short walkthrough of the behaviour, per AC
 ## How to test        — copied/condensed from the story
-## Deployment notes   — pre/post steps, permission sets to assign
+## Deployment notes   — pre/post steps, migrations, configuration to set
 ## Known limitations  — anything out of scope or deferred
 ```
 
@@ -25,7 +25,7 @@ Two kinds of documents:
 | Kind | Audience | Content |
 |---|---|---|
 | `user_manual` | End users (agents, dispatchers, managers) | Task-oriented chapters: "How to …". Plain language, numbered steps, field names as users see them (labels, not API names), tips and warnings. When a story changes behaviour, update the relevant chapter **in place** — don't append a changelog to the manual. Keep a table of contents. |
-| `technical_overview` | Admins / developers | Data model, automations per object, integrations, permission sets, deployment notes. One section per object/area, updated in place. |
+| `technical_overview` | Operators / developers | Architecture, data model, APIs, integrations, configuration, deployment notes. One section per module/area, updated in place. |
 | `changelog` | Everyone | Reverse-chronological list: `{date} — {CODE} {title}: one line`. |
 | `release_notes` | Business + IT | Written by the release manager at release time: highlights, stories delivered, manual steps, known issues. |
 

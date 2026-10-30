@@ -25,7 +25,6 @@ const item = (code: string, title: string, branch: string | null = null) => ({ c
 test("each task works on its own branch and worktree, then merges into main", async () => {
   const { p } = project("GBR");
   await ensureRepo(p);
-  assert.ok(fs.existsSync(path.join(workspaceDir(p), "sfdx-project.json")), "every branch is an SFDX project");
   const a = item("US-101", "Email to case");
   const b = item("US-102", "Assign by región");
   const ra = await ensureItemBranch(p, a);

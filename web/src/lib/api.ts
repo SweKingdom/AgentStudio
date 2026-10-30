@@ -6,7 +6,7 @@ export interface AppSettings {
   dailyLimitUsd: number; monthlyLimitUsd: number; autoResumeLimits: boolean; backend: "auto" | "api" | "subscription";
 }
 export interface Meta {
-  mode: "live" | "simulation"; hasApiKey: boolean; backend: "api" | "subscription"; sfOrgCount: number;
+  mode: "live" | "simulation"; hasApiKey: boolean; backend: "api" | "subscription";
   globalPause: { reason: string; kind: string; since: string; resumeAt: string | null; autoResume: boolean; projects: string[]; jobs: unknown[] } | null;
   spend: { today: number; month: number; dailyLimitUsd: number; monthlyLimitUsd: number }; settings: AppSettings; models: ModelPrice[]; roles: RoleDef[];
   pipelineRoles: string[]; tools: { name: string; label: string; description: string }[]; categories: string[]; states: string[];
@@ -22,22 +22,18 @@ export interface AgentDetail extends Agent { systemPrompt: string; recentRuns: R
 export interface Run { id: string; project_id: string; agent_id: string; stage: string; item_id: string | null; status: string; turns: number; agent_version?: number; kind?: string; summary: string | null; error: string | null; started_at: string; ended_at: string | null; project_key?: string; item_code?: string }
 export interface Knowledge { id: string; title: string; summary: string; content: string; tokens: number; custom: boolean }
 export interface StageState { key: string; role: string; label: string; status: "pending" | "running" | "done" | "skipped" | "awaiting_approval" | "failed"; gate?: boolean }
-export interface ProjectSettings { gates: boolean; parallelism: number; budgetUsd: number; maxRework: number; targetOrg?: string | null; repo?: { url: string; branch: string; push?: boolean } | null; codeReview?: "off" | "complex" | "all"; salesforce?: Partial<{ apiVersion: string; coverageMin: number; namespace: string; prefix: string; devTestLevel: "RunSpecifiedTests" | "RunLocalTests" }>; ado?: AdoConfig | null; environments?: Environment[] }
+export interface ProjectSettings { gates: boolean; parallelism: number; budgetUsd: number; maxRework: number; repo?: { url: string; branch: string; push?: boolean } | null; codeReview?: "off" | "complex" | "all"; checks?: Partial<ChecksSettings>; ado?: AdoConfig | null }
 /** Azure DevOps project the backlog syncs to. The token lives only in .env (AZURE_DEVOPS_PAT). */
 export interface AdoConfig { orgUrl: string; project: string; areaPath?: string; iterationRoot?: string; stateMode: "same" | "agile" }
 export interface RepoInfo { url: string; branch: string; push?: boolean; provider: "github" | "azure" | "gitlab" | "bitbucket" | "other"; name: string; webUrl: string | null }
 export interface Commit { hash: string; short: string; author: string; email: string; date: string; subject: string; files: { path: string; added: number; removed: number }[]; tags: string[]; branches: string[]; parents?: string[] }
 export interface BranchInfo { name: string; head: string; date: string; subject: string; base: boolean; merged: boolean; ahead: number; active: boolean }
-export type OrgType = "sandbox" | "scratch" | "developer" | "production";
-export interface SfOrg { alias: string; username: string | null; type: OrgType; instanceUrl: string | null; manual: boolean; allowProduction?: boolean; selectable: boolean }
-export interface TargetOrg { alias: string; type: OrgType | "unknown"; instanceUrl: string | null; source: "project" | "agent" | "environment"; environment?: string; selectable: boolean }
-export type EnvPurpose = "build" | "stage" | "production";
-export type TestLevel = "NoTestRun" | "RunSpecifiedTests" | "RunLocalTests" | "RunAllTestsInOrg";
-/** One Salesforce environment of a project's chain (build → stage → production). Org = alias only, never credentials. */
-export interface Environment { key: string; name: string; purpose: EnvPurpose; org: string | null; deployMode: "validate" | "deploy"; testLevel: TestLevel; approval: boolean }
-/** A reusable project setup: team roles, run settings and environment slots (orgs are mapped per project). */
-export interface NetworkTemplate { id: string; name: string; description: string; builtin: boolean; roles: string[]; settings: { gates: boolean; parallelism: number; maxRework: number; budgetUsd: number }; environments: Environment[] }
-export interface AgentConfig { targetOrg?: string; deployMode?: "validate" | "deploy"; testLevel?: "RunLocalTests" | "RunSpecifiedTests" | "NoTestRun" | "RunAllTestsInOrg" }
+/** A command the project must pass (run in the story's worktree); the team sets defaults, a project can override. */
+export interface CheckCommand { name: string; command: string }
+export interface ChecksSettings { commands: CheckCommand[]; timeoutMinutes: number }
+/** A reusable project setup: team roles and run settings. */
+export interface NetworkTemplate { id: string; name: string; description: string; builtin: boolean; roles: string[]; settings: { gates: boolean; parallelism: number; maxRework: number; budgetUsd: number } }
+export type AgentConfig = Record<string, never>;
 export interface Project {
   id: string; key: string; name: string; description: string; status: string; stage: string | null; stages: StageState[];
   pdf_file: string | null; pdf_name: string | null; pdf_pages: number | null; pdf_tokens: number | null; agent_ids: string[];
@@ -45,7 +41,7 @@ export interface Project {
   started_at: string | null; finished_at: string | null; running: boolean;
   counts: { epics: number; features: number; stories: number; done: number; releaseReady: number; inProgress: number; blocked: number; points: number };
   costUsd: number; tokens: number; openQuestions: number; activeRuns: { agent_id: string; item_id: string | null; stage: string }[];
-  pipelineRunning: boolean; pausing: boolean; jobs: { key: string; label: string; itemId: string | null }[]; targetOrg: TargetOrg | null; repoInfo: RepoInfo | null;
+  pipelineRunning: boolean; pausing: boolean; jobs: { key: string; label: string; itemId: string | null }[]; checks: CheckCommand[]; repoInfo: RepoInfo | null;
   liveEstimate?: Estimate | null;
 }
 export interface AgentEstimate { agentId: string; name: string; role: string; model: string; runs: number; calls: number; inputTokens: number; outputTokens: number; cacheReadTokens: number; cacheWriteTokens: number; costUsd: number; minutes: number;

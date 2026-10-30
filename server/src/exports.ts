@@ -3,7 +3,7 @@ import path from "node:path";
 import { zipSync, strToU8 } from "fflate";
 import { all } from "./db.js";
 import { listItems, listWorkspaceFiles, workspaceDir, type Project, type WorkItem } from "./store.js";
-import { sfdxProjectJson, teamSettings } from "./team.js";
+import { teamSettings } from "./team.js";
 
 function csvCell(v: unknown) {
   const s = v == null ? "" : Array.isArray(v) ? v.join("; ") : String(v);
@@ -83,18 +83,15 @@ export function adoImportCsv(p: Project) {
   return toCsv([header, ...rows]);
 }
 
-/** Everything the team produced: SFDX workspace, documents, both CSVs and a README. */
+/** Everything the team produced: workspace, documents, both CSVs and a README. */
 export function workspaceZip(p: Project) {
   const root = workspaceDir(p);
   const entries: Record<string, Uint8Array> = {};
   for (const rel of listWorkspaceFiles(p)) entries[`${p.key}/${rel}`] = new Uint8Array(fs.readFileSync(path.join(root, rel)));
   entries[`${p.key}/backlog.csv`] = strToU8(backlogCsv(p));
   entries[`${p.key}/azure-devops-import.csv`] = strToU8(adoImportCsv(p));
-  if (!entries[`${p.key}/sfdx-project.json`]) {
-    entries[`${p.key}/sfdx-project.json`] = strToU8(sfdxProjectJson(p));
-  }
   entries[`${p.key}/README.md`] = strToU8(
-    `# ${p.name} (${p.key})\n\nExported from SiroccoARM on ${new Date().toISOString().slice(0, 10)}${p.mode === "simulation" ? " — produced in simulation mode" : ""}.\n\n| Path | Content |\n|---|---|\n| \`force-app/\` | SFDX source |\n| \`manifest/package.xml\` | Release manifest |\n| \`scripts/\` | Data and Apex scripts |\n| \`docs/\` | Project documents and per-story folders |\n| \`backlog.csv\` | Full backlog (Excel) |\n| \`azure-devops-import.csv\` | Azure DevOps work item import |\n`,
+    `# ${p.name} (${p.key})\n\nExported from AgentStudio on ${new Date().toISOString().slice(0, 10)}${p.mode === "simulation" ? " — produced in simulation mode" : ""}.\n\n| Path | Content |\n|---|---|\n| \`src/\` and others | The project's source |\n| \`docs/\` | Project documents and per-story folders |\n| \`backlog.csv\` | Full backlog (Excel) |\n| \`azure-devops-import.csv\` | Azure DevOps work item import |\n`,
   );
   return Buffer.from(zipSync(entries, { level: 6 }));
 }

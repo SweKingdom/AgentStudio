@@ -19,19 +19,15 @@ export interface ProjectSettings {
   parallelism: number;
   budgetUsd: number;
   maxRework: number;
-  /** Salesforce org alias this project deploys to; overrides the release agent's default. */
-  targetOrg?: string | null;
   /** Git repository the project's workspace belongs to (stored as `origin`; never pushed in simulation). */
   /** `push`: push task branches, the base branch and release tags to origin, with this machine's own git login. */
   repo?: { url: string; branch: string; push?: boolean } | null;
   /** Architect code review of each story's diff after QA approves: off (default), complex stories only, or all. */
   codeReview?: "off" | "complex" | "all";
-  /** Overrides of the team's Salesforce settings for this project (API version, coverage, namespace, prefix…). */
-  salesforce?: Partial<import("./team.js").SalesforceSettings>;
+  /** Overrides of the team's checks for this project (commands, timeout). */
+  checks?: Partial<import("./team.js").ChecksSettings>;
   /** Azure DevOps project the backlog syncs to. The token is never stored: it lives in .env as AZURE_DEVOPS_PAT. */
   ado?: import("./ado.js").AdoConfig | null;
-  /** Ordered Salesforce environments (build → stage → production). Empty/absent: single target org, single release. */
-  environments?: import("./environments.js").Environment[];
 }
 
 export interface Project {

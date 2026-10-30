@@ -1,8 +1,6 @@
 import fs from "node:fs";
 import { all, insert, now, run } from "./db.js";
 import { emit } from "./events.js";
-import { resolveTargetOrg } from "./salesforce.js";
-import { buildEnvironment, environmentStages, envStep, parseEnvStage, releaseEnvironments, usesEnvironments, type ReleaseEnvironment } from "./environments.js";
 import { agentEmail, listAgents, type Agent } from "./agents/store.js";
 import { AbortedError, BudgetExceededError, LimitReachedError, PauseRequestedError, projectCost, runAgent } from "./agents/runner.js";
 import type { LimitKind } from "./errors.js";
@@ -71,10 +69,8 @@ export function buildStages(project: Pick<Project, "agent_ids" | "settings">): S
     st("planning", "planner", "Prioritisation & delivery plan", roles.has("planner")),
     st("approve_plan", "human", "Approve delivery plan", gates && roles.has("planner"), true),
     st("delivery", "developer", "Build · Test · Document", roles.has("developer")),
-    // With environments the release walks them in order (their own approvals replace "Approve release").
-    ...(usesEnvironments(project.settings)
-      ? environmentStages(project.settings, roles.has("release"))
-      : [st("approve_release", "human", "Approve release", gates && roles.has("release"), true), st("release", "release", "Deploy · Smoke test · Release", roles.has("release"))]),
+    st("approve_release", "human", "Approve release", gates && roles.has("release"), true),
+    st("release", "release", "Check · Smoke test · Release", roles.has("release")),
   ];
 }
 
@@ -249,11 +245,6 @@ async function loop(projectId: string, signal: AbortSignal) {
       patchProject(projectId, { status: "awaiting_approval" });
       return;
     }
-    if (next.gate && parseEnvStage(next.key) && !releaseTrain(p).length) {
-      // Nothing to release: don't ask for an environment approval.
-      skipEnvStages(projectId, next.key, "Nothing is Release Ready — the environment release steps are skipped.");
-      continue;
-    }
     if (next.gate) {
       setStage(projectId, next.key, "awaiting_approval");
       patchProject(projectId, { status: "awaiting_approval" });
@@ -290,8 +281,6 @@ async function runStage(p: Project, key: string, signal: AbortSignal) {
     case "release":
       return stageRelease(p, signal);
   }
-  const step = envStep(p.settings, key);
-  if (step) await stageReleaseEnv(p, step, signal, key);
 }
 
 function addPhase(projectId: string, itemId: string, phase: string, agentId: string, startedAt: string, endedAt: string) {
@@ -409,10 +398,6 @@ function normalisePlan(projectId: string) {
 
 async function stageDelivery(p: Project, signal: AbortSignal) {
   if (!agentsFor(p, "planner").length) normalisePlan(p.id);
-  const build = buildEnvironment(p.settings);
-  if (build) {
-    logActivity({ projectId: p.id, agentId: "orchestrator", type: "note", summary: `Stories are built and tested against the ${build.name} environment (${build.org ? `org ${build.org}` : "no org mapped — static checks only"})` });
-  }
   const all = () => listItems(p.id).filter((i) => i.type === "story" || i.type === "task" || i.type === "bug");
   const waiting = all().filter((i) => !DELIVERED_STATES.includes(i.state) && waitingForAnswers(i));
   for (const w of waiting) {
@@ -743,7 +728,6 @@ async function deliverItem(projectId: string, itemId: string, dev: Agent | undef
 }
 
 async function stageRelease(p: Project, signal: AbortSignal, onlyIds?: string[]) {
-  if (usesEnvironments(p.settings)) return releaseThroughEnvironments(p, signal, onlyIds);
   const agent = agentsFor(p, "release")[0];
   const scope = listItems(p.id).filter((i) => i.state === "Release Ready" && (!onlyIds?.length || onlyIds.includes(i.id)));
   if (!scope.length) {
@@ -754,17 +738,13 @@ async function stageRelease(p: Project, signal: AbortSignal, onlyIds?: string[])
     patchItem(i.id, { state: "Smoke Testing" });
     return startPhase(p.id, i.id, "release", agent.id);
   });
-  const target = await resolveTargetOrg(p, agent);
-  const targetText = target
-    ? `Target Salesforce org: ${target.alias} (${target.type}${target.instanceUrl ? `, ${target.instanceUrl}` : ""}) — set on the ${target.source === "project" ? "project" : "release agent"}. Mode: ${agent.config?.deployMode === "deploy" ? "validate, then deploy" : "check-only validation"}; test level ${agent.config?.testLevel ?? "RunLocalTests"}.`
-    : "No target Salesforce org is configured — validation is static only.";
-  postMessage({ projectId: p.id, from: "orchestrator", to: agent.id, kind: "handoff", content: `Release ${scope.length} item(s). ${targetText}` });
+  postMessage({ projectId: p.id, from: "orchestrator", to: agent.id, kind: "handoff", content: `Release ${scope.length} item(s).` });
   const r = await runAgent({
     project: getProject(p.id)!,
     agent,
     stage: "release",
     signal,
-    task: `Release the ${scope.length} item(s) in state "Smoke Testing"/"Release Ready": ${scope.map((i) => i.code).join(", ")}. Build the manifest, validate, smoke test each one and publish the release. Mention the target org in the release notes.\n\n${targetText}`,
+    task: `Release the ${scope.length} item(s) in state "Smoke Testing"/"Release Ready": ${scope.map((i) => i.code).join(", ")}. Run the project's checks on the base branch with run_checks, smoke test each item and publish the release. Put the check results in the release notes.`,
   });
   phaseIds.forEach((id) => endPhase(id, r.outcome.released ? "released" : "not released"));
   if (r.outcome.released) {
@@ -778,87 +758,6 @@ async function stageRelease(p: Project, signal: AbortSignal, onlyIds?: string[])
   } else {
     for (const i of scope) patchItem(i.id, { state: "Release Ready" });
     logActivity({ projectId: p.id, agentId: agent.id, type: "note", summary: "Release was not published — items stay Release Ready." });
-  }
-}
-
-// ---------------------------------------------------------------------------------------------------------------------
-// Release through environments (projects with settings.environments)
-
-/** Items on their way through the environments ("Smoke Testing"), else the ones ready to start ("Release Ready"). */
-function releaseTrain(p: Pick<Project, "id">, onlyIds?: string[]) {
-  const items = listItems(p.id).filter((i) => !onlyIds?.length || onlyIds.includes(i.id));
-  const moving = items.filter((i) => i.state === "Smoke Testing");
-  return moving.length ? moving : items.filter((i) => i.state === "Release Ready");
-}
-
-/** Marks the environment stages after `fromKey` (and it, when pending) as skipped — the release chain stopped. */
-function skipEnvStages(projectId: string, fromKey: string, why: string) {
-  const p = getProject(projectId)!;
-  const at = p.stages.findIndex((s) => s.key === fromKey);
-  patchProject(projectId, { stages: p.stages.map((s, i) => (i >= at && parseEnvStage(s.key) && (s.status === "pending" || s.status === "awaiting_approval") ? { ...s, status: "skipped" } : s)) });
-  logActivity({ projectId, agentId: "orchestrator", type: "note", summary: why });
-}
-
-/** One environment step: the release agent validates (check-only before a production approval) or validates and
- *  deploys, and smoke tests; on the last step it also publishes notes and tag. Returns whether the step succeeded. */
-async function stageReleaseEnv(p: Project, env: ReleaseEnvironment, signal: AbortSignal, stageKey: string | null, onlyIds?: string[]): Promise<boolean> {
-  const agent = agentsFor(p, "release")[0];
-  const scope = releaseTrain(p, onlyIds);
-  if (!scope.length) {
-    if (stageKey) skipEnvStages(p.id, stageKey, "Nothing is Release Ready — the environment release steps are skipped.");
-    else logActivity({ projectId: p.id, agentId: agent.id, type: "note", summary: "Nothing is Release Ready — release skipped." });
-    return false;
-  }
-  const phaseIds = scope.map((i) => {
-    if (i.state !== "Smoke Testing") patchItem(i.id, { state: "Smoke Testing" });
-    return startPhase(p.id, i.id, "release", agent.id, lastIteration(i.id, "release") + 1);
-  });
-  const chain = releaseEnvironments(p.settings);
-  const target = env.org ? `org ${env.org}` : "no org mapped — validation is static only";
-  const mode = env.phase === "validate" ? "check-only validation (nothing is deployed; the deploy follows your approval)" : env.deployMode === "deploy" ? "validate, then deploy" : "check-only validation";
-  const targetText = `Environment ${env.index + 1} of ${env.total}: ${env.name} (${env.purpose}) → ${target}. Mode: ${mode}; test level ${env.testLevel}.`;
-  const codes = scope.map((i) => i.code).join(", ");
-  const before = chain.slice(0, env.index).map((e) => `${e.name} ✅`).join(", ");
-  postMessage({ projectId: p.id, from: "orchestrator", to: agent.id, kind: "handoff", content: `${env.phase === "validate" ? "Validate" : "Release"} ${scope.length} item(s) on ${env.name}. ${targetText}` });
-  const task =
-    env.phase === "validate"
-      ? `Validate the release of ${codes} check-only against ${env.name}: build the manifest and call validate_deployment. Don't smoke test or publish — the deployment to ${env.name} waits for the product owner's approval.`
-      : env.final
-        ? `Release the ${scope.length} item(s) in state "Smoke Testing": ${codes}. Build the manifest, ${env.deployMode === "deploy" ? "validate and deploy" : "validate"} with validate_deployment, smoke test each one and publish the release. List every environment in the release notes${before ? ` (already done: ${before})` : ""}.`
-        : `Release step for ${env.name} with the ${scope.length} item(s) in state "Smoke Testing": ${codes}. Build the manifest, ${env.deployMode === "deploy" ? "validate and deploy" : "validate"} with validate_deployment and smoke test each one with record_test_result. Don't publish the release — it's published after the last environment (${chain[chain.length - 1].name}).`;
-  const r = await runAgent({ project: getProject(p.id)!, agent, stage: "release", signal, environment: env, task: `${task}\n\n${targetText}` });
-  const ok = env.final ? Boolean(r.outcome.released) : r.outcome.validation?.ok === true;
-  phaseIds.forEach((id) => endPhase(id, ok ? (env.final ? "released" : `${env.name} ${env.phase === "validate" ? "validated" : "done"}`) : "not released"));
-  if (!ok) {
-    for (const i of scope) patchItem(i.id, { state: "Release Ready" });
-    const why = env.final ? "the release was not published" : r.outcome.validation ? "validation failed" : "validation didn't run";
-    postMessage({ projectId: p.id, from: agent.id, to: "human", kind: "question", content: `The release stopped at ${env.name}: ${why}. The items are back in Release Ready.` });
-    if (stageKey) skipEnvStages(p.id, stageKey, `⛔ Release stopped at ${env.name} (${why}) — items stay Release Ready.`);
-    else logActivity({ projectId: p.id, agentId: agent.id, type: "note", summary: `⛔ Release stopped at ${env.name} (${why}) — items stay Release Ready.` });
-    return false;
-  }
-  if (!env.final) {
-    logActivity({ projectId: p.id, agentId: agent.id, type: "pipeline", summary: `✅ ${env.name}: ${env.phase === "validate" ? "release validated check-only" : env.deployMode === "deploy" ? "deployed and smoke-tested" : "validated and smoke-tested"} (${target})` });
-    return true;
-  }
-  for (const i of scope) patchItem(i.id, { state: "Deployed (Done)" });
-  const cur = getProject(p.id)!;
-  if (cur.settings.repo?.push && r.outcome.released) {
-    const base = cur.settings.repo.branch || "main";
-    const pushed = await pushRefs(cur, [base], true);
-    logActivity({ projectId: p.id, agentId: agent.id, type: pushed.pushed ? "file" : "tool_error", summary: pushed.pushed ? `Pushed ${base} and release tag v${r.outcome.released.version} to origin` : `Push failed: ${pushed.output.split("\n")[0]}`, detail: pushed.output });
-  }
-  return true;
-}
-
-/** "Release now" / "Fix and release" on a project with environments: walk every environment step in order. The
- *  person who starts it approves every environment by doing so. */
-async function releaseThroughEnvironments(p: Project, signal: AbortSignal, onlyIds?: string[]) {
-  const steps = environmentStages(p.settings, true).filter((s) => !s.gate).map((s) => envStep(p.settings, s.key)).filter((x): x is ReleaseEnvironment => Boolean(x));
-  if (steps.some((s) => s.approval)) logActivity({ projectId: p.id, agentId: "orchestrator", type: "approval", summary: `Release started by you — counts as your approval for ${steps.filter((s) => s.approval).map((s) => s.name).filter((n, i, a) => a.indexOf(n) === i).join(", ")}` });
-  const ids = onlyIds?.length ? onlyIds : releaseTrain(p).map((i) => i.id);
-  for (const step of steps) {
-    if (!(await stageReleaseEnv(getProject(p.id)!, step, signal, null, ids))) return;
   }
 }
 

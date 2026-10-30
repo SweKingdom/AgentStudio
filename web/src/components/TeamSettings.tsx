@@ -1,7 +1,8 @@
 import { useEffect, useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { AlertTriangle, CheckCircle2, Download, FileUp, Info, Loader2, RefreshCw, Save, Stethoscope, Upload, Users, XCircle } from "lucide-react";
-import { api } from "../lib/api";
+import { Plus, Trash2 } from "lucide-react";
+import { api, type ChecksSettings } from "../lib/api";
 import { toast } from "../lib/toast";
 import { Field } from "./Hint";
 import { Modal, Seg } from "./ui";
@@ -18,8 +19,7 @@ export interface Conventions {
   reviewChecklist: string;
   ado: { areaPath: string; iterationPrefix: string; tags: string };
 }
-export interface SalesforceSettings { apiVersion: string; coverageMin: number; namespace: string; prefix: string; devTestLevel: "RunSpecifiedTests" | "RunLocalTests" }
-interface TeamResponse { conventions: Conventions; salesforce: SalesforceSettings; defaults: { conventions: Conventions; salesforce: SalesforceSettings } }
+interface TeamResponse { conventions: Conventions; checks: ChecksSettings; defaults: { conventions: Conventions; checks: ChecksSettings } }
 
 export const useTeam = () => useQuery({ queryKey: ["team"], queryFn: () => api.get<TeamResponse>("/team") });
 
@@ -35,7 +35,7 @@ const ICON = {
   info: <Info size={14} color="var(--muted)" />,
 };
 
-/** Is this machine ready? Quick local checks on open; the full check also contacts GitHub, each org and Claude. */
+/** Is this machine ready? Quick local checks on open; the full check also contacts GitHub and Claude. */
 export function SystemCheck() {
   const [network, setNetwork] = useState(false);
   const { data, isFetching, refetch } = useQuery({ queryKey: ["system-check", network], queryFn: () => api.get<Check[]>(`/system/check${network ? "?network=1" : ""}`), staleTime: Infinity });
@@ -47,11 +47,11 @@ export function SystemCheck() {
       <div className="card-head">
         <div>
           <div className="card-title"><Stethoscope size={15} /> System check</div>
-          <div className="card-sub">Is this computer ready to run SiroccoARM — and live work? Read-only and free. Also available as <code className="code-tag">npm run doctor</code>.</div>
+          <div className="card-sub">Is this computer ready to run AgentStudio — and live work? Read-only and free. Also available as <code className="code-tag">npm run doctor</code>.</div>
         </div>
         <div className="row" style={{ gap: 8 }}>
           {data && <span className="small" style={{ color: fails ? "var(--bad)" : warns ? "var(--warn)" : "var(--good)" }}>{fails ? `${fails} problem(s)` : "Ready"}{warns ? ` · ${warns} warning(s)` : ""}</span>}
-          <button className="btn sm" disabled={isFetching} onClick={() => (network ? refetch() : setNetwork(true))} title="Also checks GitHub access, every registered org and access to each agent's Claude model">
+          <button className="btn sm" disabled={isFetching} onClick={() => (network ? refetch() : setNetwork(true))} title="Also checks GitHub access and access to each agent's Claude model">
             {isFetching ? <Loader2 size={13} className="spin" /> : <RefreshCw size={13} />} {network ? "Run again" : "Full check (GitHub, orgs, models)"}
           </button>
         </div>
@@ -78,29 +78,29 @@ export function SystemCheck() {
   );
 }
 
-// ---------------------------------------------------------------- conventions + Salesforce defaults
+// ---------------------------------------------------------------- conventions + checks
 
 export function TeamConventions() {
   const qc = useQueryClient();
   const { data } = useTeam();
   const [c, setC] = useState<Conventions | null>(null);
-  const [sf, setSf] = useState<SalesforceSettings | null>(null);
+  const [checks, setChecks] = useState<ChecksSettings | null>(null);
   useEffect(() => {
     if (data && !c) {
       setC(data.conventions);
-      setSf(data.salesforce);
+      setChecks(data.checks);
     }
   }, [data]);
   const save = useMutation({
-    mutationFn: () => api.put("/team", { conventions: c, salesforce: sf }),
+    mutationFn: () => api.put("/team", { conventions: c, checks }),
     onSuccess: () => { qc.invalidateQueries({ queryKey: ["team"] }); toast("Team conventions saved"); },
     onError: (e: Error) => toast(e.message, "bad"),
   });
-  if (!c || !sf || !data) return null;
+  if (!c || !checks || !data) return null;
   const set = (p: Partial<Conventions>) => setC({ ...c, ...p });
-  const dirty = JSON.stringify(c) !== JSON.stringify(data.conventions) || JSON.stringify(sf) !== JSON.stringify(data.salesforce);
-  const example = { code: "US-103", slug: "email-to-case", type: "story", title: "email-to-case", stage: "development", summary: "Case service with tests", branch: fill(c.branchPattern, { code: "US-103", slug: "email-to-case", type: "story" }) };
-  const reset = () => { setC(data.defaults.conventions); setSf(data.defaults.salesforce); };
+  const dirty = JSON.stringify(c) !== JSON.stringify(data.conventions) || JSON.stringify(checks) !== JSON.stringify(data.checks);
+  const example = { code: "US-103", slug: "export-orders", type: "story", title: "export-orders", stage: "development", summary: "Order export with tests", branch: fill(c.branchPattern, { code: "US-103", slug: "export-orders", type: "story" }) };
+  const reset = () => { setC(data.defaults.conventions); setChecks(data.defaults.checks); };
   return (
     <>
       <div className="card">
@@ -131,7 +131,7 @@ export function TeamConventions() {
             <Field label="Merge commit" help="When a finished task is merged into the default branch. Placeholders: {branch} {code} {title}." hint={<span className="mono tiny ellipsis" style={{ display: "block", maxWidth: "100%" }}>{fill(c.mergePattern, { ...example, title: "Email to case" })}</span>}>
               <input className="input mono" value={c.mergePattern} onChange={(e) => set({ mergePattern: e.target.value })} />
             </Field>
-            <Field label="Azure DevOps area path" help="Adds Area Path and Iteration Path columns to the Azure DevOps import CSV, e.g. MyProject\Service Cloud. Empty = leave them out.">
+            <Field label="Azure DevOps area path" help="Adds Area Path and Iteration Path columns to the Azure DevOps import CSV, e.g. MyProject\Web. Empty = leave them out.">
               <input className="input mono" value={c.ado.areaPath} onChange={(e) => set({ ado: { ...c.ado, areaPath: e.target.value } })} placeholder="Project\Team" />
             </Field>
             <Field label="Iteration name" help="Prefix for sprints in the Iteration Path: 'Sprint ' → Project\Sprint 1.">
@@ -155,39 +155,39 @@ export function TeamConventions() {
       <div className="card">
         <div className="card-head">
           <div>
-            <div className="card-title">Salesforce defaults</div>
-            <div className="card-sub">For every project unless the project overrides them (Project settings → Salesforce).</div>
+            <div className="card-title">Checks</div>
+            <div className="card-sub">Commands every story must pass before hand-over, approval and release (Project settings can override them). Empty: detected from each repository's package.json (typecheck, lint, test, build).</div>
           </div>
           <button className="btn sm primary" disabled={!dirty || save.isPending} onClick={() => save.mutate()}><Save size={13} /> Save</button>
         </div>
-        <div className="card-pad grid g3" style={{ gap: 12 }}>
-          <SalesforceFields value={sf} onChange={setSf} />
+        <div className="card-pad col" style={{ gap: 12 }}>
+          <ChecksFields value={checks} onChange={(v) => setChecks({ ...checks, ...v } as ChecksSettings)} />
         </div>
       </div>
     </>
   );
 }
 
-/** Shared by the team defaults and the project overrides (where empty means "team default"). */
-export function SalesforceFields({ value, onChange, placeholders }: { value: Partial<SalesforceSettings>; onChange: (v: SalesforceSettings) => void; placeholders?: SalesforceSettings }) {
-  const set = (p: Partial<SalesforceSettings>) => onChange({ ...value, ...p } as SalesforceSettings);
+/** Shared by the team defaults and the project overrides (where an empty list means "the team's checks"). */
+export function ChecksFields({ value, onChange, placeholder }: { value: Partial<ChecksSettings>; onChange: (v: Partial<ChecksSettings>) => void; placeholder?: string }) {
+  const commands = value.commands ?? [];
+  const setCommand = (i: number, p: Partial<{ name: string; command: string }>) => onChange({ ...value, commands: commands.map((c, j) => (j === i ? { ...c, ...p } : c)) });
   return (
     <>
-      <Field label="API version" help="sourceApiVersion in sfdx-project.json, package.xml and every -meta.xml the agents write. Match your orgs (e.g. 62.0).">
-        <input className="input mono" value={value.apiVersion ?? ""} placeholder={placeholders?.apiVersion} onChange={(e) => set({ apiVersion: e.target.value })} />
-      </Field>
-      <Field label="Min. coverage %" help="Every Apex class a story changes must reach this coverage in the org's test run — QA can't approve below it.">
-        <input className="input" type="number" min={0} max={100} value={value.coverageMin ?? ""} placeholder={placeholders ? String(placeholders.coverageMin) : undefined} onChange={(e) => set({ coverageMin: e.target.value === "" ? (undefined as unknown as number) : Number(e.target.value) })} />
-      </Field>
-      <Field label="Name prefix" help="New custom objects, fields, classes and components start with it, e.g. SRC_. Empty = none.">
-        <input className="input mono" value={value.prefix ?? ""} placeholder={placeholders?.prefix || "none"} onChange={(e) => set({ prefix: e.target.value })} />
-      </Field>
-      <Field label="Namespace" help="Only for managed-package development. Goes into sfdx-project.json.">
-        <input className="input mono" value={value.namespace ?? ""} placeholder={placeholders?.namespace || "none"} onChange={(e) => set({ namespace: e.target.value })} />
-      </Field>
-      <Field label="Tests when validating a story" help="Specified: only the story's test classes (fast, cheap). Local: every local test in the org (slower, catches regressions).">
-        <Seg value={value.devTestLevel ?? placeholders?.devTestLevel ?? "RunSpecifiedTests"} onChange={(v) => set({ devTestLevel: v })} options={[{ value: "RunSpecifiedTests", label: "Story tests" }, { value: "RunLocalTests", label: "All local" }]} />
-      </Field>
+      {commands.length === 0 && <div className="small muted">{placeholder ?? "No checks set — detected from package.json."}</div>}
+      {commands.map((c, i) => (
+        <div key={i} className="row" style={{ gap: 8 }}>
+          <input className="input" style={{ width: 140 }} value={c.name} placeholder="Name" aria-label="Check name" onChange={(e) => setCommand(i, { name: e.target.value })} />
+          <input className="input mono" style={{ flex: 1 }} value={c.command} placeholder="npm test" aria-label="Command" onChange={(e) => setCommand(i, { command: e.target.value })} />
+          <button type="button" className="btn icon ghost" aria-label={`Remove ${c.name || "check"}`} onClick={() => onChange({ ...value, commands: commands.filter((_, j) => j !== i) })}><Trash2 size={14} /></button>
+        </div>
+      ))}
+      <div className="row" style={{ gap: 12, justifyContent: "space-between" }}>
+        <button type="button" className="btn sm ghost" disabled={commands.length >= 10} onClick={() => onChange({ ...value, commands: [...commands, { name: "", command: "" }] })}><Plus size={13} /> Add check</button>
+        <Field label="Timeout per check (minutes)" help="A check that runs longer is stopped and counts as failed.">
+          <input className="input" type="number" min={1} max={120} style={{ width: 100 }} value={value.timeoutMinutes ?? ""} placeholder="15" onChange={(e) => onChange({ ...value, timeoutMinutes: e.target.value === "" ? undefined : Number(e.target.value) })} />
+        </Field>
+      </div>
     </>
   );
 }
@@ -204,7 +204,7 @@ interface ImportPlan {
 export function TeamTemplate() {
   const qc = useQueryClient();
   const fileRef = useRef<HTMLInputElement>(null);
-  const [name, setName] = useState("Sirocco Salesforce delivery team");
+  const [name, setName] = useState("AgentStudio delivery team");
   const [pending, setPending] = useState<{ template: unknown; plan: ImportPlan; file: string } | null>(null);
   const preview = useMutation({
     mutationFn: async (f: File) => {
@@ -225,7 +225,7 @@ export function TeamTemplate() {
       <div className="card-head">
         <div>
           <div className="card-title"><Download size={15} /> Export &amp; import the team</div>
-          <div className="card-sub">Take this team to another computer, or share it: agents (prompts, models, effort, tools, knowledge), custom knowledge packs, conventions, Salesforce defaults and prices. Never included: API keys, org aliases and logins, git credentials, spend limits.</div>
+          <div className="card-sub">Take this team to another computer, or share it: agents (prompts, models, effort, tools, knowledge), custom knowledge packs, conventions, checks and prices. Never included: API keys, logins, git credentials, spend limits.</div>
         </div>
       </div>
       <div className="card-pad row wrap" style={{ gap: 10, alignItems: "flex-end" }}>
