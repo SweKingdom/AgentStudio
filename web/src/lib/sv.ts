@@ -145,4 +145,17 @@ export const SV: Record<string, string> = {
   "Multiplier on simulated work time. 1 = realistic pace, 0.2 = fast demo.": "Faktor på den simulerade arbetstiden. 1 = realistiskt tempo, 0,2 = snabb demo.",
   "Refusal fallback": "Reservmodell vid nekande",
   "Using your Claude plan.": "Använder din Claude-prenumeration.",
+  "Simulation: free, nothing is sent to Claude and no checks run.": "Simulering: gratis, inget skickas till Claude och inga kontroller körs.",
+  "Live: agents run on your Claude plan through this computer's claude login — no API charges, but it uses the plan's usage limits, and the project's checks really run.":
+    "Live: agenterna körs på din Claude-prenumeration via datorns claude-inloggning — inga API-kostnader, men det räknas mot prenumerationens gränser, och projektets kontroller körs på riktigt.",
+  "Live: agents call the Claude API with your key — real tokens, billed per use, and the project's checks really run.":
+    "Live: agenterna anropar Claude API med din nyckel — riktiga tokens som debiteras per användning, och projektets kontroller körs på riktigt.",
+  "Running now:": "Körs nu:",
+  simulation: "simulering",
+  "Live shows a red LIVE badge while it's on. Projects keep the mode they were created in: create a new project after switching.":
+    "I live-läge visas ett rött LIVE-märke. Projekt behåller läget de skapades i: skapa ett nytt projekt efter att du bytt läge.",
+  "Simulation mode: the project runs with scripted agents, for free, and no checks are run. Switch to Live in Settings → General before creating the project to run it for real.":
+    "Simuleringsläge: projektet körs med förinspelade agenter, gratis, och inga kontroller körs. Byt till Live under Inställningar → Allmänt innan du skapar projektet för att köra på riktigt.",
+  "Live on your Claude plan: no API charges. The estimate shows what the same run would cost on the API — a measure of how much of the plan's usage it takes.":
+    "Live på din Claude-prenumeration: inga API-kostnader. Uppskattningen visar vad samma körning hade kostat via API:t — ett mått på hur mycket av prenumerationens kvot den tar.",
 };
