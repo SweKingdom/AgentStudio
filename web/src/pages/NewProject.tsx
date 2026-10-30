@@ -350,8 +350,7 @@ export default function NewProject() {
         <div className="card card-pad col" style={{ gap: 16, position: "sticky", top: 16 }}>
           <div className="card-title"><Rocket size={15} /> {t("Estimate")}</div>
           <EstimatePanel est={est?.estimate ?? null} loading={loading} reason={est?.reason} />
-          {meta?.mode === "simulation" && <div className="banner accent tiny">{t("Simulation mode: the project runs with scripted agents, for free, and no checks are run. Switch to Live in Settings → General before creating the project to run it for real.")}</div>}
-          {meta?.mode === "live" && meta.backend === "subscription" && <div className="banner accent tiny">{t("Live on your Claude plan: no API charges. The estimate shows what the same run would cost on the API — a measure of how much of the plan's usage it takes.")}</div>}
+          {meta?.mode === "simulation" && <div className="banner accent tiny">{t("Simulation mode: the run is free and no checks are run. The estimate shows what a live run would cost.")}</div>}
           {est?.estimate && budget > 0 && est.estimate.highUsd > budget && <div className="banner warn tiny"><TriangleAlert size={13} /> The high estimate exceeds your {money(budget)} budget — the run may pause before finishing.</div>}
           <div className="col" style={{ gap: 8 }}>
             <button className="btn primary" style={{ justifyContent: "center", height: 38 }} disabled={!canCreate || create.isPending} onClick={() => create.mutate(true)}><Play size={15} /> {t("Create & start")}</button>
