@@ -1,42 +1,41 @@
-# SiroccoARM — Agent Relationship Management
+# AgentStudio
 
-**A team of seven AI agents that delivers Salesforce projects, from the requirements document to the release, with people in charge at every gate.**
+**A team of seven AI agents that delivers changes to any code repository, from the requirements to the release, with people in charge at every gate.**
 
-SiroccoARM is a web application that runs on your own computer. You give it a requirements PDF and a git repository. The agents analyse it, design the solution, plan, build, test, document and release it, and you approve at the key steps. Every hand-off, token and minute is visible.
+AgentStudio is a web application that runs on your own computer. You give it a requirements document (or a description) and a git repository. The agents analyse it, design the solution, plan, build, test, document and release it, and you approve at the key steps. Every story has to pass the project's own checks (tests, build, typecheck, lint) before it moves on. Every hand-off, token and minute is visible.
 
-![SiroccoARM](docs/.attachments/overview.png)
+**New here? Read [Kom igång](docs/Kom-igang.md)** (Swedish): how to install, start and use the app.
 
 ## Highlights
 
-- **PDF → backlog:** epics, features and stories in the story template, with acceptance criteria and open questions for anything ambiguous.
+- **Requirements → backlog:** epics, features and stories with acceptance criteria and open questions for anything ambiguous.
 - **A real delivery pipeline:** design, planning, parallel build lanes, peer test with rework loops, optional architect code review, documentation and release, with approval gates.
-- **Real engineering output:** SFDX source in git, one branch per story, commits signed by each agent, GitHub pull requests and tagged releases.
-- **Salesforce-aware:** validation, Apex tests and screenshots in the org; releases along a Build → Stage → Production chain; production only when explicitly allowed.
+- **Proven by the project's own checks:** `run_checks` runs the repository's tests, build, typecheck and lint. Hand-over to QA, approval and release all need a passing run.
+- **Real engineering output:** one branch and worktree per story, commits signed by each agent, GitHub pull requests and tagged releases.
+- **Your Claude plan or the API:** live agents run on your own Claude subscription (`claude /login`, through the Agent SDK) or on an API key.
 - **Cost under control:** an estimate before anything runs, real cost per agent, story and stage, project budgets and daily/monthly spend limits that pause the work.
 - **Azure DevOps:** sync the backlog to Azure Boards, or export it as CSV.
-- **Safe by design:** no stored credentials (machine logins and `.env` only), local-only server, optional login with roles and an audit log.
 
 ## Quick start
 
-Requirements: Node.js 22.5+ and git 2.25+. Optional: Salesforce CLI, GitHub CLI and Google Chrome.
+Requirements: Node.js 22.5+ and git 2.25+. For live work: Claude Code logged in (`claude /login`) or an API key. Optional: GitHub CLI.
 
 ```bash
 npm install
-cp .env.example .env    # leave empty to run in simulation
 npm start               # http://localhost:4100
 npm run doctor          # check this machine (read-only, free)
 ```
 
-The app starts in **Simulation**: the full pipeline runs with scripted agents, nothing is sent to Claude or Salesforce, and nothing is billed. To use the real Claude API, follow [Going live](docs/Going-Live.md).
+The app starts in **Simulation**: the full pipeline runs with scripted agents, nothing is sent to Claude, no checks are run and nothing is billed. Switch to Live in Settings → General.
 
 ## The team
 
 | Agent | Role |
 |---|---|
 | **Meiga** | Business Process & Requirements Analyst |
-| **Basajaun** | Salesforce Solution Architect |
+| **Basajaun** | Solution Architect |
 | **Mari** | Backlog & Delivery Planner |
-| **Trasgu** | Salesforce Developer |
+| **Trasgu** | Software Developer |
 | **Cuélebre** | QA & Peer Tester |
 | **Xana** | Technical Writer |
 | **Nuberu** | Release Manager |
