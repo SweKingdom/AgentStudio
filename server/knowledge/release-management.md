@@ -1,29 +1,28 @@
 ---
-title: Deployment, smoke testing and release
-summary: Manifest build, check-only validation, pre/post-deploy steps, smoke tests, versioning, rollback and release notes.
+title: Checks, smoke testing and release
+summary: Final checks on the base branch, pre/post-release steps, smoke tests, versioning, rollback and release notes.
 ---
-# Deployment, smoke testing and release
+# Checks, smoke testing and release
 
-## Deployment pipeline
+## Release pipeline
 
-1. **Collect** the stories in `Release Ready`.
-2. **Build the manifest** (`manifest/package.xml`) from every delivered component; check no story component is missing and nothing unrelated is included.
-3. **Pre-deployment steps** from each story's manual steps (data, objects that must pre-exist, licences).
-4. **Validate (check-only)**: `sf project deploy validate -x manifest/package.xml -l RunLocalTests -o {sandbox}`. **Never deploy to production from the ARM.** If no org is configured, run static validation: every file has its `-meta.xml`, XML well-formed, every component in the manifest exists, every Apex class has a test class.
-5. **Quick deploy / deploy** to the target sandbox only after a successful validation (human-approved).
-6. **Post-deployment steps** (permission set assignments, configuration, data).
+1. **Collect** the stories in `Release Ready`. Each one is already merged into the base branch.
+2. **Check scope**: every story's solution components are on the base branch, and nothing unrelated is included.
+3. **Pre-release steps** from each story's manual steps (migrations, configuration, environment variables).
+4. **Run the project's checks** on the base branch with `run_checks` (typecheck, lint, tests, build — whatever the project defines). A failing check blocks the release: report it to the developer and do not publish.
+5. **Post-release steps**: migrations to run, configuration to set, anything an operator must do.
 
 ## Smoke testing
 
-After deployment, run a short check per story — the critical path of its main AC — and record ✅ / ❌ / ⛔. A smoke ❌ blocks the release: open a Bug linked to the story and report it.
+After the checks pass, run a short check per story — the critical path of its main AC — and record ✅ / ❌ / ⛔. A smoke ❌ blocks the release: open a Bug linked to the story and report it.
 
 ## Versioning
 
-Semantic: `MAJOR.MINOR.PATCH` — minor per sprint/release, patch for hotfixes. Release name `R{version} — {date}`.
+Semantic: `MAJOR.MINOR.PATCH` — minor per sprint/release, patch for hotfixes. The release is tagged `v{version}` in git.
 
 ## Rollback plan
 
-Document per release: components to revert (previous versions from git), destructive changes needed, data to restore (migration batch tag), who decides.
+Document per release: the previous tag to go back to, migrations that need a down step, data to restore, who decides.
 
 ## Release notes
 
@@ -31,7 +30,7 @@ Document per release: components to revert (previous versions from git), destruc
 # Release {version} — {date}
 ## Highlights          — 3–5 bullets in business language
 ## Delivered           — table: Code | Title | Category | Points
-## Deployment          — validation result, pre/post steps executed
+## Checks              — each check and its result on the base branch
 ## Smoke test results  — table: Code | Result | Note
 ## Known issues        — bullets, linked bugs
 ## Rollback plan       — short

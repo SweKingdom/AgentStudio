@@ -1,29 +1,9 @@
 import "./setup.ts";
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { buildPackageXml } from "../src/agents/tools.ts";
 import { estimateProject } from "../src/estimate.ts";
 import { defaultAgentFor } from "../src/agents/store.ts";
 import { PIPELINE_ROLES } from "../src/agents/roles.ts";
-
-test("package.xml groups members by metadata type", () => {
-  const xml = buildPackageXml([
-    "force-app/main/default/classes/CaseService.cls",
-    "force-app/main/default/classes/CaseService.cls-meta.xml",
-    "force-app/main/default/objects/Case/fields/Level__c.field-meta.xml",
-    "force-app/main/default/lwc/orderStatus/orderStatus.js",
-    "force-app/main/default/lwc/orderStatus/orderStatus.html",
-    "force-app/main/default/reports/Service_Reports/Open_Cases.report-meta.xml",
-    "force-app/main/default/flows/Case_AfterSave_X.flow-meta.xml",
-    "scripts/data/load.sh",
-  ]);
-  assert.match(xml, /<members>CaseService<\/members>\s*<name>ApexClass<\/name>/);
-  assert.match(xml, /<members>Case\.Level__c<\/members>/);
-  assert.match(xml, /<members>orderStatus<\/members>\s*<name>LightningComponentBundle<\/name>/);
-  assert.match(xml, /<members>Service_Reports\/Open_Cases<\/members>/);
-  assert.equal((xml.match(/<members>orderStatus<\/members>/g) ?? []).length, 1);
-  assert.doesNotMatch(xml, /load\.sh/);
-});
 
 test("estimate grows with scope and team, and compares with a human team", () => {
   const team = PIPELINE_ROLES.map((r) => defaultAgentFor(r));

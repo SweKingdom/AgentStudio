@@ -4,7 +4,7 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import path from "node:path";
 import { execFileSync } from "node:child_process";
-import { TMP } from "./setup.ts";
+import { TMP, fileUrl } from "./setup.ts";
 import { ensureItemBranch, ensureRepo, commitWork, finishMerge, listBranches, mergeItemBranch, pushRefs } from "../src/git.ts";
 import { workspaceDir, worktreeDir } from "../src/store.ts";
 
@@ -14,7 +14,7 @@ function project(key: string, push = false) {
   const remote = path.join(TMP, `${key.toLowerCase()}-remote.git`);
   fs.mkdirSync(remote, { recursive: true });
   sh(remote, "init", "-q", "--bare", "-b", "main");
-  return { p: { key, settings: { repo: { url: `file://${remote}`, branch: "main", push } } } as any, remote };
+  return { p: { key, settings: { repo: { url: fileUrl(remote), branch: "main", push } } } as any, remote };
 }
 const write = (dir: string, rel: string, content: string) => {
   fs.mkdirSync(path.dirname(path.join(dir, rel)), { recursive: true });
@@ -25,7 +25,6 @@ const item = (code: string, title: string, branch: string | null = null) => ({ c
 test("each task works on its own branch and worktree, then merges into main", async () => {
   const { p } = project("GBR");
   await ensureRepo(p);
-  assert.ok(fs.existsSync(path.join(workspaceDir(p), "sfdx-project.json")), "every branch is an SFDX project");
   const a = item("US-101", "Email to case");
   const b = item("US-102", "Assign by región");
   const ra = await ensureItemBranch(p, a);

@@ -6,14 +6,11 @@ import path from "node:path";
 import { execFileSync } from "node:child_process";
 import { TMP } from "./setup.ts";
 
-process.env.ARM_SF_BIN = path.resolve(import.meta.dirname, "fixtures/fake-sf.mjs");
 const { seedAgents, listAgents, updateAgent } = await import("../src/agents/store.ts");
 const team = await import("../src/team.ts");
 const git = await import("../src/git.ts");
 const { workspaceDir, worktreeDir } = await import("../src/store.ts");
-const { buildPackageXml } = await import("../src/agents/tools.ts");
 const { saveCustomKnowledge } = await import("../src/knowledge.ts");
-const { addManualOrg } = await import("../src/salesforce.ts");
 const { runChecks } = await import("../src/doctor.ts");
 
 seedAgents();
@@ -40,31 +37,24 @@ test("conventions drive branch names, merge commits and the PR description", asy
   team.saveTeamSettings({ conventions: team.DEFAULT_TEAM.conventions });
 });
 
-test("Salesforce settings: team defaults with validated project overrides", () => {
-  team.saveTeamSettings({ salesforce: { apiVersion: "63.0", coverageMin: 85 } });
-  const proj = { settings: { salesforce: team.cleanSalesforceOverride({ apiVersion: "64.0", prefix: "SRC_", coverageMin: "" }) } } as any;
-  assert.deepEqual(team.projectSalesforce(proj), { apiVersion: "64.0", coverageMin: 85, namespace: "", prefix: "SRC_", devTestLevel: "RunSpecifiedTests" });
-  assert.equal(JSON.parse(team.sfdxProjectJson(proj)).sourceApiVersion, "64.0");
-  assert.match(buildPackageXml(["force-app/main/default/classes/A.cls"], "64.0"), /<version>64\.0<\/version>/);
-  assert.throws(() => team.cleanSalesforceOverride({ apiVersion: "sixty" }), /API version/);
-  assert.throws(() => team.cleanSalesforceOverride({ coverageMin: 120 }), /Coverage/);
-  assert.throws(() => team.cleanSalesforceOverride({ prefix: "bad prefix" }), /prefix/);
-  team.saveTeamSettings({ salesforce: team.DEFAULT_TEAM.salesforce });
+test("checks: team defaults with validated project overrides", () => {
+  team.saveTeamSettings({ checks: { commands: [{ name: "test", command: "npm test" }], timeoutMinutes: 20 } });
+  const proj = { settings: { checks: team.cleanChecksOverride({ commands: [{ name: "", command: "make check" }] }) } } as any;
+  assert.deepEqual(team.projectChecks(proj), { commands: [{ name: "make check", command: "make check" }], timeoutMinutes: 20 });
+  assert.deepEqual(team.projectChecks({ settings: {} } as any).commands, [{ name: "test", command: "npm test" }], "no override: the team's checks");
+  assert.throws(() => team.cleanChecksOverride({ commands: [{ name: "x", command: "a\nb" }] }), /one line/);
+  assert.throws(() => team.saveTeamSettings({ checks: { timeoutMinutes: 0 } }), /timeout/);
+  team.saveTeamSettings({ checks: team.DEFAULT_TEAM.checks });
 });
 
-test("team template: export travels without org aliases; import previews, then versions the changes", () => {
-  addManualOrg({ alias: "MY-SANDBOX", type: "sandbox" });
-  const helm = listAgents().find((a) => a.role === "release")!;
-  updateAgent(helm.id, { config: { ...helm.config, targetOrg: "MY-SANDBOX", deployMode: "deploy" } });
+test("team template: export, then import previews and versions the changes", () => {
   saveCustomKnowledge({ id: "acme-standards", title: "ACME standards", summary: "House rules", content: "Always use SRC_ prefix." });
   const forge = listAgents().find((a) => a.role === "developer")!;
   updateAgent(forge.id, { knowledge: [...forge.knowledge, "acme-standards"], effort: "medium" });
 
   const t = team.exportTeam({ name: "ACME team" });
-  assert.equal(t.format, "siroccoarm-team");
+  assert.equal(t.format, "agentstudio-team");
   assert.equal(t.agents.length, listAgents().length);
-  assert.ok(!JSON.stringify(t).includes("MY-SANDBOX"), "org aliases never travel");
-  assert.equal(t.agents.find((a) => a.role === "release")!.config.deployMode, "deploy", "the rest of the config does");
   assert.deepEqual(t.knowledge.map((k) => k.id), ["acme-standards"]);
   assert.ok(!JSON.stringify(t).match(/api[_-]?key|sk-ant/i));
 
@@ -80,7 +70,6 @@ test("team template: export travels without org aliases; import previews, then v
   const after = listAgents().find((a) => a.id === forge.id)!;
   assert.equal(after.effort, "medium");
   assert.equal(after.version, before + 1, "a new, restorable version");
-  assert.equal(listAgents().find((a) => a.role === "release")!.config.targetOrg, "MY-SANDBOX", "this machine keeps its org choice");
 
   // A new agent in the file is created; bad files are refused.
   // Custom agents are off: an agent that isn't on this team is skipped (with a warning), never created.
@@ -92,8 +81,8 @@ test("team template: export travels without org aliases; import previews, then v
   team.applyImport(withNew);
   assert.ok(!listAgents().some((a) => a.name === "Vixen"));
   assert.equal(listAgents().length, count);
-  assert.throws(() => team.planImport({ hello: 1 }), /isn't a SiroccoARM team file/);
-  assert.throws(() => team.planImport({ ...t, version: 99 }), /newer SiroccoARM/);
+  assert.throws(() => team.planImport({ hello: 1 }), /isn't an AgentStudio team file/);
+  assert.throws(() => team.planImport({ ...t, version: 99 }), /newer AgentStudio/);
   assert.throws(() => team.planImport({ ...t, knowledge: [{ id: "../../etc/x", title: "x", summary: "", content: "" }] }), /Invalid knowledge pack id/);
   assert.throws(() => team.planImport({ ...t, agents: [{ ...t.agents[0], role: "hacker" }] }), /unknown role/);
 });
@@ -104,8 +93,7 @@ test("system check reports this machine without spending anything", async () => 
   assert.equal(by("node")?.status, "ok");
   assert.equal(by("data")?.status, "ok");
   assert.equal(by("git")?.status, "ok");
-  assert.equal(by("sf")?.status, "ok");
   assert.equal(by("api-key")?.status, "warn", "no key in tests → simulation");
-  assert.ok(checks.some((c) => c.id === "org-MY-SANDBOX" && c.status === "info"), "orgs listed; connections tested only in the full check");
+  assert.ok(!checks.some((c) => c.id === "sf" || c.id.startsWith("org-")), "no Salesforce checks");
   assert.ok(fs.existsSync(TMP));
 });

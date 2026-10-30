@@ -6,12 +6,10 @@ import fs from "node:fs";
 import { all, get } from "../db.js";
 import { appSettings } from "../settings.js";
 import { priceFor } from "../pricing.js";
-import { projectSalesforce } from "../team.js";
 import { THINKING_PER_CALL } from "../estimate.js";
 import { findDoc, getItem, getProject, listItems, logActivity, type Project, type WorkItem } from "../store.js";
 import type { Agent } from "./store.js";
 import { executeTool, type ToolContext } from "./tools.js";
-import { releaseEnvironments, type ReleaseEnvironment } from "../environments.js";
 import type { RunOptions } from "./runner.js";
 import { buildSystemPrompt, checkBudget, firstMessageTail, recordCall, runContext } from "./runner.js";
 import { AbortedError } from "../errors.js";
@@ -641,7 +639,7 @@ ${cats.has("integration") ? "| External system latency or downtime | Timeouts, r
 function filesFor(it: WorkItem, obj: string, system: string, buggy = false): [string, string][] {
   const name = pascal(it.title);
   const xmlHead = '<?xml version="1.0" encoding="UTF-8"?>';
-  const clsMeta = `${xmlHead}\n<ApexClass xmlns="http://soap.sforce.com/2006/04/metadata">\n    <apiVersion>${projectSalesforce(getProject(it.project_id)).apiVersion}</apiVersion>\n    <status>Active</status>\n</ApexClass>\n`;
+  const clsMeta = `${xmlHead}\n<ApexClass xmlns="http://soap.sforce.com/2006/04/metadata">\n    <apiVersion>62.0</apiVersion>\n    <status>Active</status>\n</ApexClass>\n`;
   const apexPair = (cls: string, body: string): [string, string][] => [
     [`force-app/main/default/classes/${cls}.cls`, body],
     [`force-app/main/default/classes/${cls}.cls-meta.xml`, clsMeta],
@@ -717,14 +715,14 @@ ${buggy ? `        for (${obj} r : records) {
         ),
         ...apexPair(`${name}ServiceTest`, testClass(`${name}ServiceTest`, `${name}Service`)),
         [`force-app/main/default/triggers/${obj}Trigger.trigger`, `trigger ${obj}Trigger on ${obj} (before insert, before update) {\n    new ${obj}TriggerHandler().run();\n}\n`],
-        [`force-app/main/default/triggers/${obj}Trigger.trigger-meta.xml`, `${xmlHead}\n<ApexTrigger xmlns="http://soap.sforce.com/2006/04/metadata">\n    <apiVersion>${projectSalesforce(getProject(it.project_id)).apiVersion}</apiVersion>\n    <status>Active</status>\n</ApexTrigger>\n`],
+        [`force-app/main/default/triggers/${obj}Trigger.trigger-meta.xml`, `${xmlHead}\n<ApexTrigger xmlns="http://soap.sforce.com/2006/04/metadata">\n    <apiVersion>62.0</apiVersion>\n    <status>Active</status>\n</ApexTrigger>\n`],
         field(obj, `${name}_Status__c`, `${name} Status`),
       ];
     case "configuration":
       return [
         [
           `force-app/main/default/flows/${obj}_AfterSave_${name}.flow-meta.xml`,
-          `${xmlHead}\n<Flow xmlns="http://soap.sforce.com/2006/04/metadata">\n    <apiVersion>${projectSalesforce(getProject(it.project_id)).apiVersion}</apiVersion>\n    <description>${it.code}: ${it.title}</description>\n    <label>${obj} After Save ${name}</label>\n    <processType>AutoLaunchedFlow</processType>\n    <start>\n        <object>${obj}</object>\n        <recordTriggerType>CreateAndUpdate</recordTriggerType>\n        <triggerType>RecordAfterSave</triggerType>\n    </start>\n    <status>Active</status>\n</Flow>\n`,
+          `${xmlHead}\n<Flow xmlns="http://soap.sforce.com/2006/04/metadata">\n    <apiVersion>62.0</apiVersion>\n    <description>${it.code}: ${it.title}</description>\n    <label>${obj} After Save ${name}</label>\n    <processType>AutoLaunchedFlow</processType>\n    <start>\n        <object>${obj}</object>\n        <recordTriggerType>CreateAndUpdate</recordTriggerType>\n        <triggerType>RecordAfterSave</triggerType>\n    </start>\n    <status>Active</status>\n</Flow>\n`,
         ],
         field(obj, `${name}_Status__c`, `${name} Status`),
       ];
@@ -831,7 +829,7 @@ async function simDeveloper(ctx: ToolContext, o: RunOptions, st: SimState) {
     }
     files.push(
       [`force-app/main/default/classes/${cls}RegressionTest.cls`, `@IsTest\nprivate class ${cls}RegressionTest {\n    @IsTest\n    static void shouldNotReproduce${it.code.replace("-", "")}() {\n        // Steps from ${it.code}:\n${it.background.split("\n").filter(Boolean).map((l) => `        // ${l.replace(/^[-\d.\s]+/, "")}`).join("\n")}\n        Test.startTest();\n        ${cls.replace(/Test$/, "")}.process(new List<${obj}>());\n        Test.stopTest();\n        Assert.isTrue(true, 'Bug ${it.code} no longer reproduces');\n    }\n}\n`],
-      [`force-app/main/default/classes/${cls}RegressionTest.cls-meta.xml`, `<?xml version="1.0" encoding="UTF-8"?>\n<ApexClass xmlns="http://soap.sforce.com/2006/04/metadata">\n    <apiVersion>${projectSalesforce(getProject(it.project_id)).apiVersion}</apiVersion>\n    <status>Active</status>\n</ApexClass>\n`],
+      [`force-app/main/default/classes/${cls}RegressionTest.cls-meta.xml`, `<?xml version="1.0" encoding="UTF-8"?>\n<ApexClass xmlns="http://soap.sforce.com/2006/04/metadata">\n    <apiVersion>62.0</apiVersion>\n    <status>Active</status>\n</ApexClass>\n`],
     );
   } else {
     const victim = findSimStory(ctx.project, it.title)?.failsQaOnce;
@@ -891,6 +889,7 @@ async function simDeveloper(ctx: ToolContext, o: RunOptions, st: SimState) {
       : o.feedback
         ? `Applied your feedback: ${o.feedback}`
         : `Implemented ${files.length} files for ${it.code}.${comments.length ? ` Addressed ${comments.length} comment(s) from the product owner.` : ""}`;
+  await simTurn(ctx, o, st, [["run_checks", {}]]);
   await simTurn(ctx, o, st, [["complete_development", { code: it.code, summary }]]);
   return summary;
 }
@@ -946,6 +945,7 @@ ${calls
 ${failing ? `\n## What to do\n- **${failing.split(" — ")[0]}** — ${failing.split(" — ")[1] ?? failing}\n  Fix it and add a test that proves the behaviour; I will re-test this check first.\n` : ""}`;
   await simTurn(ctx, o, st, [["write_document", { kind: "test_report", item_code: it.code, title: `${it.code} test report`, content: report }]]);
 
+  if (!failing) await simTurn(ctx, o, st, [["run_checks", {}]]);
   await simTurn(ctx, o, st, [
     [
       "submit_review",
@@ -1027,36 +1027,11 @@ function nextVersion(projectId: string, scope: WorkItem[]) {
   return scope.every((i) => i.type === "bug") ? `${ma}.${mi}.${pa + 1}` : `${ma}.${mi + 1}.0`;
 }
 
-/** One environment of a release chain that isn't the last step: validate (and deploy), smoke test — no publish. */
-async function simReleaseEnvStep(ctx: ToolContext, o: RunOptions, st: SimState, env: ReleaseEnvironment) {
-  const ready = listItems(ctx.project.id).filter((i) => i.state === "Smoke Testing");
-  const where = `${env.name} (${env.org ? `org ${env.org}` : "no org mapped"})`;
-  await simTurn(ctx, o, st, [["list_items", { state: "Smoke Testing" }]], `${env.phase === "validate" ? "Check-only validation" : "Release step"} for ${where}: ${ready.length} item(s).`);
-  await simTurn(ctx, o, st, [["build_manifest", {}]]);
-  const [v] = await simTurn(ctx, o, st, [["validate_deployment", {}]]);
-  const ok = (v.value as { ok?: boolean } | undefined)?.ok !== false;
-  if (env.phase === "validate") {
-    await simTurn(ctx, o, st, [["post_message", { to: "human", kind: "info", content: `Release validated check-only against ${where}: ${ok ? "passed" : "failed"}. The deployment waits for your approval.` }]]);
-    return `Validated ${ready.length} item(s) check-only against ${where} — ${ok ? "passed" : "failed"}.`;
-  }
-  const smoke: [string, Record<string, unknown>][] = ready.map((it) => [
-    "record_test_result",
-    { code: it.code, ac_ref: `Smoke (${env.name}) — ${it.type === "bug" ? "bug no longer reproduces" : "AC 1"}`, result: "pass", notes: `Critical path verified on ${env.name}.` },
-  ]);
-  for (let i = 0; i < smoke.length; i += 4) await simTurn(ctx, o, st, smoke.slice(i, i + 4));
-  const done = env.deployMode === "deploy" ? "deployed to" : "validated against";
-  await simTurn(ctx, o, st, [["post_message", { to: "human", kind: "info", content: `${ready.length} item(s) ${done} ${where} and smoke-tested. The release is published after the last environment.` }]]);
-  return `${env.name}: ${ready.length} item(s) ${done} ${where} and smoke-tested.`;
-}
-
 async function simRelease(ctx: ToolContext, o: RunOptions, st: SimState) {
-  const env = ctx.environment;
-  if (env && !env.final) return simReleaseEnvStep(ctx, o, st, env);
   const ready = listItems(ctx.project.id).filter((i) => i.state === "Smoke Testing");
   await simTurn(ctx, o, st, [["list_items", { state: "Smoke Testing" }]], `Release scope: ${ready.length} item(s).`);
-  await simTurn(ctx, o, st, [["build_manifest", {}]]);
-  const [v] = await simTurn(ctx, o, st, [["validate_deployment", {}]]);
-  const validation = v.value as { ok: boolean; mode: string; output: string; org: { alias: string; type: string; instanceUrl: string | null } | null };
+  const [v] = await simTurn(ctx, o, st, [["run_checks", {}]]);
+  const checks = String(v.value ?? "");
   const smoke: [string, Record<string, unknown>][] = ready.map((it) => [
     "record_test_result",
     { code: it.code, ac_ref: it.type === "bug" ? "Smoke — bug no longer reproduces" : "Smoke — AC 1", result: "pass", notes: "Critical path verified after deployment." },
@@ -1076,11 +1051,8 @@ ${features.length ? epics.slice(0, 5).map((e) => `- ${e}`).join("\n") || feature
 |---|---|---|---|---|
 ${ready.map((i) => `| ${i.code} | ${i.title} | ${i.type} | ${i.category.replace("_", " ")} | ${i.story_points ?? "—"} |`).join("\n")}
 
-## Deployment
-${env ? `**Environments:** ${releaseEnvironments(ctx.project.settings).map((e) => `${e.name} (${e.org ?? "no org"})`).join(" → ")}\n\n` : ""}**Target org${env ? ` (${env.name})` : ""}:** ${validation.org ? `${validation.org.alias} (${validation.org.type}${validation.org.instanceUrl ? ` · ${validation.org.instanceUrl}` : ""})` : "none configured — static validation only"}
-
-Validation (${validation.mode}): ${validation.ok ? "✅ passed" : "❌ failed"}
-${validation.output}
+## Checks on the release
+${checks}
 
 ## Smoke test results
 | Code | Result | Note |
@@ -1091,10 +1063,10 @@ ${ready.map((i) => `| ${i.code} | ✅ | Critical path verified |`).join("\n")}
 - None.
 
 ## Rollback plan
-Revert the release commit, deploy the previous manifest${ready.some((i) => i.category === "data_migration") ? ", delete migrated records by `Migration_Batch__c`" : ""}.
+Revert the release commit and redeploy the previous tag.
 `;
   await simTurn(ctx, o, st, [["publish_release", { version, notes }]]);
-  await simTurn(ctx, o, st, [["post_message", { to: "human", kind: "info", content: `Release ${version} published: ${ready.length} item(s) deployed and smoke-tested.` }]]);
+  await simTurn(ctx, o, st, [["post_message", { to: "human", kind: "info", content: `Release ${version} published: ${ready.length} item(s) checked and smoke-tested.` }]]);
   return `Release ${version} published with ${ready.length} items.`;
 }
 

@@ -9,13 +9,10 @@ import { hours, money, num, tokens } from "../lib/format";
 import { AgentAvatar, Switch } from "../components/ui";
 import { MiniBar } from "../components/Charts";
 import { PathBar } from "../components/PathBar";
-import { AddOrgModal, OrgPicker } from "../components/Orgs";
 import { RepoFields, repoUrlError } from "../components/Repo";
 import { toast } from "../lib/toast";
 import { Field, Hint, Req } from "../components/Hint";
 import { CodeReviewField, type CodeReviewMode } from "../components/CodeReviewField";
-import { EnvironmentsEditor, defaultEnvironments, environmentsError } from "../components/Environments";
-import type { Environment } from "../lib/api";
 
 const STAGES: { role: string; label: string }[] = [
   { role: "requirements", label: "Requirements" },
@@ -151,11 +148,7 @@ export default function NewProject() {
   const [budget, setBudget] = useState(50);
   const [maxRework, setMaxRework] = useState(2);
   const [codeReview, setCodeReview] = useState<CodeReviewMode>("off");
-  const [targetOrg, setTargetOrg] = useState<string | null>(null);
   const [repo, setRepo] = useState({ url: "", branch: "main", push: false });
-  const [addingOrg, setAddingOrg] = useState(false);
-  // Template the form was filled from, and the environment chain (empty = single target org).
-  const [envs, setEnvs] = useState<Environment[]>([]);
   const [est, setEst] = useState<EstimateResponse | null>(null);
   const [loading, setLoading] = useState(false);
   const uploaded = useRef<{ file: File; uploadId: string; tokens: number | null } | null>(null);
@@ -226,7 +219,7 @@ export default function NewProject() {
         pdfPages: est?.pdfPages,
         pdfTokens: est?.pdfTokens,
         estimate: est?.estimate ?? undefined,
-        settings: { gates, parallelism, budgetUsd: budget, maxRework, codeReview, targetOrg: envs.length ? null : targetOrg, ...(envs.length ? { environments: envs } : {}), repo: { url: repo.url.trim(), branch: repo.branch.trim() || "main", push: repo.push } },
+        settings: { gates, parallelism, budgetUsd: budget, maxRework, codeReview, repo: { url: repo.url.trim(), branch: repo.branch.trim() || "main", push: repo.push } },
         start,
       }),
     onSuccess: (p) => {
@@ -249,7 +242,6 @@ export default function NewProject() {
     !(file || description.trim().length > 20) && "the requirements (a PDF, or a description of at least a few sentences)",
     repoUrlError(repo.url) && (repo.url.trim() ? "a valid git repository URL" : "the git repository URL"),
     team.length === 0 && "at least one agent",
-    environmentsError(envs) && `environments: ${environmentsError(envs)}`,
   ].filter(Boolean) as string[];
   const canCreate = missing.length === 0;
   const ordered = [...(agents ?? [])].sort((a, b) => (meta?.pipelineRoles.indexOf(a.role) ?? 9) - (meta?.pipelineRoles.indexOf(b.role) ?? 9));
@@ -298,8 +290,8 @@ export default function NewProject() {
               )}
               <Field label="Project name" required help="Name of the project. A short key (e.g. NFS) is generated from it for work item references and the project tab."><input className="input" value={name} onChange={(e) => setName(e.target.value)} placeholder="e.g. Service Cloud rollout" /></Field>
               <RepoFields {...repo} onChange={setRepo} />
-              <Field label={file ? "Context for the team (optional with a PDF)" : "Context for the team — describe the requirements (no PDF)"} required={!file} help="Extra context every agent receives: client, goals, constraints, org details, priorities. Without a PDF, describe the requirements here — each sentence with 'must', 'shall' or 'should' becomes a story.">
-                <textarea className="textarea" value={description} onChange={(e) => setDescription(e.target.value)} placeholder="Client, goals, constraints, org details, what matters most… Without a PDF, describe the problem here." />
+              <Field label={file ? "Context for the team (optional with a PDF)" : "Context for the team — describe the requirements (no PDF)"} required={!file} help="Extra context every agent receives: client, goals, constraints, technical details, priorities. Without a PDF, describe the requirements here — each sentence with 'must', 'shall' or 'should' becomes a story.">
+                <textarea className="textarea" value={description} onChange={(e) => setDescription(e.target.value)} placeholder="Client, goals, constraints, technical details, what matters most… Without a PDF, describe the problem here." />
               </Field>
             </div>
           </div>
@@ -350,28 +342,6 @@ export default function NewProject() {
               <Field label="Budget cap (USD)" help="The pipeline pauses when the project's AI cost reaches this amount; you can raise it and resume. 0 = no limit."><input className="input" type="number" min={0} value={budget} onChange={(e) => setBudget(Number(e.target.value))} /></Field>
               <Field label="Max QA rework" help="How many times QA can send a story back to the developer before it's marked Blocked for you to review."><input className="input" type="number" min={0} max={5} value={maxRework} onChange={(e) => setMaxRework(Number(e.target.value))} /></Field>
               {roles.has("architect") && <CodeReviewField value={codeReview} onChange={setCodeReview} />}
-              {envs.length > 0 && (
-                <div className="col" style={{ gap: 6, gridColumn: "1 / -1" }}>
-                  <div className="row" style={{ gap: 8 }}>
-                    <span className="strong small">Environments</span>
-                    <span className="tiny muted">Map each environment to a registered org. Stories are built on the build environment; the release walks the others in order.</span>
-                    <span className="spacer" />
-                    <Hint text="Go back to a single target org and a single release step."><button type="button" className="btn sm ghost" onClick={() => setEnvs([])}>Use a single org</button></Hint>
-                  </div>
-                  <EnvironmentsEditor value={envs} onChange={setEnvs} />
-                </div>
-              )}
-              {roles.has("release") && !envs.length && (
-                <Field hint={<button type="button" className="btn sm ghost" style={{ marginTop: 4 }} onClick={() => setEnvs(defaultEnvironments().map((e) => (e.purpose === "build" ? { ...e, org: targetOrg } : e)))}>Use environments instead (Test → Production, add UAT…)</button>} label="Deploy to" help="The Salesforce org this project's releases go to. Leave it on the release agent's default, or pick another registered org for this client. Production orgs can't be chosen. In simulation the deployment is simulated." style={{ gridColumn: "1 / -1" }}>
-                  <OrgPicker
-                    value={targetOrg}
-                    onChange={setTargetOrg}
-                    emptyLabel={`Release agent's default (${team.find((a) => a.role === "release")?.config?.targetOrg ?? "none — static validation"})`}
-                    onAdd={() => setAddingOrg(true)}
-                  />
-                </Field>
-              )}
-              {addingOrg && <AddOrgModal onClose={() => setAddingOrg(false)} onAdded={setTargetOrg} />}
             </div>
           </div>
         </div>

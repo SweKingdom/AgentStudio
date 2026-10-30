@@ -331,43 +331,28 @@ const SECTIONS: Section[] = [
     ),
   },
   {
-    id: "orgs",
-    title: "Salesforce orgs and environments",
+    id: "checks",
+    title: "Checks: the project's own tests",
     icon: Cloud,
-    intro: "Orgs are registered by hand and referred to by alias. The Salesforce CLI on this computer keeps the logins; SiroccoARM never sees them.",
+    intro: "Every story is proven by the project's own commands — tests, build, typecheck, lint — not by an agent saying it works.",
     body: (
       <>
-        <h3>Registering an org</h3>
+        <h3>Where the checks come from</h3>
         <ol className="guide-steps">
-          <li>Settings → <b>Salesforce orgs</b> → <b>Register org</b>: alias (e.g. CLIENT-DEV), type (sandbox, scratch, Developer Edition or production) and, optionally, the login URL. Nothing else is stored.</li>
-          <li><b>Log in</b> opens Salesforce's own login page in your browser through the Salesforce CLI (<Kbd>sf org login web</Kbd>). You sign in there; the CLI keeps the session.</li>
-          <li><b>Test</b> runs a read-only query of the org's details (name, edition, instance) to confirm the CLI can reach it.</li>
+          <li>The project's own list (project Settings → <b>Checks</b>), if it has one.</li>
+          <li>Else the team's list (Settings → Team → <b>Checks</b>).</li>
+          <li>Else detected from the repository's <Kbd>package.json</Kbd>: <Kbd>typecheck</Kbd>, <Kbd>lint</Kbd>, <Kbd>test</Kbd> and <Kbd>build</Kbd> scripts, in that order.</li>
         </ol>
-        <Shot name="settings-orgs" caption="Salesforce orgs: a sandbox and a production org (allowed), each with Test and Log in." />
-        <h3>Production orgs (Trailhead)</h3>
-        <p>A production org — a Trailhead Playground is one — is a target only after you switch <b>Allow</b> on. Even then developers and QA only <i>validate</i> against it (check-only); real deploys happen in the release step, and anonymous Apex never runs there.</p>
-        <h3>Environments</h3>
-        <p>A project uses either one target org or an ordered chain of environments, each mapped to a registered org:</p>
+        <h3>When they run</h3>
         <ul>
-          <li><b>Build</b> (one, always first) — where stories are developed, validated and peer-tested.</li>
-          <li><b>Stage</b> (optional, e.g. UAT) — a release step before production.</li>
-          <li><b>Production</b> (one, last).</li>
+          <li><b>Developer</b> — on the story's branch with <Kbd>run_checks</Kbd>; the story only goes to QA after a passing run.</li>
+          <li><b>QA</b> — again on the story's branch; QA can only approve after a passing run.</li>
+          <li><b>Release</b> — on the base branch with every story merged; the release is only published after a passing run.</li>
         </ul>
-        <p>Each environment has a deploy mode (deploy, or validate only), a test level and an optional approval. The release walks the stage and production environments in order; release notes and the git tag are published after the last one.</p>
-        <Shot name="release" caption="Release tab: release notes, validation and the simulated deploy to Production, the environment chain and smoke tests." />
+        <p>Checks run in order and stop at the first failure. The agent gets the exit code and the last lines of output, fixes the cause and runs them again.</p>
         <h3>Simulation vs live</h3>
-        <div className="guide-table-wrap">
-          <table className="table guide-table">
-            <thead><tr><th>Step</th><th>Simulation</th><th>Live</th></tr></thead>
-            <tbody>
-              <tr><td>Developer</td><td>Simulated against the org's name; nothing is sent</td><td>Validates each story with its tests (check-only), or really deploys it to a sandbox / scratch / dev org if the agent is set to deploy</td></tr>
-              <tr><td>QA</td><td>Static review, drawn evidence</td><td>Runs the story's Apex tests in the org, real screenshots</td></tr>
-              <tr><td>Release</td><td>Simulated validation and deploy</td><td>Check-only validation, then deploy; production after approval as a <b>quick deploy</b> of the validated release; smoke tests (not on production)</td></tr>
-            </tbody>
-          </table>
-        </div>
-        <Callout kind="never">Usernames, passwords, tokens and session links. SiroccoARM passes only the alias to the CLI and never reads the CLI's saved logins.</Callout>
-        <Links><AppLink to="/settings/orgs">Settings → Salesforce orgs</AppLink><ProjectLink tab="release">the Release tab</ProjectLink></Links>
+        <p>In simulation nothing is run: every check reports as passed. In live mode the commands really run on this computer, in the project's workspace, with a timeout per check (15 minutes by default).</p>
+        <Callout kind="never">Agents never weaken, skip or delete a test to make the checks pass.</Callout>
       </>
     ),
   },
@@ -491,7 +476,7 @@ const SECTIONS: Section[] = [
           <li><b>Start small:</b> one project, approval gates on, and watch the first stories end to end.</li>
         </ol>
         <Callout kind="never">SiroccoARM never reads or stores passwords or tokens of external systems. The Claude key and the Azure DevOps token exist only in your <Kbd>.env</Kbd>; git uses this computer's login (SSH key or credential helper); GitHub uses the <Kbd>gh</Kbd> login; Salesforce uses the CLI's login. Secrets never appear in URLs, logs or activity.</Callout>
-        <Links><AppLink to="/settings/general">Settings → General</AppLink><AppLink to="/settings/system">System check</AppLink><AppLink to="/settings/orgs">Salesforce orgs</AppLink></Links>
+        <Links><AppLink to="/settings/general">Settings → General</AppLink><AppLink to="/settings/system">System check</AppLink></Links>
       </>
     ),
   },

@@ -43,9 +43,17 @@ export function redact(text: string) {
 
 export class GhError extends Error {}
 
+/** The `gh` command line. A JavaScript stand-in runs through Node: on Windows a script can't be started directly, and a
+ *  checkout may drop its executable bit. */
+function ghCommand(args: string[]): [string, string[]] {
+  const bin = process.env.ARM_GH_BIN || "gh";
+  return /\.[cm]?js$/i.test(bin) ? [process.execPath, [bin, ...args]] : [bin, args];
+}
+
 function gh(args: string[], input?: string, timeout = 60_000): Promise<string> {
   return new Promise((resolve, reject) => {
-    const child = spawn(process.env.ARM_GH_BIN || "gh", args, {
+    const [cmd, argv] = ghCommand(args);
+    const child = spawn(cmd, argv, {
       cwd: os.tmpdir(), // never inside a workspace: gh must not pick up (or change) a local checkout
       env: { ...process.env, GH_PROMPT_DISABLED: "1", GH_NO_UPDATE_NOTIFIER: "1", NO_COLOR: "1", GIT_TERMINAL_PROMPT: "0" },
       stdio: ["pipe", "pipe", "pipe"],

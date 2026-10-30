@@ -1,14 +1,13 @@
 import { useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { BookmarkPlus, LayoutTemplate, Lock, Loader2, Trash2 } from "lucide-react";
-import { api, type Environment, type NetworkTemplate, type Project } from "../lib/api";
+import { api, type NetworkTemplate, type Project } from "../lib/api";
 import { useMeta } from "../lib/queries";
 import { toast } from "../lib/toast";
 import { Field, Hint } from "./Hint";
 import { Modal } from "./ui";
-import { EnvironmentChain } from "./Environments";
 
-export interface ResolvedTemplate { template: NetworkTemplate; agentIds: string[]; missingRoles: string[]; settings: NetworkTemplate["settings"]; environments: Environment[] }
+export interface ResolvedTemplate { template: NetworkTemplate; agentIds: string[]; missingRoles: string[]; settings: NetworkTemplate["settings"] }
 
 export function useTemplates() {
   return useQuery({ queryKey: ["templates"], queryFn: () => api.get<NetworkTemplate[]>("/templates") });
@@ -46,7 +45,7 @@ export function TemplatePicker({ value, onPick }: { value: string | null; onPick
   return (
     <div className="tpl-grid" role="radiogroup" aria-label="Project templates">
       {(templates ?? []).map((t) => (
-        <Hint key={t.id} block text={`${t.description || t.name} Selecting it sets the team, run settings and environments — you can still change everything below.`}>
+        <Hint key={t.id} block text={`${t.description || t.name} Selecting it sets the team and run settings — you can still change everything below.`}>
           <button type="button" role="radio" aria-checked={value === t.id} className={`tpl-card ${value === t.id ? "on" : ""}`} onClick={() => pick(value === t.id ? null : t.id)}>
             <span className="row" style={{ gap: 6 }}>
               {loading === t.id ? <Loader2 size={13} className="spin" /> : <LayoutTemplate size={13} />}
@@ -54,7 +53,6 @@ export function TemplatePicker({ value, onPick }: { value: string | null; onPick
               {!t.builtin && <span className="chip" style={{ background: "var(--panel-3)" }}>Custom</span>}
             </span>
             <span className="tiny muted tpl-desc">{t.description}</span>
-            {t.environments.length > 0 ? <EnvironmentChain envs={t.environments} /> : <span className="tiny faint">No deployment</span>}
           </button>
         </Hint>
       ))}
@@ -77,7 +75,7 @@ export function NetworkTemplates() {
       <div className="card-head">
         <div>
           <div className="card-title"><LayoutTemplate size={15} /> Network templates</div>
-          <div className="card-sub">Reusable project setups: which roles are on the team, run settings and the environment chain (orgs are chosen per project). Save your own from a project's settings; custom templates travel in the team template file.</div>
+          <div className="card-sub">Reusable project setups: which roles are on the team and the run settings. Save your own from a project's settings; custom templates travel in the team template file.</div>
         </div>
       </div>
       <div className="card-pad col" style={{ gap: 10 }}>
@@ -95,9 +93,7 @@ export function NetworkTemplates() {
                 <span>{t.settings.parallelism} lane(s)</span>
                 <span>Max rework {t.settings.maxRework}</span>
                 <span>Budget {t.settings.budgetUsd ? `$${t.settings.budgetUsd}` : "no limit"}</span>
-              </div>
-              {t.environments.length > 0 ? <EnvironmentChain envs={t.environments} /> : <span className="tiny faint">No environments — {t.roles.includes("release") ? "single target org" : "nothing is deployed"}</span>}
-            </div>
+              </div>            </div>
             {!t.builtin && (
               <Hint text={`Delete the template "${t.name}". Projects created from it keep their settings.`}>
                 <button type="button" className="btn icon danger" onClick={() => setDeleting(t)} aria-label={`Delete ${t.name}`}><Trash2 size={14} /></button>
@@ -112,7 +108,7 @@ export function NetworkTemplates() {
           title={`Delete template "${deleting.name}"?`}
           footer={<><button className="btn ghost" onClick={() => setDeleting(null)}>Cancel</button><button className="btn danger" disabled={del.isPending} onClick={() => del.mutate(deleting.id)}><Trash2 size={14} /> Delete</button></>}
         >
-          <div className="small">Projects created from it keep their own team, settings and environments.</div>
+          <div className="small">Projects created from it keep their own team and settings.</div>
         </Modal>
       )}
     </div>

@@ -8,7 +8,7 @@ import os from "node:os";
 import path from "node:path";
 import { promisify } from "node:util";
 import { workspaceDir, worktreeDir, type Project, type WorkItem } from "./store.js";
-import { fill, sfdxProjectJson, teamSettings } from "./team.js";
+import { fill, teamSettings } from "./team.js";
 
 const pexec = promisify(execFile);
 
@@ -110,9 +110,7 @@ export function ensureRepo(project: Pick<Project, "key" | "settings">) {
     let fresh = false;
     if (!fs.existsSync(path.join(dir, ".git"))) {
       await git(dir, ["init", "-q", "-b", branch]);
-      fs.writeFileSync(path.join(dir, ".gitignore"), ".DS_Store\n.sfdx/\n.sf/\nnode_modules/\n");
-      // Every branch is a valid SFDX project, so the Salesforce CLI can deploy any task branch on its own.
-      if (!fs.existsSync(path.join(dir, "sfdx-project.json"))) fs.writeFileSync(path.join(dir, "sfdx-project.json"), sfdxProjectJson(project));
+      fs.writeFileSync(path.join(dir, ".gitignore"), ".DS_Store\nnode_modules/\n");
       await git(dir, [...ARM_IDENTITY, "add", "-A"]);
       await git(dir, [...ARM_IDENTITY, "commit", "-q", "--allow-empty", "-m", `chore: initialise ${project.key} workspace`]);
       fresh = true;
@@ -132,7 +130,6 @@ export function ensureRepo(project: Pick<Project, "key" | "settings">) {
         await tryGit(dir, [...ARM_IDENTITY, "merge", "-q", "--allow-unrelated-histories", "-X", "ours", "-m", `Start from origin/${branch}`, `origin/${branch}`]);
       }
     }
-    if (!fs.existsSync(path.join(dir, "sfdx-project.json"))) fs.writeFileSync(path.join(dir, "sfdx-project.json"), sfdxProjectJson(project));
   });
 }
 

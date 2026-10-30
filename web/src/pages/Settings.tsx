@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { CheckCircle2, KeyRound, Cloud, Save, RotateCcw, AlertTriangle, SlidersHorizontal, Stethoscope, Users, FolderKanban, Coins, ShieldCheck } from "lucide-react";
+import { CheckCircle2, KeyRound, Save, RotateCcw, AlertTriangle, SlidersHorizontal, Stethoscope, Users, FolderKanban, Coins, ShieldCheck } from "lucide-react";
 import { NavLink, Navigate, useParams } from "react-router-dom";
 import { api, type AppSettings, type ModelPrice } from "../lib/api";
 import { useMeta } from "../lib/queries";
@@ -9,15 +9,13 @@ import { money } from "../lib/format";
 import { toast } from "../lib/toast";
 import { Field, Hint } from "../components/Hint";
 import { PageSkeleton } from "../components/Skeleton";
-import { OrgRegistry } from "../components/Orgs";
 import { SystemCheck, TeamConventions, TeamTemplate } from "../components/TeamSettings";
 import { UsersAccess } from "../components/Users";
 
 const SECTIONS = [
   { key: "general", label: "General", icon: SlidersHorizontal, sub: "Mode, spend limits", saves: true },
   { key: "system", label: "System check", icon: Stethoscope, sub: "Is this computer ready?", saves: false },
-  { key: "orgs", label: "Salesforce orgs", icon: Cloud, sub: "Connections and logins", saves: false },
-  { key: "team", label: "Team", icon: Users, sub: "Conventions, Salesforce defaults, template", saves: false },
+  { key: "team", label: "Team", icon: Users, sub: "Conventions, checks, template", saves: false },
   { key: "projects", label: "Projects", icon: FolderKanban, sub: "Defaults, human baseline, currency", saves: true },
   { key: "pricing", label: "Model prices", icon: Coins, sub: "Prices for every cost figure", saves: true },
   { key: "users", label: "Users & access", icon: ShieldCheck, sub: "Login, roles, audit log", saves: false },
@@ -78,7 +76,7 @@ export default function Settings() {
         <div className="card">
           <div className="card-head"><div className="card-title">Execution</div></div>
           <div className="card-pad col" style={{ gap: 16 }}>
-            <div className="grid g2">
+            <div>
               {meta.backend === "subscription" ? (
                 <div className="banner info">
                   <CheckCircle2 size={16} color="var(--good)" />
@@ -92,18 +90,12 @@ export default function Settings() {
                   </div>
                 </div>
               )}
-              <div className={`banner ${meta.sfOrgCount ? "info" : "warn"}`}>
-                <Cloud size={16} color={meta.sfOrgCount ? "var(--good)" : "var(--warn)"} />
-                <div className="small">
-                  {meta.sfOrgCount ? <><b>{meta.sfOrgCount} Salesforce org(s) registered.</b> Pick the default on the release agent; projects can override it.</> : <>No Salesforce orgs registered — releases use static validation. Register one below.</>}
-                </div>
-              </div>
             </div>
             <div className="row" style={{ justifyContent: "space-between" }}>
               <div>
                 <div className="strong small">Mode</div>
                 <div className="hint">
-                  Simulation: free, nothing is sent to Claude or Salesforce. Live: agents call the Claude API — real tokens, real time, real cost. Running now: <b style={{ color: meta.mode === "live" ? "var(--bad)" : undefined }}>{meta.mode === "live" ? "LIVE" : "simulation"}</b>
+                  Simulation: free, nothing is sent to Claude. Live: agents call the Claude API — real tokens, real time, real cost. Running now: <b style={{ color: meta.mode === "live" ? "var(--bad)" : undefined }}>{meta.mode === "live" ? "LIVE" : "simulation"}</b>
                   {s.mode === "live" && meta.backend === "api" && !meta.hasApiKey && <span style={{ color: "var(--warn)" }}> — Live needs ANTHROPIC_API_KEY in .env; until then agents keep simulating.</span>}
                 </div>
               </div>
@@ -156,7 +148,6 @@ export default function Settings() {
 
         {current.key === "system" && <SystemCheck />}
 
-        {current.key === "orgs" && <OrgRegistry />}
 
         {current.key === "users" && <UsersAccess />}
 

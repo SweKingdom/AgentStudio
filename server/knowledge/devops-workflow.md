@@ -35,12 +35,12 @@ Who moves what:
 
 | Category | Use when the work is mostly… |
 |---|---|
-| `development` | Apex, triggers, LWC, Aura, custom code |
-| `configuration` | Declarative: objects, fields, flows, validation rules, layouts, Lightning pages |
+| `development` | Application code: services, APIs, UI components |
+| `configuration` | Settings, feature flags, environment variables, infrastructure as code |
 | `data_migration` | Moving/transforming data: mappings, load order, external IDs, reconciliation |
-| `script` | Anonymous Apex, CLI scripts, one-off data fixes, scheduled job setup |
+| `script` | CLI scripts, one-off data fixes, scheduled job setup |
 | `integration` | Callouts, Named Credentials, Platform Events, middleware contracts |
-| `security` | Profiles, permission sets, sharing, FLS |
+| `security` | Authentication, authorisation, roles, secrets handling |
 | `reporting` | Reports, dashboards, analytics |
 | `testing` | Test automation, regression packs |
 | `documentation` | Training material, manuals, process documentation |

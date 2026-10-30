@@ -12,8 +12,6 @@ import { simulateConsult, simulateRun } from "./simulator.js";
 import { changedOnBranch, commitWork, pushRefs } from "../git.js";
 import { consultContext, contextFor, type RunContext } from "./context.js";
 import { fill, teamSettings } from "../team.js";
-import { sfAccess } from "../sf.js";
-import type { ReleaseEnvironment } from "../environments.js";
 
 let client: Anthropic | null = null;
 function anthropic() {
@@ -48,8 +46,6 @@ export interface RunOptions {
   feedback?: string;
   /** Attempt number within this delivery (1 = first build, >1 = QA rework); `iteration` is the item's global count. */
   attempt?: number;
-  /** Release runs of a project with environments: the environment this step validates/deploys to. */
-  environment?: ReleaseEnvironment;
 }
 
 export interface RunResult {
@@ -166,7 +162,6 @@ export async function runAgent(o: RunOptions): Promise<RunResult> {
     iteration: o.iteration ?? 1,
     outcome: {},
     consult: consultAgent,
-    environment: o.environment,
   };
   logActivity({
     projectId: o.project.id,
@@ -174,7 +169,7 @@ export async function runAgent(o: RunOptions): Promise<RunResult> {
     runId,
     itemId: o.item?.id,
     type: "run_started",
-    summary: `${o.agent.name} started ${o.stage}${o.environment ? ` (${o.environment.name}${o.environment.phase === "validate" ? ", check-only" : ""})` : ""}${o.item ? ` on ${o.item.code}` : ""}${(o.iteration ?? 1) > 1 ? ` (iteration ${o.iteration})` : ""}`,
+    summary: `${o.agent.name} started ${o.stage}${o.item ? ` on ${o.item.code}` : ""}${(o.iteration ?? 1) > 1 ? ` (iteration ${o.iteration})` : ""}`,
   });
   try {
     const summary =
@@ -213,21 +208,6 @@ export async function runAgent(o: RunOptions): Promise<RunResult> {
   }
 }
 
-/** How this agent should use the connected org (only when the project really talks to one). */
-function orgBrief(ctx: ToolContext) {
-  const access = sfAccess(ctx.project, ctx.environment);
-  if (!access.live) return "";
-  const t = ctx.agent.tools;
-  const lines = [`\n\n## Salesforce org\nThis ${access.org.environment ? `run works on the ${access.org.environment} environment: ` : "project is connected to "}${access.org.alias} (${access.org.type}${access.org.type === "production" ? " — validate only; real deploys happen at release" : ""}).`];
-  if (t.includes("describe_object")) lines.push("- Check the real data model with `describe_object` before relying on objects and fields.");
-  if (t.includes("run_soql")) lines.push("- Use `run_soql` (read-only) to check configuration and data.");
-  if (t.includes("deploy_story")) lines.push("- Before `complete_development`, run `deploy_story`; fix every component error and test failure it reports and run it again until it succeeds.");
-  if (t.includes("run_apex_tests")) lines.push("- Run `run_apex_tests` and record its results; you can only approve when they pass.");
-  if (t.includes("capture_screenshot")) lines.push("- For every acceptance criterion whose result is visible in the UI, take a real screenshot with `capture_screenshot` and embed it in the test report.");
-  if (t.includes("run_anonymous_apex")) lines.push("- After a real deployment, smoke-test each story with `run_soql` or `run_anonymous_apex` (not on production).");
-  return lines.join("\n");
-}
-
 /** What this run is told up front (see context.ts). QA and the writer also get the files the story changed. */
 export async function runContext(ctx: Pick<ToolContext, "project" | "agent" | "item">, o: Pick<RunOptions, "item">): Promise<RunContext> {
   const item = o.item ? getItem(o.item.id) ?? o.item : undefined;
@@ -254,7 +234,7 @@ async function liveLoop(ctx: ToolContext, o: RunOptions): Promise<string> {
   const c = await runContext(ctx, o);
   // Project context first, with its own cache breakpoint: every run of this role in this project re-reads it from cache.
   firstContent.push({ type: "text", text: c.shared, cache_control: { type: "ephemeral" } });
-  firstContent.push({ type: "text", text: firstMessageTail(c, o) + orgBrief(ctx) });
+  firstContent.push({ type: "text", text: firstMessageTail(c, o) });
   const messages: Anthropic.Beta.BetaMessageParam[] = [{ role: "user", content: firstContent }];
   const useFallback = appSettings().refusalFallback && FALLBACK_MODELS.has(agent.model);
   let finalText = "";
@@ -363,7 +343,7 @@ async function sdkLoop(ctx: ToolContext, o: RunOptions): Promise<string> {
   if (o.pdfBase64) content.push({ type: "document", source: { type: "base64", media_type: "application/pdf", data: o.pdfBase64 }, title: project.pdf_name ?? "Requirements" });
   const c = await runContext(ctx, o);
   content.push({ type: "text", text: c.shared });
-  content.push({ type: "text", text: firstMessageTail(c, o) + orgBrief(ctx) });
+  content.push({ type: "text", text: firstMessageTail(c, o) });
   const budget = getProject(project.id)?.settings.budgetUsd ?? 0;
   const r = await withSdkCalls(
     sdkRun({

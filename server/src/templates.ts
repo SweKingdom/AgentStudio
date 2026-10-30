@@ -1,6 +1,5 @@
 /**
- * Agent-network templates: reusable project setups — which roles are on the team, the run settings and the
- * environment chain (slots without orgs: aliases only mean something on one machine, and each project maps its own).
+ * Agent-network templates: reusable project setups — which roles are on the team and the run settings.
  *
  * Built-in templates are read-only; custom ones live in the settings table under `networkTemplates` and travel in the
  * team template file (team.ts).
@@ -8,7 +7,6 @@
 import { getSetting, setSetting, uid } from "./db.js";
 import { listAgents } from "./agents/store.js";
 import { PIPELINE_ROLES, type Role } from "./agents/roles.js";
-import { cleanEnvironments, type Environment } from "./environments.js";
 import type { Project } from "./store.js";
 
 export interface TemplateSettings {
@@ -26,58 +24,42 @@ export interface NetworkTemplate {
   /** Pipeline roles on the team; creating a project from the template selects the enabled agents with these roles. */
   roles: Role[];
   settings: TemplateSettings;
-  /** Environment slots — `org` is always null here; the project maps each slot to an org. */
-  environments: Environment[];
 }
 
 const KEY = "networkTemplates";
 
-const env = (key: string, name: string, purpose: Environment["purpose"], approval: boolean, deployMode: Environment["deployMode"] = "deploy"): Environment => ({
-  key,
-  name,
-  purpose,
-  org: null,
-  deployMode,
-  testLevel: "RunLocalTests",
-  approval,
-});
-
 export const BUILTIN_TEMPLATES: NetworkTemplate[] = [
   {
     id: "builtin-full",
-    name: "Full Salesforce delivery",
-    description: "The whole team from requirements to release: built and tested on Test, deployed to UAT after your approval, then to Production after your approval.",
+    name: "Full delivery",
+    description: "The whole team from requirements to release: designed, planned, built, checked, tested, documented and released, with your approval at each gate.",
     builtin: true,
     roles: ["requirements", "architect", "planner", "developer", "qa", "writer", "release"],
     settings: { gates: true, parallelism: 2, maxRework: 2, budgetUsd: 50 },
-    environments: [env("test", "Test", "build", false), env("uat", "UAT", "stage", true), env("prod", "Production", "production", true)],
   },
   {
     id: "builtin-small",
     name: "Small change",
-    description: "Developer, QA and release manager for a small, well-understood change: built on Test, deployed to Production after your approval.",
+    description: "Developer, QA and release manager for a small, well-understood change: built, checked, tested and released.",
     builtin: true,
     roles: ["developer", "qa", "release"],
     settings: { gates: false, parallelism: 1, maxRework: 2, budgetUsd: 15 },
-    environments: [env("test", "Test", "build", false), env("prod", "Production", "production", true)],
   },
   {
     id: "builtin-analysis",
     name: "Analysis & estimate only",
-    description: "Analyst, architect and planner: backlog, technical refinement and a delivery plan with estimates. Nothing is built or deployed — the pipeline stops after planning.",
+    description: "Analyst, architect and planner: backlog, technical refinement and a delivery plan with estimates. Nothing is built — the pipeline stops after planning.",
     builtin: true,
     roles: ["requirements", "architect", "planner"],
     settings: { gates: true, parallelism: 2, maxRework: 2, budgetUsd: 20 },
-    environments: [],
   },
   {
-    id: "builtin-migration",
-    name: "Data migration",
-    description: "Analyst, architect, developer, QA and release manager for a data migration: rehearsed on Test, run on Production after your approval.",
+    id: "builtin-feature",
+    name: "Feature without planning",
+    description: "Analyst, architect, developer, QA and release manager: for a feature whose scope is clear enough to skip the planning stage.",
     builtin: true,
     roles: ["requirements", "architect", "developer", "qa", "release"],
     settings: { gates: true, parallelism: 1, maxRework: 2, budgetUsd: 40 },
-    environments: [env("test", "Test", "build", false), env("prod", "Production", "production", true)],
   },
 ];
 
@@ -122,7 +104,6 @@ export function cleanTemplate(raw: unknown, id: string): NetworkTemplate {
       maxRework: num(s.maxRework, 2, 0, 5, "Max QA rework"),
       budgetUsd: num(s.budgetUsd, 50, 0, 100_000, "Budget"),
     },
-    environments: cleanEnvironments(x.environments ?? [], { slots: true }) ?? [],
   };
 }
 
@@ -156,7 +137,7 @@ export function deleteTemplate(id: string) {
   setSetting(KEY, list.filter((t) => t.id !== id));
 }
 
-/** "Save as template": the project's team roles, run settings and environment slots (orgs left out). */
+/** "Save as template": the project's team roles and run settings. */
 export function templateFromProject(p: Project, meta: { name?: string; description?: string }) {
   const agents = listAgents();
   const roles = [...new Set(p.agent_ids.map((id) => agents.find((a) => a.id === id)?.role).filter((r): r is Role => Boolean(r && PIPELINE_ROLES.includes(r))))];
@@ -165,17 +146,16 @@ export function templateFromProject(p: Project, meta: { name?: string; descripti
     description: meta.description ?? `Saved from project ${p.key}.`,
     roles,
     settings: { gates: p.settings.gates, parallelism: p.settings.parallelism, maxRework: p.settings.maxRework, budgetUsd: p.settings.budgetUsd },
-    environments: (p.settings.environments ?? []).map((e) => ({ ...e, org: null })),
   });
 }
 
-/** What creating a project from the template pre-selects: enabled agents by role, settings and environment slots. */
+/** What creating a project from the template pre-selects: enabled agents by role and settings. */
 export function resolveTemplate(id: string) {
   const t = getTemplate(id);
   if (!t) throw new Error("Template not found");
   const agents = listAgents().filter((a) => a.enabled && t.roles.includes(a.role));
   const missingRoles = t.roles.filter((r) => !agents.some((a) => a.role === r));
-  return { template: t, agentIds: agents.map((a) => a.id), missingRoles, settings: t.settings, environments: t.environments };
+  return { template: t, agentIds: agents.map((a) => a.id), missingRoles, settings: t.settings };
 }
 
 /** Team-file import: custom templates are matched by name (case-insensitive) and replaced, or added. */

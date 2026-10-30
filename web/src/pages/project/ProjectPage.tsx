@@ -10,10 +10,8 @@ import { Count } from "../../components/Count";
 import { PageSkeleton } from "../../components/Skeleton";
 import { useLocation } from "react-router-dom";
 import { PathBar, type PathStep } from "../../components/PathBar";
-import { OrgBadge } from "../../components/Orgs";
 import { RepoChip } from "../../components/Repo";
 import { ProjectSettingsModal } from "./ProjectSettings";
-import { EnvironmentChain, envStageHelp } from "../../components/Environments";
 import { PauseMenu } from "../../components/PauseControls";
 import { Settings2 } from "lucide-react";
 import { api, type Project } from "../../lib/api";
@@ -45,9 +43,9 @@ const STAGE_HELP: Record<string, string> = {
   architecture: "The architect completes each story's technical specification and the solution design.",
   planning: "The planner estimates, prioritises and orders the backlog into sprints.",
   approve_plan: "You approve the delivery plan before building starts.",
-  delivery: "Per story, in parallel lanes: developer builds, QA peer-tests (with rework loops), writer documents.",
+  delivery: "Per story, in parallel lanes: developer builds and runs the project's checks, QA peer-tests (with rework loops), writer documents.",
   approve_release: "You approve the release once everything is built, tested and documented.",
-  release: "The release manager builds the manifest, validates, smoke-tests and publishes the release.",
+  release: "The release manager runs the checks on the base branch, smoke-tests and publishes the release with a git tag.",
 };
 
 function Pipeline({ p }: { p: Project }) {
@@ -62,7 +60,7 @@ function Pipeline({ p }: { p: Project }) {
       gate: s.gate,
       help: (
         <>
-          {STAGE_HELP[s.key] ?? envStageHelp(p, s.key)}
+          {STAGE_HELP[s.key]}
           {owners.length ? (
             <div style={{ marginTop: 6, display: "flex", flexDirection: "column", gap: 3 }}>
               {owners.map((a) => (
@@ -184,16 +182,11 @@ export default function ProjectPage() {
               {p.pdf_name && <a href={`/api/projects/${p.id}/pdf`} target="_blank" rel="noreferrer" className="row" style={{ gap: 5 }}><FileText size={13} /> {p.pdf_name}</a>}
               <span className="nowrap">{p.counts.epics} epics · {p.counts.features} features · {p.counts.stories} items · {p.counts.points} pts</span>
               <RepoChip repo={p.repoInfo} onFix={() => setEditing(true)} />
-              {p.targetOrg ? (
-                <Hint text={p.targetOrg.source === "environment" ? `Stories are built and tested on ${p.targetOrg.alias} (the ${p.targetOrg.environment} environment); releases go through ${(p.settings.environments ?? []).filter((e) => e.purpose !== "build").map((e) => e.name).join(" → ") || p.targetOrg.environment}. Change it in Settings.${p.mode === "simulation" ? " Simulated: nothing is sent to Salesforce." : ""}` : `Releases deploy to ${p.targetOrg.alias} — ${p.targetOrg.source === "project" ? "chosen for this project" : "the release agent's default"}. Change it on the Release tab.${p.mode === "simulation" ? " Simulated: nothing is sent to Salesforce." : ""}`}>
-                  <span><OrgBadge alias={p.targetOrg.alias} type={p.targetOrg.type} /></span>
-                </Hint>
-              ) : p.agent_ids.length > 0 && (
-                <Hint text="No target Salesforce org — releases run static validation only. Choose one on the Release tab or set a default on the release agent.">
-                  <span className="chip" style={{ background: "var(--panel-3)" }}>No target org</span>
+              {p.agent_ids.length > 0 && (
+                <Hint text={p.checks.length ? `Every story must pass: ${p.checks.map((c) => c.command).join(" · ")}. Change them in Settings.` : "No checks found in the repository — add them in Settings so stories are really tested."}>
+                  <span className="chip" style={{ background: "var(--panel-3)" }}>{p.checks.length ? `${p.checks.length} check${p.checks.length === 1 ? "" : "s"}` : "No checks"}</span>
                 </Hint>
               )}
-              {p.settings.environments?.length ? <EnvironmentChain envs={p.settings.environments} /> : null}
               <span className="row nowrap" style={{ gap: 6 }}>
                 <Count value={p.costUsd} format={(n) => money(n)} />{p.settings.budgetUsd > 0 && <> of {money(p.settings.budgetUsd, 0)}</>}
                 {p.settings.budgetUsd > 0 && <span className="progress" style={{ width: 70 }}><span style={{ width: `${budgetPct}%`, background: budgetPct > 90 ? "var(--bad)" : "var(--accent)" }} /></span>}

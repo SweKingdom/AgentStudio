@@ -10,8 +10,6 @@ import Anthropic from "@anthropic-ai/sdk";
 import { DATA_DIR } from "./db.js";
 import { appSettings, effectiveMode, hasApiKey } from "./settings.js";
 import { listAgents } from "./agents/store.js";
-import { listOrgs } from "./salesforce.js";
-import { sf } from "./sf.js";
 import { adoConfigOf, adoProjects, hasAdoToken, NO_TOKEN, testAdo } from "./ado.js";
 
 const pexec = promisify(execFile);
@@ -19,7 +17,7 @@ const pexec = promisify(execFile);
 export type CheckStatus = "ok" | "warn" | "fail" | "info";
 export interface Check {
   id: string;
-  group: "App" | "Git & GitHub" | "Salesforce" | "Claude API" | "Azure DevOps";
+  group: "App" | "Git & GitHub" | "Claude API" | "Azure DevOps";
   label: string;
   status: CheckStatus;
   detail: string;
@@ -66,9 +64,9 @@ export async function runChecks(o: { network?: boolean } = {}): Promise<Check[]>
     add({ id: "data", group: "App", label: "Data folder", status: "fail", detail: `${DATA_DIR}: ${e instanceof Error ? e.message : e}`, fix: "Give this user write access to the data folder, or set ARM_DATA_DIR." });
   }
   const mode = effectiveMode();
-  add({ id: "mode", group: "App", label: "Mode", status: "info", detail: mode === "live" ? "Live — agents call the Claude API (real cost)" : `Simulation${appSettings().mode === "live" ? " (Live is selected but there's no API key)" : ""} — nothing is sent to Claude or Salesforce` });
+  add({ id: "mode", group: "App", label: "Mode", status: "info", detail: mode === "live" ? "Live — agents call the Claude API (real cost)" : `Simulation${appSettings().mode === "live" ? " (Live is selected but there's no API key)" : ""} — nothing is sent to Claude` });
   const proxy = process.env.HTTPS_PROXY || process.env.https_proxy;
-  if (proxy) add({ id: "proxy", group: "App", label: "Proxy", status: "info", detail: `HTTPS_PROXY is set — git, the Salesforce CLI and the Claude SDK must all be able to use it.` });
+  if (proxy) add({ id: "proxy", group: "App", label: "Proxy", status: "info", detail: `HTTPS_PROXY is set — git and the Claude SDK must both be able to use it.` });
 
   // ---------------------------------------------------------------- git & GitHub
   const g = await run("git", ["--version"]);
@@ -101,39 +99,6 @@ export async function runChecks(o: { network?: boolean } = {}): Promise<Check[]>
         const acct = gh.out.match(/account (\S+)/)?.[1] ?? gh.out.match(/as (\S+)/)?.[1];
         add({ id: "gh", group: "Git & GitHub", label: "GitHub CLI", status: gh.ok ? "ok" : "warn", detail: gh.ok ? `Logged in${acct ? ` as ${acct}` : ""}` : "Not logged in", fix: gh.ok ? undefined : "Run `gh auth login` — it also sets up the HTTPS credential helper for git." });
       }
-    }
-  }
-
-  // ---------------------------------------------------------------- Salesforce
-  const sv = await run(process.env.ARM_SF_BIN || "sf", ["--version"]);
-  add({
-    id: "sf",
-    group: "Salesforce",
-    label: "Salesforce CLI",
-    status: sv.ok ? "ok" : "warn",
-    detail: sv.ok ? sv.out.split("\n")[0] : "Not installed",
-    fix: sv.ok ? undefined : "Install it (npm install -g @salesforce/cli) — needed for org connections and live deploys.",
-  });
-  const orgs = listOrgs().orgs;
-  if (!orgs.length) add({ id: "orgs", group: "Salesforce", label: "Registered orgs", status: "info", detail: "None — register one in Settings → Salesforce orgs" });
-  for (const org of orgs) {
-    if (!o.network || !sv.ok) {
-      add({ id: `org-${org.alias}`, group: "Salesforce", label: `Org ${org.alias}`, status: "info", detail: `${org.type}${org.type === "production" ? (org.selectable ? ", allowed" : ", not allowed") : ""} — connection not tested` });
-      continue;
-    }
-    try {
-      const r = await sf(["data", "query", "--query", "SELECT Name, OrganizationType, IsSandbox FROM Organization", "--target-org", org.alias], undefined, 60_000);
-      const rec = r.result?.records?.[0];
-      add({
-        id: `org-${org.alias}`,
-        group: "Salesforce",
-        label: `Org ${org.alias}`,
-        status: rec ? (org.type === "production" && !org.selectable ? "warn" : "ok") : "fail",
-        detail: rec ? `Connected · ${rec.Name} · ${rec.OrganizationType}${rec.IsSandbox ? " (sandbox)" : ""}${org.type === "production" && !org.selectable ? " · production not allowed yet" : ""}` : String(r.message ?? "No answer").replace(/^Parsing --[\w-]+\s*/i, "").split("\n")[0],
-        fix: rec ? (org.type === "production" && !org.selectable ? "Switch on Allow in Settings → Salesforce orgs." : undefined) : "Settings → Salesforce orgs → Log in.",
-      });
-    } catch (e) {
-      add({ id: `org-${org.alias}`, group: "Salesforce", label: `Org ${org.alias}`, status: "fail", detail: e instanceof Error ? e.message : String(e), fix: "Settings → Salesforce orgs → Log in." });
     }
   }
 

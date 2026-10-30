@@ -36,7 +36,7 @@ A "works" without evidence becomes ⛔. **Never soften a ❌ and never upgrade a
 
 ## 6. Code review (alongside the AC checks)
 
-Check the standards packs: bulkification, no SOQL/DML in loops, sharing/CRUD/FLS, error logging, no hardcoded Ids, test class quality (positive/negative/bulk, assertions), naming, package.xml contains every component. Standards issues that would fail deployment or break an AC are ❌; style issues are notes.
+Check the standards packs: fit with the codebase, failure paths, input validation, authorisation, no secrets or hard-coded environment values, test quality (one test per AC, failure paths, real assertions), naming. Run `run_checks` on the story's branch: a failing check is ❌. Standards issues that break an AC, a check or a security rule are ❌; style issues are notes.
 
 ## Report format
 

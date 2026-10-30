@@ -17,7 +17,7 @@ interface RItem {
 }
 interface Report {
   generatedAt: string;
-  project: { key: string; name: string; description: string; status: string; mode: string; createdAt: string; startedAt: string | null; finishedAt: string | null; pdfName: string | null; repo: { url: string; branch: string } | null; targetOrg: { alias: string; type: string } | null; gates: boolean; budgetUsd: number };
+  project: { key: string; name: string; description: string; status: string; mode: string; createdAt: string; startedAt: string | null; finishedAt: string | null; pdfName: string | null; repo: { url: string; branch: string } | null; gates: boolean; budgetUsd: number };
   kpis: {
     epics: number; features: number; items: number; points: number; deployed: number; releaseReady: number; inProgress: number; notStarted: number; held: number; blocked: number;
     costUsd: number; calls: number; tokens: number; aiBusySeconds: number; simulated: boolean; elapsedSeconds: number; humanHours: number; humanCostUsd: number; speedup: number | null;
@@ -157,7 +157,6 @@ export default function ReportView() {
           <dl className="rp-facts">
             <div><dt>Requirements</dt><dd>{p.pdfName ?? "Project description"}</dd></div>
             <div><dt>Repository</dt><dd className="mono">{p.repo ? `${p.repo.url} (${p.repo.branch})` : "Not set"}</dd></div>
-            <div><dt>Target org</dt><dd>{p.targetOrg ? `${p.targetOrg.alias} (${p.targetOrg.type})` : "None — static validation"}</dd></div>
             <div><dt>Started</dt><dd>{p.startedAt ? dateTime(p.startedAt) : "—"}</dd></div>
             <div><dt>{p.finishedAt ? "Finished" : "Report date"}</dt><dd>{dateTime(p.finishedAt ?? r.generatedAt)}</dd></div>
             <div><dt>AI team</dt><dd>{r.team.map((t) => t.name).join(", ")}</dd></div>

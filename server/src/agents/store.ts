@@ -1,12 +1,8 @@
 import { all, get, insert, now, parseJson, run, uid, update } from "../db.js";
 import { ROLES, PIPELINE_ROLES, type Role } from "./roles.js";
 
-/** Role-specific settings. Release agent: where and how to deploy. */
-export interface AgentConfig {
-  targetOrg?: string;
-  deployMode?: "validate" | "deploy";
-  testLevel?: "RunLocalTests" | "RunSpecifiedTests" | "NoTestRun" | "RunAllTestsInOrg";
-}
+/** Role-specific settings (none yet; kept so agents and team files keep their shape). */
+export type AgentConfig = Record<string, never>;
 
 export interface Agent {
   id: string;
@@ -82,7 +78,7 @@ export function defaultAgentFor(role: Role, overrides: Partial<Agent> = {}): Age
     custom_knowledge: "",
     name_story: def.nameStory,
     tools: def.tools,
-    config: role === "release" ? { deployMode: "validate", testLevel: "RunLocalTests" } : {},
+    config: {},
     max_turns: def.maxTurns,
     is_builtin: false,
     enabled: true,
@@ -173,12 +169,11 @@ export function resetAgent(id: string) {
 /** Seed the default delivery team on first start. */
 /** Tools added to a role after agents were created; existing built-in agents receive them once (as a new version). */
 const ADDED_TOOLS: Partial<Record<Role, string[]>> = {
-  requirements: ["describe_object"],
-  architect: ["describe_object", "run_soql", "update_document_section", "submit_code_review"],
+  architect: ["update_document_section", "submit_code_review"],
   writer: ["update_document_section"],
-  developer: ["describe_object", "run_soql", "deploy_story"],
-  qa: ["capture_evidence", "write_document", "read_document", "run_apex_tests", "run_soql", "capture_screenshot"],
-  release: ["run_soql", "run_anonymous_apex", "update_document_section"],
+  developer: ["run_checks"],
+  qa: ["capture_evidence", "write_document", "read_document", "run_checks"],
+  release: ["run_checks", "update_document_section"],
 };
 
 /** Names before the Iberian-mythology rename (agents still carrying them are renamed once, as a restorable version). */

@@ -6,7 +6,6 @@ import { ArrowLeft, BookOpen, Eye, PenLine, RotateCcw, Save, Sparkles, Trash2, W
 import { api, type AgentDetail, type AgentVersion, type Knowledge } from "../lib/api";
 import { Field, Hint } from "../components/Hint";
 import { openChat } from "../components/Modals";
-import { AddOrgModal, OrgPicker } from "../components/Orgs";
 import { Rocket } from "lucide-react";
 import { useMeta } from "../lib/queries";
 import { ago, duration, money, num, tokens } from "../lib/format";
@@ -38,7 +37,6 @@ export default function AgentEditor() {
   const [customMode, setCustomMode] = useState<"write" | "preview">("write");
   const [showPrompt, setShowPrompt] = useState(false);
   const [showAllPacks, setShowAllPacks] = useState(false);
-  const [addingOrg, setAddingOrg] = useState(false);
 
   useEffect(() => setDraft(null), [id]);
   useEffect(() => {
@@ -169,54 +167,6 @@ export default function AgentEditor() {
             </div>
           </div>
 
-          {/* Deployment — release agent only */}
-          {agent.role === "release" && (
-            <div className="card">
-              <div className="card-head">
-                <div>
-                  <div className="card-title"><Rocket size={15} /> Deployment</div>
-                  <div className="card-sub">Where and how {draft.name} deploys by default. Each project can override the target org.</div>
-                </div>
-              </div>
-              <div className="card-pad col" style={{ gap: 14 }}>
-                <Field label="Default target org" help="The Salesforce org releases go to when a project doesn't choose its own. Production orgs (e.g. a Trailhead Playground) appear only once allowed in Settings → Salesforce orgs. In simulation, the deployment is simulated against it.">
-                  <OrgPicker value={draft.config.targetOrg} onChange={(v) => set("config", { ...draft.config, targetOrg: v ?? undefined })} emptyLabel="None — static validation only" onAdd={() => setAddingOrg(true)} />
-                </Field>
-                <div className="grid g2">
-                  <Field label="Deploy mode" help="Check-only: validates the release and runs tests without changing the org. Validate + deploy: if validation passes, the release is deployed to the target sandbox.">
-                    <Seg value={draft.config.deployMode ?? "validate"} onChange={(v) => set("config", { ...draft.config, deployMode: v })} options={[{ value: "validate", label: "Check-only" }, { value: "deploy", label: "Validate + deploy" }]} />
-                  </Field>
-                  <Field label="Test level" help="Which Apex tests run during validation. RunLocalTests (all tests in the org except managed packages) is the safe default.">
-                    <select className="select" value={draft.config.testLevel ?? "RunLocalTests"} onChange={(e) => set("config", { ...draft.config, testLevel: e.target.value as NonNullable<Draft["config"]["testLevel"]> })}>
-                      <option value="RunLocalTests">RunLocalTests</option>
-                      <option value="RunSpecifiedTests">RunSpecifiedTests</option>
-                      <option value="RunAllTestsInOrg">RunAllTestsInOrg</option>
-                      <option value="NoTestRun">NoTestRun</option>
-                    </select>
-                  </Field>
-                </div>
-              </div>
-              {addingOrg && <AddOrgModal onClose={() => setAddingOrg(false)} onAdded={(alias) => set("config", { ...draft.config, targetOrg: alias })} />}
-            </div>
-          )}
-
-          {agent.role === "developer" && (
-            <div className="card">
-              <div className="card-head">
-                <div>
-                  <div className="card-title"><Rocket size={15} /> Working in the org</div>
-                  <div className="card-sub">How {draft.name} uses the project's Salesforce org in live mode (with deploy_story). Nothing is sent to Salesforce in simulation.</div>
-                </div>
-              </div>
-              <div className="card-pad col" style={{ gap: 10 }}>
-                <Field label="Story deployments" help="Check-only: each story is validated in the org with its tests (compile errors and test failures come back to the developer to fix) — nothing is saved in the org. Deploy: the story is really deployed to the org once it validates, so testers can try it there. Production orgs are always check-only.">
-                  <Seg value={draft.config.deployMode ?? "validate"} onChange={(v) => set("config", { ...draft.config, deployMode: v })} options={[{ value: "validate", label: "Check-only (validate)" }, { value: "deploy", label: "Deploy to sandbox / scratch / dev org" }]} />
-                </Field>
-                <div className="small muted">Which tests run, the minimum coverage and the API version are team settings (Settings → Salesforce defaults) that each project can override.</div>
-              </div>
-            </div>
-          )}
-
           {/* Knowledge */}
           <div className="card">
             <div className="card-head">
@@ -275,7 +225,7 @@ export default function AgentEditor() {
                   <Seg value={customMode} onChange={setCustomMode} options={[{ value: "write", label: <span className="row" style={{ gap: 4 }}><PenLine size={12} /> Write</span> }, { value: "preview", label: <span className="row" style={{ gap: 4 }}><Eye size={12} /> Preview</span> }]} />
                 </div>
                 {customMode === "write" ? (
-                  <Field help={`${draft.name}'s own skills, written by you in Markdown. Always added to its prompt after the role packs, so it wins when they conflict. Use it for client conventions, naming rules, org specifics and lessons learned.`}>
+                  <Field help={`${draft.name}'s own skills, written by you in Markdown. Always added to its prompt after the role packs, so it wins when they conflict. Use it for client conventions, naming rules, project specifics and lessons learned.`}>
                   <textarea
                     className="textarea code"
                     style={{ minHeight: 220 }}
@@ -290,7 +240,7 @@ export default function AgentEditor() {
                   </div>
                 )}
                 <div className="row" style={{ marginTop: 6 }}>
-                  <span className="hint">Markdown. Injected after the role packs, so it overrides them when they conflict. Good for client conventions, naming rules, org specifics, lessons learned.</span>
+                  <span className="hint">Markdown. Injected after the role packs, so it overrides them when they conflict. Good for client conventions, naming rules, project specifics, lessons learned.</span>
                   <span className="spacer" />
                   {!draft.custom_knowledge && <button className="btn ghost sm" onClick={() => set("custom_knowledge", CUSTOM_TEMPLATE)}>Insert template</button>}
                 </div>

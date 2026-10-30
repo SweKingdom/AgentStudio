@@ -17,15 +17,26 @@ AgentStudio är en kopia av SiroccoARM (2026-10-27) som blir ett generellt verkt
 - Agentkörningar, konsultationer och chatt går via vald motor. Tokenräkning för PDF:er finns bara i API:t; på planen används appens uppskattning.
 - Tester: `server/test/sdk.test.ts`, med en fejkad SDK. `test/setup.ts` stänger av planmotorn så att inga tester startar en riktig `claude`-process.
 
+### Steg 2: Generellt verktyg (Salesforce borttaget)
+- Borttaget: `sf.ts`, `salesforce.ts`, `environments.ts`, `screenshots.ts`, orgregistret och dess API, miljökedjan, Salesforce-verktygen (`describe_object`, `run_soql`, `deploy_story`, `run_apex_tests`, `run_anonymous_apex`, `build_manifest`, `validate_deployment`, `capture_screenshot`), kunskapspaketen `sf-*.md`, och vyerna `Orgs` och `Environments`.
+- Nytt: `server/src/checks.ts` och verktyget `run_checks`. Det kör projektets egna kommandon i storyns worktree, eller på basgrenen vid release, och stoppar vid första fel.
+  - Var kommandona kommer ifrån: projektets inställning, annars teamets, annars `package.json` (`typecheck`, `lint`, `test`, `build`).
+  - I simulering körs ingenting.
+- Grindar: `complete_development`, QA:s godkännande och `publish_release` kräver att `run_checks` har passerat i samma körning.
+- Rollerna och kunskapspaketen är generella. Nya paket: `solution-architecture`, `engineering-standards` och `testing-standards`.
+- Gränssnittet: Inställningar → Team → **Checks** och projektinställningar → **Checks** ersätter Salesforce-standarderna. Projektsidan och Releasevyn visar kontrollerna. Guidens avsnitt om orgar har ersatts med ett om kontroller.
+- Tester: `server/test/checks.test.ts`, där kontrollerna körs på riktigt och grinden prövas.
+
 ## Kvar
 
-### Steg 2: Gör verktyget generellt (ta bort Salesforce)
-- Ta bort `salesforce.ts`, `sf.ts`, `environments.ts`, `screenshots.ts`, orgregistret, Salesforce-verktygen i `tools.ts`, kunskapspaketen `sf-*.md`, vyerna `Orgs` och `Environments`, och Salesforce-texten i rollerna.
-- Ersätt `deploy_story` och `run_apex_tests` med `run_checks`. Den kör projektets egna kommandon för test, bygge, typkontroll och lint, som anges per projekt eller identifieras automatiskt som `detect-project.sh` gör i Claude-Pipeline.
-- Låt `npm run typecheck` visa vad som fortfarande refererar till de borttagna delarna.
+### Steg 2b: Simulatorns exempelinnehåll och live-testet
+- Simulatorn (`agents/simulator.ts`) skriver fortfarande exempelfiler i Apex/SFDX-format (`force-app/...`). De ska bytas mot generell exempelkod, till exempel TypeScript med tester.
+- `test/live.test.ts` ("live pipeline") är tillfälligt avstängd med `test.skip`, eftersom den spelade upp de borttagna Salesforce-verktygen. Den ska skrivas om kring `run_checks`.
+- Texter i guiden och dokumentationen (`docs/`) nämner fortfarande Salesforce och SiroccoARM. Det görs tillsammans med namnbytet i steg 6.
 
 ### Steg 3: Grindar som bygger på riktiga resultat (från Claude-Pipeline)
-- Utvecklarens och testarens godkännande kräver att `run_checks` returnerar exitkod 0. Om allt är grönt görs inget modellanrop för att beskriva resultatet.
+- Klart i steg 2: utvecklarens och testarens godkännande kräver att `run_checks` returnerar exitkod 0.
+- Om allt är grönt görs inget modellanrop för att beskriva resultatet.
 - Deterministiska kontroller körs före dyra agentsteg. Rena resultat kostar inga anrop. Ett objektivt fynd ger ett avgränsat anrop för att rätta det.
 - En sista kontrollmatris körs efter bygget och efter varje automatisk åtgärd.
 

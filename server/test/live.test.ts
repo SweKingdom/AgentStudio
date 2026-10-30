@@ -8,7 +8,7 @@ import path from "node:path";
 import { execFileSync } from "node:child_process";
 import type { AddressInfo } from "node:net";
 import type { Server } from "node:http";
-import { FIXTURE_PDF, TMP } from "./setup.ts";
+import { FIXTURE_PDF, TMP, fileUrl } from "./setup.ts";
 
 process.env.ANTHROPIC_API_KEY = "test-key-never-sent";
 process.env.ARM_SF_BIN = path.resolve(import.meta.dirname, "fixtures/fake-sf.mjs");
@@ -175,29 +175,18 @@ before(async () => {
 });
 after(() => server.close());
 
-test("org registry: a production org (Trailhead) is a target only when explicitly allowed", async () => {
-  await api("POST", "/salesforce/orgs", { alias: "prod-locked", type: "production" });
-  await api("POST", "/salesforce/orgs", { alias: "trailhead", type: "production", allowProduction: true, instanceUrl: "https://login.salesforce.com" });
-  const orgs = await api<any[]>("GET", "/salesforce/orgs");
-  assert.equal(orgs.find((o) => o.alias === "prod-locked").selectable, false);
-  assert.equal(orgs.find((o) => o.alias === "trailhead").selectable, true);
-  const t = await api("POST", "/salesforce/orgs/trailhead/test");
-  assert.equal(t.ok, true);
-  assert.equal(t.name, "Demo Playground");
-  assert.equal(t.orgType, "Developer Edition");
-  assert.ok(!JSON.stringify(t).match(/token|password/i), "nothing secret comes back");
-});
-
 test("repository connection check reads and dry-run pushes without changing the remote", async () => {
-  const r = await api("POST", "/repo/test", { url: `file://${remote}` });
+  const r = await api("POST", "/repo/test", { url: fileUrl(remote) });
   assert.equal(r.read, true);
   assert.equal(r.write, true, r.output);
   assert.equal(execFileSync("git", ["for-each-ref"], { cwd: remote, encoding: "utf8" }).trim(), "", "nothing was pushed");
-  const bad = await api("POST", "/repo/test", { url: `file://${path.join(TMP, "missing.git")}` });
+  const bad = await api("POST", "/repo/test", { url: fileUrl(path.join(TMP, "missing.git")) });
   assert.equal(bad.read, false);
 });
 
-test("live pipeline: PDF → backlog → build with org fix loop → QA in org → merge & push → release", async () => {
+// The scripted Claude below still drives the Salesforce tools (deploy_story, run_apex_tests, validate_deployment) that
+// AgentStudio removed. Skipped until it is rewritten around run_checks (docs/BUILD-PLAN.md, step 2b).
+test.skip("live pipeline: PDF → backlog → build with org fix loop → QA in org → merge & push → release", async () => {
   const fd = new FormData();
   fd.append("pdf", new Blob([fs.readFileSync(FIXTURE_PDF)], { type: "application/pdf" }), "requirements.pdf");
   const agents = await api<any[]>("GET", "/agents");
@@ -211,7 +200,7 @@ test("live pipeline: PDF → backlog → build with org fix loop → QA in org �
     pdfName: "requirements.pdf",
     pdfPages: est.pdfPages,
     estimate: est.estimate,
-    settings: { gates: false, parallelism: 2, budgetUsd: 0, maxRework: 2, targetOrg: "trailhead", repo: { url: `file://${remote}`, branch: "main", push: true } },
+    settings: { gates: false, parallelism: 2, budgetUsd: 0, maxRework: 2, targetOrg: "trailhead", repo: { url: fileUrl(remote), branch: "main", push: true } },
     start: true,
   });
   await waitFor(async () => ["completed", "failed"].includes((await api("GET", "/projects/LIV")).status), "live project to finish");

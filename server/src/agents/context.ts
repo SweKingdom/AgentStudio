@@ -11,17 +11,19 @@
 import { all, get } from "../db.js";
 import { answeredQuestions, findDoc, listItems, listWorkspaceFiles, type Project, type WorkItem } from "../store.js";
 import type { Agent } from "./store.js";
-import { projectSalesforce, teamSettings } from "../team.js";
+import { teamSettings } from "../team.js";
+import { checksFor } from "../checks.js";
 
 /** The team's conventions every agent follows — short, and identical across runs (cache-friendly). */
 function conventionsBlock(project: Project) {
   const c = teamSettings().conventions;
-  const sf = projectSalesforce(project);
+  const checks = checksFor(project);
   return [
     "## Team conventions",
     `- Write every deliverable (documents, work items, code comments, release notes) in ${c.language}.`,
-    `- Salesforce API version ${sf.apiVersion}${sf.namespace ? ` · namespace \`${sf.namespace}\`` : ""}${sf.prefix ? ` · new custom objects, fields, classes and components start with \`${sf.prefix}\`` : ""}.`,
-    `- Minimum Apex coverage for every class a story changes: ${sf.coverageMin}%.`,
+    checks.length
+      ? `- Every story must pass the project's checks before hand-over, approval and release (run them with \`run_checks\`): ${checks.map((x) => `\`${x.command}\``).join(", ")}.`
+      : "- The project has no checks configured yet: say so in your summary instead of claiming that tests pass.",
   ].join("\n");
 }
 
@@ -125,13 +127,16 @@ export function designExcerpt(project: Pick<Project, "id">, item: WorkItem, max 
 /** Object / component names an item touches — used to pick the design and files that concern it. */
 function termsFor(it: WorkItem) {
   const text = `${it.title}\n${it.tech_spec}\n${it.solution_components}`;
-  const apiNames = [...new Set(text.match(/\b[A-Z][A-Za-z0-9]*(?:__c|__mdt|__e)\b|\b(?:Case|Account|Contact|Lead|Opportunity|WorkOrder|ServiceAppointment|Order|Product2|User|Task|Event|Asset|Entitlement)\b/g) ?? [])];
-  return [it.code, ...apiNames];
+  // Names in backticks (`OrderService`, `orders.ts`) and PascalCase identifiers: what the design excerpt is searched for.
+  const quoted = [...text.matchAll(/`([\w./-]{3,60})`/g)].map((m) => m[1]);
+  const pascal = text.match(/\b[A-Z][a-z0-9]+(?:[A-Z][a-z0-9]+)+\b/g) ?? [];
+  return [it.code, ...new Set([...quoted, ...pascal])].slice(0, 40);
 }
 
-/** Workspace paths grouped by folder, capped — so agents know what exists without listing it. */
+/** Workspace paths grouped by folder, capped — so agents know what exists without listing it. Project documents
+ *  (docs/) are given to agents separately. */
 function fileTree(paths: string[], max = 120) {
-  const shown = paths.filter((p) => p.startsWith("force-app/") || p.startsWith("scripts/") || p.startsWith("manifest/")).slice(0, max);
+  const shown = paths.filter((p) => !p.startsWith("docs/") && !/(^|\/)(node_modules|\.git|dist|build|coverage)\//.test(p)).slice(0, max);
   const more = paths.length - shown.length;
   return shown.length ? `${shown.join("\n")}${more > 0 ? `\n…and ${more} more (list_files)` : ""}` : "(no source files yet)";
 }
