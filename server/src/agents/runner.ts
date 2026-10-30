@@ -3,7 +3,8 @@ import { get, insert, now, uid, update } from "../db.js";
 import { emit } from "../events.js";
 import { knowledgeById } from "../knowledge.js";
 import { costOf, type Usage } from "../pricing.js";
-import { appSettings, effectiveMode } from "../settings.js";
+import { appSettings, claudeBackend, effectiveMode } from "../settings.js";
+import { sdkRun, type SdkCall } from "./runner-sdk.js";
 import { answeredQuestions, findDoc, getItem, getProject, logActivity, type Project, type WorkItem } from "../store.js";
 import { agentEmail, renderPrompt, type Agent } from "./store.js";
 import { executeTool, toolDefs, type ToolContext } from "./tools.js";
@@ -179,7 +180,9 @@ export async function runAgent(o: RunOptions): Promise<RunResult> {
     const summary =
       o.project.mode === "simulation" || effectiveMode() === "simulation"
         ? await simulateRun(ctx, o)
-        : await liveLoop(ctx, o);
+        : claudeBackend() === "subscription"
+          ? await sdkLoop(ctx, o)
+          : await liveLoop(ctx, o);
     finishRun(o.project.id, runId, o.agent.id, "done", summary);
     // Each agent run becomes a commit authored by that agent (only when it changed files).
     try {
@@ -335,6 +338,51 @@ async function liveLoop(ctx: ToolContext, o: RunOptions): Promise<string> {
   return finalText || `Stopped after ${agent.max_turns} turns.`;
 }
 
+/** Records each model the SDK used, also when the run ended in an error that carried usage. */
+function recordSdkCalls(calls: SdkCall[], c: { runId: string | null; projectId: string; agentId: string; itemId?: string | null; stage: string }) {
+  for (const call of calls) recordCall({ ...c, model: call.model, usage: call.usage, durationMs: call.durationMs, simulated: false });
+}
+
+async function withSdkCalls<T extends { calls: SdkCall[] }>(run: Promise<T>, c: Parameters<typeof recordSdkCalls>[1]): Promise<T> {
+  try {
+    const r = await run;
+    recordSdkCalls(r.calls, c);
+    return r;
+  } catch (e) {
+    const calls = (e as { calls?: SdkCall[] }).calls;
+    if (calls) recordSdkCalls(calls, c);
+    throw e;
+  }
+}
+
+/** The same run as liveLoop, on the user's Claude plan through the Agent SDK. */
+async function sdkLoop(ctx: ToolContext, o: RunOptions): Promise<string> {
+  const { agent, project } = ctx;
+  checkBudget(project.id);
+  const content: Array<Record<string, unknown>> = [];
+  if (o.pdfBase64) content.push({ type: "document", source: { type: "base64", media_type: "application/pdf", data: o.pdfBase64 }, title: project.pdf_name ?? "Requirements" });
+  const c = await runContext(ctx, o);
+  content.push({ type: "text", text: c.shared });
+  content.push({ type: "text", text: firstMessageTail(c, o) + orgBrief(ctx) });
+  const budget = getProject(project.id)?.settings.budgetUsd ?? 0;
+  const r = await withSdkCalls(
+    sdkRun({
+      agent,
+      system: buildSystemPrompt(agent),
+      content,
+      ctx,
+      itemId: o.item?.id,
+      maxTurns: agent.max_turns,
+      effort: agent.effort,
+      budgetLeftUsd: budget > 0 ? Math.max(0.01, budget - projectCost(project.id)) : undefined,
+      signal: o.signal,
+      onText: (text) => logActivity({ projectId: project.id, agentId: agent.id, runId: ctx.runId, itemId: o.item?.id, type: "note", summary: text.slice(0, 300), detail: text }),
+    }),
+    { runId: ctx.runId, projectId: project.id, agentId: agent.id, itemId: o.item?.id, stage: o.stage },
+  );
+  return r.text;
+}
+
 /** Synchronous consultation: the target agent answers one question with its own prompt and knowledge. */
 export async function consultAgent(target: Agent, question: string, ctx: ToolContext): Promise<string> {
   const project = ctx.project;
@@ -345,6 +393,19 @@ export async function consultAgent(target: Agent, question: string, ctx: ToolCon
     let answer: string;
     if (project.mode === "simulation" || effectiveMode() === "simulation") {
       answer = await simulateConsult(target, question, ctx, runId);
+    } else if (claudeBackend() === "subscription") {
+      checkBudget(project.id);
+      const r = await withSdkCalls(
+        sdkRun({
+          agent: target,
+          system: buildSystemPrompt(target),
+          content: [{ type: "text", text: `${consultContext(project, ctx.item)}\n\n---\n\n${ctx.agent.name} (${ctx.agent.title}) asks you:\n\n${question}\n\nAnswer directly and concisely (a few sentences or a short list). You cannot use tools in a consultation.` }],
+          maxTurns: 1,
+          effort: "low",
+        }),
+        { runId, projectId: project.id, agentId: target.id, itemId: ctx.item?.id, stage: "consult" },
+      );
+      answer = r.text;
     } else {
       checkBudget(project.id);
       const started = Date.now();
@@ -395,6 +456,8 @@ export async function consultAgent(target: Agent, question: string, ctx: ToolCon
 
 /** Real token count of the requirements PDF (live mode only). */
 export async function countPdfTokens(pdfBase64: string, model: string): Promise<number | null> {
+  // Token counting is an API endpoint; on the plan the estimate uses its page-based guess.
+  if (claudeBackend() === "subscription") return null;
   try {
     const r = await anthropic().messages.countTokens({
       model,
@@ -421,6 +484,19 @@ export async function liveChat(agent: Agent, project: Project | null, history: {
   const messages: Anthropic.MessageParam[] = history.slice(-20, -1).map((h) => ({ role: h.sender === "human" ? "user" : "assistant", content: h.content }));
   messages.push({ role: "user", content: `${context}${message}\n\n(You are chatting with the product owner. Answer directly; you cannot use tools here.)` });
   while (messages.length && messages[0].role !== "user") messages.shift();
+  if (claudeBackend() === "subscription") {
+    // The SDK takes one prompt, so earlier turns go in as a transcript.
+    const transcript = messages.slice(0, -1).map((m) => `${m.role === "user" ? "Product owner" : agent.name}: ${m.content}`).join("\n\n");
+    const r = await sdkRun({
+      agent,
+      system: buildSystemPrompt(agent),
+      content: [{ type: "text", text: `${transcript ? `# Conversation so far\n${transcript}\n\n---\n\n` : ""}${messages[messages.length - 1].content}` }],
+      maxTurns: 1,
+      effort: "low",
+    });
+    if (project) recordSdkCalls(r.calls, { runId: null, projectId: project.id, agentId: agent.id, stage: "chat" });
+    return r.text;
+  }
   const response = await anthropic().messages.create({
     model: agent.model,
     max_tokens: 4000,

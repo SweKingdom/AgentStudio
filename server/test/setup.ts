@@ -8,5 +8,7 @@ process.env.ARM_DATA_DIR = path.join(TMP, "data");
 process.env.ARM_DISABLE_DOTENV = "1";
 delete process.env.ANTHROPIC_API_KEY;
 delete process.env.ANTHROPIC_AUTH_TOKEN;
+// Without a key the backend falls back to the Claude plan; keep that off so no test starts a real `claude` process.
+process.env.ARM_DISABLE_SUBSCRIPTION = "1";
 
 export const FIXTURE_PDF = path.resolve(import.meta.dirname, "fixtures/field-service-requirements.pdf");

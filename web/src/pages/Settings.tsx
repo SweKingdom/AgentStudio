@@ -79,12 +79,19 @@ export default function Settings() {
           <div className="card-head"><div className="card-title">Execution</div></div>
           <div className="card-pad col" style={{ gap: 16 }}>
             <div className="grid g2">
-              <div className={`banner ${meta.hasApiKey ? "info" : "warn"}`}>
-                {meta.hasApiKey ? <CheckCircle2 size={16} color="var(--good)" /> : <KeyRound size={16} color="var(--warn)" />}
-                <div className="small">
-                  {meta.hasApiKey ? <><b>Claude API key found.</b> Agents can run live.</> : <><b>No API key.</b> Add <code className="code-tag">ANTHROPIC_API_KEY=…</code> to <code className="code-tag">.env</code> in the project root and restart.</>}
+              {meta.backend === "subscription" ? (
+                <div className="banner info">
+                  <CheckCircle2 size={16} color="var(--good)" />
+                  <div className="small"><b>Using your Claude plan.</b> Live agents run through this machine's <code className="code-tag">claude /login</code>; usage counts against the plan's limits, and the dollar figures are estimates.</div>
                 </div>
-              </div>
+              ) : (
+                <div className={`banner ${meta.hasApiKey ? "info" : "warn"}`}>
+                  {meta.hasApiKey ? <CheckCircle2 size={16} color="var(--good)" /> : <KeyRound size={16} color="var(--warn)" />}
+                  <div className="small">
+                    {meta.hasApiKey ? <><b>Claude API key found.</b> Agents can run live.</> : <><b>No API key.</b> Add <code className="code-tag">ANTHROPIC_API_KEY=…</code> to <code className="code-tag">.env</code> in the project root and restart.</>}
+                  </div>
+                </div>
+              )}
               <div className={`banner ${meta.sfOrgCount ? "info" : "warn"}`}>
                 <Cloud size={16} color={meta.sfOrgCount ? "var(--good)" : "var(--warn)"} />
                 <div className="small">
@@ -97,11 +104,17 @@ export default function Settings() {
                 <div className="strong small">Mode</div>
                 <div className="hint">
                   Simulation: free, nothing is sent to Claude or Salesforce. Live: agents call the Claude API — real tokens, real time, real cost. Running now: <b style={{ color: meta.mode === "live" ? "var(--bad)" : undefined }}>{meta.mode === "live" ? "LIVE" : "simulation"}</b>
-                  {s.mode === "live" && !meta.hasApiKey && <span style={{ color: "var(--warn)" }}> — Live needs ANTHROPIC_API_KEY in .env; until then agents keep simulating.</span>}
+                  {s.mode === "live" && meta.backend === "api" && !meta.hasApiKey && <span style={{ color: "var(--warn)" }}> — Live needs ANTHROPIC_API_KEY in .env; until then agents keep simulating.</span>}
                 </div>
               </div>
               <Hint text="Simulation: agents work without calling the Claude API (free). Live: real Claude calls, billed per use — the app shows a red LIVE badge while it's on. Projects keep the mode they were created in.">
                 <Seg value={s.mode} onChange={(v) => set("mode", v)} options={[{ value: "simulation", label: "Simulation" }, { value: "live", label: "Live" }]} />
+              </Hint>
+            </div>
+            <div className="row" style={{ justifyContent: "space-between" }}>
+              <div><div className="strong small">Claude backend</div><div className="hint">Plan: your own Claude subscription via <code className="code-tag">claude /login</code> (personal use). API: the key in .env, billed per token. Auto uses the API when a key is set. Running now: <b>{meta.backend === "subscription" ? "plan" : "API"}</b></div></div>
+              <Hint text="Plan runs agents through the Claude Agent SDK on this machine's Claude login. API calls the Claude API with ANTHROPIC_API_KEY. A team or always-on use needs the API.">
+                <Seg value={s.backend} onChange={(v) => set("backend", v)} options={[{ value: "auto", label: "Auto" }, { value: "subscription", label: "Plan" }, { value: "api", label: "API" }]} />
               </Hint>
             </div>
             <div className="row" style={{ justifyContent: "space-between" }}>

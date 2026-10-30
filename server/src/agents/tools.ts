@@ -1082,8 +1082,8 @@ export async function executeTool(name: string, input: unknown, ctx: ToolContext
   if (!input || typeof input !== "object" || Array.isArray(input)) return { ok: false, content: "Tool input must be a JSON object." };
   try {
     const out = await spec.handler(input as Record<string, any>, ctx);
-    // Compact JSON: indentation is pure token overhead for the model.
-    return { ok: true, content: typeof out === "string" ? out : JSON.stringify(out, dropEmpty) };
+    // Compact JSON: indentation is pure token overhead for the model. An empty result is dropped whole, so fall back to plain JSON ("[]").
+    return { ok: true, content: typeof out === "string" ? out : (JSON.stringify(out, dropEmpty) ?? JSON.stringify(out) ?? "") };
   } catch (e) {
     return { ok: false, content: e instanceof Error ? e.message : String(e) };
   }

@@ -3,10 +3,10 @@ export interface RoleDef { role: string; title: string; stage: string; descripti
 export interface AppSettings {
   mode: "live" | "simulation"; currency: "USD" | "EUR"; usdToEur: number; humanHourlyRateUsd: number; hoursPerStoryPoint: number;
   defaultParallelism: number; defaultBudgetUsd: number; defaultGates: boolean; maxRework: number; refusalFallback: boolean; simulationSpeed: number;
-  dailyLimitUsd: number; monthlyLimitUsd: number; autoResumeLimits: boolean;
+  dailyLimitUsd: number; monthlyLimitUsd: number; autoResumeLimits: boolean; backend: "auto" | "api" | "subscription";
 }
 export interface Meta {
-  mode: "live" | "simulation"; hasApiKey: boolean; sfOrgCount: number;
+  mode: "live" | "simulation"; hasApiKey: boolean; backend: "api" | "subscription"; sfOrgCount: number;
   globalPause: { reason: string; kind: string; since: string; resumeAt: string | null; autoResume: boolean; projects: string[]; jobs: unknown[] } | null;
   spend: { today: number; month: number; dailyLimitUsd: number; monthlyLimitUsd: number }; settings: AppSettings; models: ModelPrice[]; roles: RoleDef[];
   pipelineRoles: string[]; tools: { name: string; label: string; description: string }[]; categories: string[]; states: string[];

@@ -31,7 +31,11 @@ export interface AppSettings {
   monthlyLimitUsd: number;
   /** Resume automatically when the day/month rolls over. */
   autoResumeLimits: boolean;
+  /** How live agents reach Claude: the API key in .env, or your own Claude plan via `claude /login` (Agent SDK). Auto picks the API when a key is set. */
+  backend: Backend | "auto";
 }
+
+export type Backend = "api" | "subscription";
 
 export const DEFAULT_SETTINGS: AppSettings = {
   mode: "simulation",
@@ -48,6 +52,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
   dailyLimitUsd: 0,
   monthlyLimitUsd: 0,
   autoResumeLimits: true,
+  backend: "auto",
 };
 
 export function appSettings(): AppSettings {
@@ -65,8 +70,20 @@ export function hasApiKey() {
   return Boolean(process.env.ANTHROPIC_API_KEY || process.env.ANTHROPIC_AUTH_TOKEN);
 }
 
+export function claudeBackend(): Backend {
+  const b = appSettings().backend;
+  if (b === "api" || b === "subscription") return b;
+  return hasApiKey() ? "api" : "subscription";
+}
+
+/** The subscription backend relies on the machine's `claude /login`, which the doctor checks; the API backend needs a key. */
+export function canRunLive() {
+  if (claudeBackend() === "subscription") return !process.env.ARM_DISABLE_SUBSCRIPTION;
+  return hasApiKey();
+}
+
 export function effectiveMode(): Mode {
   const s = appSettings();
-  if (s.mode === "live" && !hasApiKey()) return "simulation";
+  if (s.mode === "live" && !canRunLive()) return "simulation";
   return s.mode;
 }

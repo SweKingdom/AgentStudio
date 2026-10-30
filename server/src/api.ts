@@ -6,7 +6,7 @@ import { DATA_DIR, all, get, insert, now, parseJson, run, uid } from "./db.js";
 import { emit, subscribe } from "./events.js";
 import { DEFAULT_MODELS, models } from "./pricing.js";
 import { setSetting } from "./db.js";
-import { appSettings, effectiveMode, hasApiKey, saveAppSettings } from "./settings.js";
+import { appSettings, claudeBackend, effectiveMode, hasApiKey, saveAppSettings } from "./settings.js";
 import { ROLES, PIPELINE_ROLES, PSEUDO_AGENTS, type Role } from "./agents/roles.js";
 import { createAgent, defaultAgentFor, deleteAgent, getAgent, listAgents, listVersions, resetAgent, restoreVersion, updateAgent, type Agent } from "./agents/store.js";
 import { CATEGORIES, toolCatalog } from "./agents/tools.js";
@@ -92,6 +92,7 @@ api.get("/meta", (_req, res) => {
   res.json({
     mode: effectiveMode(),
     hasApiKey: hasApiKey(),
+    backend: claudeBackend(),
     sfOrgCount: listOrgs().orgs.length,
     globalPause: (() => {
       const gp = globalPause();
@@ -112,6 +113,7 @@ api.get("/meta", (_req, res) => {
 api.put("/settings", (req, res) => {
   const body = req.body ?? {};
   if (body.mode !== undefined && body.mode !== "live" && body.mode !== "simulation") return res.status(400).json({ error: "Mode must be live or simulation" });
+  if (body.backend !== undefined && !["auto", "api", "subscription"].includes(body.backend)) return res.status(400).json({ error: "Backend must be auto, api or subscription" });
   saveAppSettings(body);
   audit(req, "settings.update", "app", Object.keys(body));
   emit({ type: "project" });
