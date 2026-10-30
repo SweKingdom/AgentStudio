@@ -1,0 +1,29 @@
+# Azure Pipelines: the same checks as .github/workflows (typecheck, tests, build) on every push and pull request.
+trigger:
+  branches:
+    include: ["*"]
+
+pr:
+  branches:
+    include: ["*"]
+
+pool:
+  vmImage: ubuntu-latest
+
+steps:
+  - task: NodeTool@0
+    inputs:
+      versionSpec: "25.x"
+    displayName: Use Node.js 25
+
+  - script: npm ci
+    displayName: Install dependencies
+
+  - script: npm run typecheck
+    displayName: Typecheck
+
+  - script: npm test
+    displayName: Tests (simulation only, no external calls)
+
+  - script: npm run build
+    displayName: Build the web app

@@ -1,0 +1,96 @@
+%PDF-1.4
+1 0 obj
+<< /Type /Catalog /Pages 2 0 R >>
+endobj
+2 0 obj
+<< /Type /Pages /Kids [3 0 R 5 0 R] /Count 2 >>
+endobj
+3 0 obj
+<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Contents 4 0 R /Resources << /Font << /F1 << /Type /Font /Subtype /Type1 /BaseFont /Helvetica >> >> >> >>
+endobj
+4 0 obj
+<< /Length 3138 >>
+stream
+BT /F1 10.5 Tf 14 TL 56 760 Td
+/F1 10.5 Tf (Nordic Appliance Care - Salesforce Field Service Requirements) Tj T*
+/F1 10.5 Tf (Version 1.2 - Prepared for the implementation partner) Tj T*
+/F1 10.5 Tf () Tj T*
+/F1 15 Tf (1. Background) Tj T*
+/F1 10.5 Tf (Nordic Appliance Care repairs household appliances across Sweden and Norway. Today) Tj T*
+/F1 10.5 Tf (technicians receive jobs by phone and paper, and customers have no visibility of when a) Tj T*
+/F1 10.5 Tf (technician will arrive. The company wants to run its service operation on Salesforce Field) Tj T*
+/F1 10.5 Tf (Service.) Tj T*
+/F1 10.5 Tf () Tj T*
+/F1 15 Tf (2. Work Order Management) Tj T*
+/F1 10.5 Tf (2.1 Work order intake) Tj T*
+/F1 10.5 Tf (- Customer service agents must create a work order from a case in one click, copying the) Tj T*
+/F1 10.5 Tf (customer, address and appliance.) Tj T*
+/F1 10.5 Tf (- Every work order must have a priority \(Low, Medium, High, Critical\) derived from the) Tj T*
+/F1 10.5 Tf (appliance warranty status.) Tj T*
+/F1 10.5 Tf (- Work orders created outside business hours should be flagged for next-day dispatch.) Tj T*
+/F1 10.5 Tf (2.2 Scheduling and dispatch) Tj T*
+/F1 10.5 Tf (- Dispatchers must see all unscheduled work orders on the Gantt and schedule them to) Tj T*
+/F1 10.5 Tf (technicians by skill and territory.) Tj T*
+/F1 10.5 Tf (- The system shall send the customer an SMS with the arrival window when an appointment is) Tj T*
+/F1 10.5 Tf (dispatched.) Tj T*
+/F1 10.5 Tf (- Appointments must not be scheduled outside the technician's working hours.) Tj T*
+/F1 10.5 Tf () Tj T*
+/F1 15 Tf (3. Mobile Technician Experience) Tj T*
+/F1 10.5 Tf (- Technicians must be able to view the job, appliance history and parts list offline in the) Tj T*
+/F1 10.5 Tf (Field Service mobile app.) Tj T*
+/F1 10.5 Tf (- Technicians shall capture the customer signature and photos before completing a job.) Tj T*
+/F1 10.5 Tf (- When a job cannot be completed the technician must select a reason and the system should) Tj T*
+/F1 10.5 Tf (create a follow-up appointment.) Tj T*
+/F1 10.5 Tf () Tj T*
+/F1 15 Tf (4. Data Migration) Tj T*
+/F1 10.5 Tf (- All active customers \(approx. 60,000\) and their appliances must be migrated from the) Tj T*
+/F1 10.5 Tf (legacy ServiceMax system.) Tj T*
+/F1 10.5 Tf (- Open work orders and the last 24 months of service history shall be migrated with their) Tj T*
+/F1 10.5 Tf (original reference numbers.) Tj T*
+/F1 10.5 Tf (- Duplicate customers must be merged before go-live. Matching rules are TBD with the data) Tj T*
+/F1 10.5 Tf (owner.) Tj T*
+/F1 10.5 Tf () Tj T*
+/F1 15 Tf (5. Integrations) Tj T*
+/F1 10.5 Tf (- Spare parts stock must be checked in real time against the SAP warehouse API before a part) Tj T*
+/F1 10.5 Tf (is reserved.) Tj T*
+/F1 10.5 Tf (- Completed work orders shall be sent to SAP for invoicing within 15 minutes.) Tj T*
+/F1 10.5 Tf (- If SAP is unavailable the integration must retry and alert the support team.) Tj T*
+/F1 10.5 Tf () Tj T*
+/F1 15 Tf (6. Reporting) Tj T*
+/F1 10.5 Tf (- Service managers need a dashboard with first-time fix rate, average travel time and SLA) Tj T*
+ET
+endstream
+endobj
+5 0 obj
+<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Contents 6 0 R /Resources << /Font << /F1 << /Type /Font /Subtype /Type1 /BaseFont /Helvetica >> >> >> >>
+endobj
+6 0 obj
+<< /Length 535 >>
+stream
+BT /F1 10.5 Tf 14 TL 56 760 Td
+/F1 10.5 Tf (compliance per territory.) Tj T*
+/F1 10.5 Tf (- A weekly report of repeat visits per appliance model should be emailed to the quality) Tj T*
+/F1 10.5 Tf (team.) Tj T*
+/F1 10.5 Tf () Tj T*
+/F1 15 Tf (7. Security and Access) Tj T*
+/F1 10.5 Tf (- Technicians may only see work orders in their own territory.) Tj T*
+/F1 10.5 Tf (- Dispatchers and service managers need separate permission sets; partners must not access) Tj T*
+/F1 10.5 Tf (customer financial data.) Tj T*
+/F1 10.5 Tf () Tj T*
+ET
+endstream
+endobj
+xref
+0 7
+0000000000 65535 f 
+0000000009 00000 n 
+0000000058 00000 n 
+0000000121 00000 n 
+0000000296 00000 n 
+0000003486 00000 n 
+0000003661 00000 n 
+trailer
+<< /Size 7 /Root 1 0 R >>
+startxref
+4247
+%%EOF

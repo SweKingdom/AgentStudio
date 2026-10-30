@@ -1,0 +1,46 @@
+# Dependencies
+node_modules/
+
+# Build output
+dist/
+*.tsbuildinfo
+
+# Secrets — never commit. Copy .env.example to .env and fill it in locally.
+.env
+.env.*
+!.env.example
+
+# Local data: the database, users and audit log, uploaded PDFs, each project's repository and task worktrees
+data/
+*.db
+*.db-journal
+*.db-wal
+*.db-shm
+*.sqlite
+
+# Keys and certificates
+*.pem
+*.key
+*.p12
+*.pfx
+
+# Salesforce CLI state, in case a project folder is opened here
+.sf/
+.sfdx/
+
+# Logs and test output
+*.log
+npm-debug.log*
+coverage/
+test-results/
+playwright-report/
+
+# Local tool settings
+.claude/settings.local.json
+.vscode/
+.idea/
+
+# OS files
+.DS_Store
+Thumbs.db
+*.swp
