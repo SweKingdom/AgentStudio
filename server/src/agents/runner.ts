@@ -357,6 +357,16 @@ async function sdkLoop(ctx: ToolContext, o: RunOptions): Promise<string> {
       budgetLeftUsd: budget > 0 ? Math.max(0.01, budget - projectCost(project.id)) : undefined,
       signal: o.signal,
       onText: (text) => logActivity({ projectId: project.id, agentId: agent.id, runId: ctx.runId, itemId: o.item?.id, type: "note", summary: text.slice(0, 300), detail: text }),
+      onRateLimit: (l) =>
+        logActivity({
+          projectId: project.id,
+          agentId: agent.id,
+          runId: ctx.runId,
+          itemId: o.item?.id,
+          type: "note",
+          summary: `Claude plan: ${l.rateLimitType ?? "usage"} window ${l.status === "rejected" ? "reported as used up" : "close to its limit"}${l.utilization !== undefined ? ` (${Math.round(l.utilization * 100)} %)` : ""}${l.resetsAt ? `, resets ${new Date(l.resetsAt * 1000).toLocaleTimeString("en-GB")}` : ""}${l.isUsingOverage || l.overageStatus === "allowed" ? " — continuing on extra usage" : " — work continues until Claude refuses a call"}`,
+          detail: JSON.stringify(l),
+        }),
     }),
     { runId: ctx.runId, projectId: project.id, agentId: agent.id, itemId: o.item?.id, stage: o.stage },
   );
