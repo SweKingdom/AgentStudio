@@ -8,7 +8,7 @@ import path from "node:path";
 import { execFileSync } from "node:child_process";
 import type { AddressInfo } from "node:net";
 import type { Server } from "node:http";
-import { FIXTURE_PDF, TMP } from "./setup.ts";
+import { FIXTURE_PDF, TMP, fileUrl } from "./setup.ts";
 
 process.env.ANTHROPIC_API_KEY = "test-key-never-sent";
 process.env.ARM_SF_BIN = path.resolve(import.meta.dirname, "fixtures/fake-sf.mjs");
@@ -176,11 +176,11 @@ before(async () => {
 after(() => server.close());
 
 test("repository connection check reads and dry-run pushes without changing the remote", async () => {
-  const r = await api("POST", "/repo/test", { url: `file://${remote}` });
+  const r = await api("POST", "/repo/test", { url: fileUrl(remote) });
   assert.equal(r.read, true);
   assert.equal(r.write, true, r.output);
   assert.equal(execFileSync("git", ["for-each-ref"], { cwd: remote, encoding: "utf8" }).trim(), "", "nothing was pushed");
-  const bad = await api("POST", "/repo/test", { url: `file://${path.join(TMP, "missing.git")}` });
+  const bad = await api("POST", "/repo/test", { url: fileUrl(path.join(TMP, "missing.git")) });
   assert.equal(bad.read, false);
 });
 
@@ -200,7 +200,7 @@ test.skip("live pipeline: PDF → backlog → build with org fix loop → QA in 
     pdfName: "requirements.pdf",
     pdfPages: est.pdfPages,
     estimate: est.estimate,
-    settings: { gates: false, parallelism: 2, budgetUsd: 0, maxRework: 2, targetOrg: "trailhead", repo: { url: `file://${remote}`, branch: "main", push: true } },
+    settings: { gates: false, parallelism: 2, budgetUsd: 0, maxRework: 2, targetOrg: "trailhead", repo: { url: fileUrl(remote), branch: "main", push: true } },
     start: true,
   });
   await waitFor(async () => ["completed", "failed"].includes((await api("GET", "/projects/LIV")).status), "live project to finish");

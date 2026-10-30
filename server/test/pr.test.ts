@@ -6,7 +6,7 @@ import path from "node:path";
 import { execFileSync } from "node:child_process";
 import type { AddressInfo } from "node:net";
 import type { Server } from "node:http";
-import { TMP } from "./setup.ts";
+import { TMP, fileUrl } from "./setup.ts";
 import { createApp } from "../src/app.ts";
 import { all } from "../src/db.ts";
 import { workspaceDir, worktreeDir } from "../src/store.ts";
@@ -55,7 +55,7 @@ async function run(key: string, fail?: "all" | "merge") {
     key,
     description: DESCRIPTION,
     agentIds: team,
-    settings: { gates: false, parallelism: 2, budgetUsd: 0, maxRework: 2, repo: { url: `file://${remote}`, branch: "main", push: true } },
+    settings: { gates: false, parallelism: 2, budgetUsd: 0, maxRework: 2, repo: { url: fileUrl(remote), branch: "main", push: true } },
     start: true,
   });
   await waitFor(async () => {

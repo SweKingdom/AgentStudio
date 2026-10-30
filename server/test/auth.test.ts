@@ -6,7 +6,7 @@ import type { AddressInfo } from "node:net";
 import type { Server } from "node:http";
 import path from "node:path";
 import { execFileSync } from "node:child_process";
-import { TMP } from "./setup.ts";
+import { TMP, fileUrl } from "./setup.ts";
 import { createApp } from "../src/app.ts";
 import { api as apiRouter } from "../src/api.ts";
 import { registerAuth } from "../src/routes/auth.ts";
@@ -163,7 +163,7 @@ test("member can start a project but not change app-wide settings or users", asy
   // A local bare repository stands in for the remote — nothing leaves this machine.
   const remote = path.join(TMP, "auth-remote.git");
   execFileSync("git", ["init", "-q", "--bare", "-b", "main", remote]);
-  const created = await call("POST", "/projects", { name: "Auth Demo", key: "AUD", agentIds: agents.slice(0, 1).map((a) => a.id), description: "Agents must log calls against the account.", settings: { gates: false, budgetUsd: 0, repo: { url: `file://${remote}`, branch: "main" } } }, m);
+  const created = await call("POST", "/projects", { name: "Auth Demo", key: "AUD", agentIds: agents.slice(0, 1).map((a) => a.id), description: "Agents must log calls against the account.", settings: { gates: false, budgetUsd: 0, repo: { url: fileUrl(remote), branch: "main" } } }, m);
   assert.equal(created.status, 200, JSON.stringify(created.body));
   const started = await call("POST", "/projects/AUD/start", {}, m);
   assert.equal(started.status, 200, JSON.stringify(started.body));
