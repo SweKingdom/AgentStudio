@@ -44,6 +44,8 @@ export default function Settings() {
   if (!meta || !s || !models) return <PageSkeleton />;
   const dirty = JSON.stringify(s) !== JSON.stringify(meta.settings) || JSON.stringify(models) !== JSON.stringify(meta.models);
   const set = <K extends keyof AppSettings>(k: K, v: AppSettings[K]) => setS({ ...s, [k]: v });
+  // The backend the form would use once saved: Plan, or Auto without an API key.
+  const planChosen = s.backend === "subscription" || (s.backend === "auto" && !meta.hasApiKey);
   const setPrice = (i: number, k: keyof ModelPrice, v: string) => setModels(models.map((m, j) => (j === i ? { ...m, [k]: k === "id" || k === "label" ? v : Number(v) } : m)));
 
   return (
@@ -96,11 +98,15 @@ export default function Settings() {
               <div>
                 <div className="strong small">{t("Mode")}</div>
                 <div className="hint">
-                  Simulation: free, nothing is sent to Claude. Live: agents call the Claude API — real tokens, real time, real cost. Running now: <b style={{ color: meta.mode === "live" ? "var(--bad)" : undefined }}>{meta.mode === "live" ? "LIVE" : "simulation"}</b>
+                  {t("Simulation: free, nothing is sent to Claude and no checks run.")}{" "}
+                  {planChosen
+                    ? t("Live: agents run on your Claude plan through this computer's claude login — no API charges, but it uses the plan's usage limits, and the project's checks really run.")
+                    : t("Live: agents call the Claude API with your key — real tokens, billed per use, and the project's checks really run.")}{" "}
+                  {t("Running now:")} <b style={{ color: meta.mode === "live" ? "var(--bad)" : undefined }}>{meta.mode === "live" ? "LIVE" : t("simulation")}</b>
                   {s.mode === "live" && meta.backend === "api" && !meta.hasApiKey && <span style={{ color: "var(--warn)" }}> — Live needs ANTHROPIC_API_KEY in .env; until then agents keep simulating.</span>}
                 </div>
               </div>
-              <Hint text="Simulation: agents work without calling the Claude API (free). Live: real Claude calls, billed per use — the app shows a red LIVE badge while it's on. Projects keep the mode they were created in.">
+              <Hint text={t("Live shows a red LIVE badge while it's on. Projects keep the mode they were created in: create a new project after switching.")}>
                 <Seg value={s.mode} onChange={(v) => set("mode", v)} options={[{ value: "simulation", label: t("Simulation") }, { value: "live", label: t("Live") }]} />
               </Hint>
             </div>
