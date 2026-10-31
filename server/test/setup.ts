@@ -17,6 +17,17 @@ process.env.GIT_TERMINAL_PROMPT = "0";
 // Only local file:// remotes in tests: a made-up https:// remote fails at once instead of going out on the network.
 process.env.GIT_ALLOW_PROTOCOL = "file";
 
+// Remove this file's temp folder when its process ends. The database is closed first: Windows can't delete an open file.
+const { db } = await import("../src/db.ts");
+process.on("exit", () => {
+  try {
+    db.close();
+  } catch {}
+  try {
+    fs.rmSync(TMP, { recursive: true, force: true });
+  } catch {}
+});
+
 /** A file:// URL for a local path that git accepts on every platform (file:///C:/… on Windows, file:///tmp/… elsewhere). */
 export const fileUrl = (p: string) => pathToFileURL(p).href;
 
