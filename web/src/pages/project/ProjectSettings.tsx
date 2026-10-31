@@ -66,6 +66,7 @@ export function ProjectSettingsModal({ p, onClose }: { p: Project; onClose: () =
           <ChecksFields
             value={checks}
             onChange={setChecks}
+            installPlaceholder={`Team: ${team?.checks.install || "auto"}${p.install ? ` — runs ${p.install}` : ""}`}
             placeholder={team?.checks.commands.length ? `Team checks: ${team.checks.commands.map((c) => c.command).join(" · ")}` : p.checks.length ? `Detected: ${p.checks.map((c) => c.command).join(" · ")}` : "No checks found — add one, e.g. npm test."}
           />
         </div>

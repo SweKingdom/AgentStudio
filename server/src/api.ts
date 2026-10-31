@@ -28,7 +28,7 @@ import { CUSTOM_AGENTS_ENABLED } from "./team.js";
 import { registerTemplates } from "./routes/templates.js";
 import { audit } from "./auth.js";
 import { DEFAULT_TEAM, applyImport, cleanChecksOverride, exportTeam, planImport, saveTeamSettings, teamSettings } from "./team.js";
-import { checksFor } from "./checks.js";
+import { checksFor, installFor } from "./checks.js";
 import { adoImportCsv, backlogCsv, workspaceZip } from "./exports.js";
 import {
   createItem,
@@ -277,6 +277,7 @@ function projectSummary(p: Project) {
     pipelineRunning: pipelineRunning(p.id),
     pausing: isPausing(p.id),
     checks: checksFor(p),
+    install: installFor(p),
     repoInfo: p.settings.repo?.url
       ? { url: p.settings.repo.url, branch: p.settings.repo.branch || "main", push: p.settings.repo.push === true, provider: providerOf(p.settings.repo.url), name: repoName(p.settings.repo.url), webUrl: webUrlOf(p.settings.repo.url) }
       : null,

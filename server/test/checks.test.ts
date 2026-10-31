@@ -7,7 +7,8 @@ import fs from "node:fs";
 import path from "node:path";
 import { TMP } from "./setup.ts";
 
-const { detectChecks, runChecks } = await import("../src/checks.ts");
+const checksModule = await import("../src/checks.ts");
+const { detectChecks, runChecks, formatChecks } = checksModule;
 const { executeTool } = await import("../src/agents/tools.ts");
 const { defaultAgentFor } = await import("../src/agents/store.ts");
 const { saveAppSettings } = await import("../src/settings.ts");
@@ -73,4 +74,64 @@ test("live: runs each check in the workspace and stops at the first failure", as
   p.settings.checks.commands = [{ name: "first", command: "node -e \"0\"" }];
   assert.match((await executeTool("run_checks", {}, ctx)).content, /✅ first/);
   assert.equal((await executeTool("complete_development", { code: "US-1", summary: "done" }, ctx)).ok, true);
+});
+
+test("the install command is detected from the lockfile; npm writes one when there is none", () => {
+  const { detectInstall } = checksModule;
+  const dir = path.join(TMP, "detect-install");
+  fs.mkdirSync(dir, { recursive: true });
+  assert.equal(detectInstall(dir), null, "no package.json, nothing to install");
+  fs.writeFileSync(path.join(dir, "package.json"), "{}");
+  assert.match(detectInstall(dir)!, /^npm install/);
+  fs.writeFileSync(path.join(dir, "yarn.lock"), "");
+  assert.equal(detectInstall(dir), "yarn install");
+  fs.writeFileSync(path.join(dir, "pnpm-lock.yaml"), "");
+  assert.equal(detectInstall(dir), "pnpm install");
+});
+
+test("live: dependencies are installed before the checks, once, and the lockfile is written", async () => {
+  process.env.ANTHROPIC_API_KEY = "test-key-never-sent";
+  saveAppSettings({ mode: "live", backend: "api" });
+  const p = project("CINS", "live", [{ name: "deps", command: "node -e \"require('fs').accessSync('package-lock.json')\"" }]);
+  const dir = workspaceDir(p);
+  fs.mkdirSync(dir, { recursive: true });
+  fs.writeFileSync(path.join(dir, "package.json"), JSON.stringify({ name: "cins", version: "1.0.0", private: true }));
+
+  const first = await runChecks(p);
+  assert.equal(first.ok, true, JSON.stringify(first.results));
+  assert.deepEqual(first.results.map((r) => [r.name, r.ok]), [["install", true], ["deps", true]]);
+  assert.match(first.results[0].command, /^npm install/);
+  assert.ok(fs.existsSync(path.join(dir, "package-lock.json")), "npm wrote the lockfile the story commits");
+
+  const second = await runChecks(p);
+  assert.equal(second.results[0].skipped, true, "unchanged dependencies aren't installed again");
+  assert.match(formatChecks(second), /✅ install .* Dependencies are up to date/);
+
+  fs.writeFileSync(path.join(dir, "package.json"), JSON.stringify({ name: "cins", version: "1.0.1", private: true }));
+  assert.ok(!(await runChecks(p)).results[0].skipped, "a changed package.json installs again");
+
+  p.settings.checks.install = "node -e \"console.error('no such package'); process.exit(1)\"";
+  const failed = await runChecks(p);
+  assert.equal(failed.ok, false);
+  assert.deepEqual(failed.results.map((r) => r.name), ["install"], "a failed install stops before the checks");
+  assert.match(formatChecks(failed), /no such package/);
+
+  p.settings.checks.install = "off";
+  assert.deepEqual((await runChecks(p)).results.map((r) => r.name), ["deps"]);
+});
+
+test("installed dependencies are never committed, whatever the repository's .gitignore says", async () => {
+  const { ensureRepo, commitWork } = await import("../src/git.ts");
+  const { execFileSync } = await import("node:child_process");
+  const p = { key: "CGIT", settings: { gates: false, parallelism: 1, budgetUsd: 0, maxRework: 1 } } as any;
+  await ensureRepo(p);
+  const dir = workspaceDir(p);
+  fs.writeFileSync(path.join(dir, ".gitignore"), ".DS_Store\n"); // a repository without node_modules in .gitignore
+  fs.mkdirSync(path.join(dir, "node_modules", "left-pad"), { recursive: true });
+  fs.writeFileSync(path.join(dir, "node_modules", "left-pad", "index.js"), "module.exports = 1;");
+  fs.writeFileSync(path.join(dir, "package-lock.json"), "{}");
+  await commitWork(p, { author: "Dev", email: "dev@example.com", message: "work" });
+  const files = execFileSync("git", ["ls-files"], { cwd: dir, encoding: "utf8" });
+  assert.match(files, /package-lock\.json/);
+  assert.doesNotMatch(files, /node_modules/);
 });

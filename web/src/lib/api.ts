@@ -30,7 +30,7 @@ export interface Commit { hash: string; short: string; author: string; email: st
 export interface BranchInfo { name: string; head: string; date: string; subject: string; base: boolean; merged: boolean; ahead: number; active: boolean }
 /** A command the project must pass (run in the story's worktree); the team sets defaults, a project can override. */
 export interface CheckCommand { name: string; command: string }
-export interface ChecksSettings { commands: CheckCommand[]; timeoutMinutes: number }
+export interface ChecksSettings { commands: CheckCommand[]; timeoutMinutes: number; install: string }
 /** A reusable project setup: team roles and run settings. */
 export interface NetworkTemplate { id: string; name: string; description: string; builtin: boolean; roles: string[]; settings: { gates: boolean; parallelism: number; maxRework: number; budgetUsd: number } }
 export type AgentConfig = Record<string, never>;
@@ -40,7 +40,7 @@ export interface Project {
   settings: ProjectSettings; estimate: Estimate | null; mode: "live" | "simulation"; error: string | null; created_at: string;
   started_at: string | null; finished_at: string | null; running: boolean;
   counts: { epics: number; features: number; stories: number; done: number; releaseReady: number; inProgress: number; blocked: number; points: number };
-  costUsd: number; tokens: number; openQuestions: number; undelivered: { id: string; code: string; title: string; state: string; reason: string }[]; activeRuns: { agent_id: string; item_id: string | null; stage: string }[];
+  costUsd: number; tokens: number; openQuestions: number; install: string | null; undelivered: { id: string; code: string; title: string; state: string; reason: string }[]; activeRuns: { agent_id: string; item_id: string | null; stage: string }[];
   pipelineRunning: boolean; pausing: boolean; jobs: { key: string; label: string; itemId: string | null }[]; checks: CheckCommand[]; repoInfo: RepoInfo | null;
   liveEstimate?: Estimate | null;
 }

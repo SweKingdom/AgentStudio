@@ -115,6 +115,13 @@ export function ensureRepo(project: Pick<Project, "key" | "settings">) {
       await git(dir, [...ARM_IDENTITY, "commit", "-q", "--allow-empty", "-m", `chore: initialise ${project.key} workspace`]);
       fresh = true;
     }
+    // The checks install dependencies in every worktree; they must never be committed, whatever the repo's .gitignore
+    // says. info/exclude is shared by all worktrees.
+    const exclude = path.join(dir, ".git", "info", "exclude");
+    if (!(fs.existsSync(exclude) && /^\/?node_modules\/?$/m.test(fs.readFileSync(exclude, "utf8")))) {
+      fs.mkdirSync(path.dirname(exclude), { recursive: true });
+      fs.appendFileSync(exclude, "\nnode_modules/\n");
+    }
     const url = project.settings.repo?.url;
     const remotes = (await git(dir, ["remote"])).split("\n").filter(Boolean);
     if (url && remotes.includes("origin")) await git(dir, ["remote", "set-url", "origin", url]);

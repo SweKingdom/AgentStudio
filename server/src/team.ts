@@ -41,6 +41,8 @@ export interface ChecksSettings {
   /** Run in order on every story; empty = detect from package.json (typecheck, lint, test, build). */
   commands: CheckCommand[];
   timeoutMinutes: number;
+  /** Installs the dependencies before the checks: "auto" (detected from the lockfile), "off", or a terminal line. */
+  install: string;
 }
 
 export interface TeamSettings {
@@ -67,7 +69,7 @@ export const DEFAULT_TEAM: TeamSettings = {
     ].join("\n"),
     ado: { areaPath: "", iterationPrefix: "Sprint ", tags: "AgentStudio" },
   },
-  checks: { commands: [], timeoutMinutes: 15 },
+  checks: { commands: [], timeoutMinutes: 15, install: "auto" },
 };
 
 export function teamSettings(): TeamSettings {
@@ -108,7 +110,13 @@ function cleanChecks(o: Partial<ChecksSettings>): ChecksSettings {
   if (commands.length > 10) throw new Error("At most 10 checks.");
   const timeoutMinutes = Number(o.timeoutMinutes ?? DEFAULT_TEAM.checks.timeoutMinutes);
   if (!(timeoutMinutes >= 1 && timeoutMinutes <= 120)) throw new Error("The check timeout must be between 1 and 120 minutes.");
-  return { commands, timeoutMinutes };
+  return { commands, timeoutMinutes, install: cleanInstall(o.install) || DEFAULT_TEAM.checks.install };
+}
+
+function cleanInstall(v: unknown) {
+  const install = String(v ?? "").trim();
+  if (install.length > 500 || /[\r\n]/.test(install)) throw new Error("The install command must be one line of at most 500 characters.");
+  return install;
 }
 
 /** Validate a project's checks; an empty command list means "use the team default". */
@@ -118,6 +126,8 @@ export function cleanChecksOverride(o: Record<string, unknown> | null | undefine
   const clean = cleanChecks({ commands: o.commands as CheckCommand[], timeoutMinutes: (o.timeoutMinutes as number) || undefined });
   if (clean.commands.length) out.commands = clean.commands;
   if (o.timeoutMinutes) out.timeoutMinutes = clean.timeoutMinutes;
+  const install = cleanInstall(o.install);
+  if (install) out.install = install;
   return out;
 }
 
@@ -125,7 +135,7 @@ export function cleanChecksOverride(o: Record<string, unknown> | null | undefine
 export function projectChecks(p: Pick<Project, "settings"> | null | undefined): ChecksSettings {
   const own = p?.settings.checks ?? {};
   const team = teamSettings().checks;
-  return { commands: own.commands?.length ? own.commands : team.commands, timeoutMinutes: own.timeoutMinutes ?? team.timeoutMinutes };
+  return { commands: own.commands?.length ? own.commands : team.commands, timeoutMinutes: own.timeoutMinutes ?? team.timeoutMinutes, install: own.install || team.install || "auto" };
 }
 
 /** Fill {placeholders}; unknown ones are left as they are. */
