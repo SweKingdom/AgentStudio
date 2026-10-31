@@ -466,6 +466,9 @@ export function readWorkspaceBinary(p: Pick<Project, "key">, rel: string, itemCo
   return fs.existsSync(abs) ? fs.readFileSync(abs) : null;
 }
 
+/** Installed dependencies and tool caches: never the project's own code, and thousands of files once installed. */
+const GENERATED_DIRS = new Set([".git", "node_modules", ".pnpm-store", ".yarn", ".next", ".nuxt", ".turbo", ".cache", ".vite", "coverage", "__pycache__", ".venv", ".pytest_cache"]);
+
 export function listWorkspaceFiles(p: Pick<Project, "key">, itemCode?: string | null): string[] {
   const root = rootFor(p, itemCode);
   if (!fs.existsSync(root)) return [];
@@ -473,6 +476,7 @@ export function listWorkspaceFiles(p: Pick<Project, "key">, itemCode?: string | 
   const walk = (dir: string) => {
     for (const e of fs.readdirSync(dir, { withFileTypes: true })) {
       const abs = path.join(dir, e.name);
+      if (e.isDirectory() && GENERATED_DIRS.has(e.name)) continue;
       if (e.name === ".git") continue;
       if (e.isDirectory()) walk(abs);
       else out.push(path.relative(root, abs).split(path.sep).join("/"));

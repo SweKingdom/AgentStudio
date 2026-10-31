@@ -37,6 +37,7 @@ import { effectiveMode } from "../settings.js";
 import { agentEmail, listAgents } from "./store.js";
 
 const pexec = promisify(execFile);
+const LIST_FILES_MAX = 300;
 
 export interface ToolContext {
   project: Project;
@@ -53,7 +54,7 @@ export interface ToolContext {
     released?: { version: string };
     validation?: { ok: boolean; output: string };
     /** Last run_checks result in this run: the gate for complete_development, an approval and a release. */
-    checks?: { ok: boolean };
+    checks?: { ok: boolean; failure?: string };
   };
   /** Lets consult_agent run another agent (injected by the runner to avoid import cycles). */
   consult?: (target: Agent, question: string, ctx: ToolContext) => Promise<string>;
@@ -485,8 +486,10 @@ const TOOLS: Record<string, ToolSpec> = {
     },
     handler: (i, ctx) => {
       // On a task, the agent sees its own branch (base branch + the task's changes).
-      const files = listWorkspaceFiles(ctx.project, ctx.item?.code);
-      return files.filter((f) => !i.prefix || f.startsWith(i.prefix));
+      const files = listWorkspaceFiles(ctx.project, ctx.item?.code).filter((f) => !i.prefix || f.startsWith(i.prefix));
+      // A tool result stays in the conversation and is re-read every turn: a huge listing costs on every later call.
+      if (files.length <= LIST_FILES_MAX) return files;
+      return { files: files.slice(0, LIST_FILES_MAX), more: files.length - LIST_FILES_MAX, hint: "Too many files — list a folder with prefix, e.g. \"src/\"." };
     },
   },
 
@@ -790,10 +793,11 @@ const TOOLS: Record<string, ToolSpec> = {
     handler: async (_i, ctx) => {
       const code = ctx.agent.role === "release" ? null : ctx.item?.code;
       const report = await runChecks(ctx.project, code);
-      ctx.outcome.checks = { ok: report.ok };
       if (ctx.agent.role === "release") ctx.outcome.validation = { ok: report.ok, output: formatChecks(report) };
       const text = formatChecks(report);
       const failed = report.results.find((r) => !r.ok);
+      // The failure without timings: the same failure twice in a row means rework isn't getting anywhere.
+      ctx.outcome.checks = { ok: report.ok, failure: failed ? `${failed.name}: ${failed.output.replace(/\b\d+(\.\d+)?\s?m?s\b/g, "").slice(-1500)}` : undefined };
       logActivity({
         projectId: ctx.project.id,
         agentId: ctx.agent.id,

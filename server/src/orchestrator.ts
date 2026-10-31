@@ -282,6 +282,20 @@ export interface UndeliveredItem {
   reason: string;
 }
 
+/**
+ * Foundation tasks (DevOps tasks that depend on nothing, such as the repository skeleton and CI) come before everything
+ * else: a story built without them has no project to run its checks in, and fails them round after round.
+ */
+function isFoundation(it: Pick<WorkItem, "type" | "category" | "depends_on">) {
+  return it.type === "task" && it.category === "devops" && it.depends_on.length === 0;
+}
+
+/** An item's own dependencies plus the project's foundation tasks (for everything that isn't one). */
+export function dependenciesOf(it: WorkItem, items: WorkItem[]) {
+  if (isFoundation(it)) return it.depends_on;
+  return [...new Set([...it.depends_on, ...items.filter((x) => x.id !== it.id && isFoundation(x)).map((x) => x.code)])];
+}
+
 /** Stories, tasks and bugs that aren't delivered (merged and release-ready, released, or cancelled), with why. */
 export function undeliveredItems(projectId: string): UndeliveredItem[] {
   const items = listItems(projectId).filter((i) => i.type === "story" || i.type === "task" || i.type === "bug");
@@ -290,7 +304,8 @@ export function undeliveredItems(projectId: string): UndeliveredItem[] {
     const q = openQuestionCount(it.id);
     if (q) return `${q} open question(s)`;
     if (it.state === "Blocked") return "Blocked";
-    const d = open.find((x) => it.depends_on.includes(x.code));
+    const deps = dependenciesOf(it, items);
+    const d = open.find((x) => deps.includes(x.code));
     return d ? `Waits for ${d.code}` : "Not started";
   };
   return open.map((it) => ({ id: it.id, code: it.code, title: it.title, state: it.state, reason: why(it) }));
@@ -489,7 +504,7 @@ async function stageDelivery(p: Project, signal: AbortSignal) {
   // A story builds on its dependencies' code, which reaches the base branch only once they are delivered (merged).
   const depsReady = (it: WorkItem) => {
     const items = all();
-    return it.depends_on.every((code) => {
+    return dependenciesOf(it, items).every((code) => {
       const d = items.find((x) => x.code === code);
       return !d || DELIVERED_STATES.includes(d.state);
     });
@@ -498,7 +513,7 @@ async function stageDelivery(p: Project, signal: AbortSignal) {
   const stuckDependency = (it: WorkItem, seen = new Set<string>()): WorkItem | undefined => {
     seen.add(it.id);
     const items = all();
-    for (const code of it.depends_on) {
+    for (const code of dependenciesOf(it, items)) {
       const d = items.find((x) => x.code === code);
       if (!d || DELIVERED_STATES.includes(d.state) || seen.has(d.id)) continue;
       if (!pending.some((x) => x.id === d.id) || d.state === "Blocked" || stuckDependency(d, seen)) return d;
@@ -700,7 +715,10 @@ async function deliverItem(projectId: string, itemId: string, dev: Agent | undef
   const startAt = opts.startAt ?? "development";
   let findings = "";
   /** Who asked for the last rework: QA, or the architect's code review. */
-  let findingsFrom = "qa" as "qa" | "review"; // (a cast: it's also set inside reviewPasses, which TS can't follow)
+  let findingsFrom = "qa" as "qa" | "review" | "checks"; // (a cast: it's also set inside reviewPasses, which TS can't follow)
+  /** The failing check when the developer last couldn't hand over; the same failure twice means rework is stuck. */
+  let lastFailure: string | undefined;
+  let stuck = false;
   let lastDevSummary = "";
   let qaNotes = "";
   let approved = startAt === "documentation" || (startAt === "development" && !opts.feedback && getItem(itemId)!.state === "Ready for UAT"); // resumed after QA approval
@@ -738,7 +756,12 @@ async function deliverItem(projectId: string, itemId: string, dev: Agent | undef
         kind: opts.kind,
         feedback: n === 1 ? opts.feedback : undefined,
         task:
-          n > 1 && findingsFrom === "review"
+          n > 1 && findingsFrom === "checks"
+            ? `You didn't hand ${item.code} "${item.title}" over in the last run (iteration ${iteration}). Fix what stopped you below, run run_checks until it passes, then call complete_development.
+
+## What stopped the hand-over
+${findings}`
+            : n > 1 && findingsFrom === "review"
             ? `The architect's code review requested changes on ${item.code} "${item.title}" (iteration ${iteration}). Fix every finding below, then call complete_development explaining each fix.\n\n## Code review findings\n${findings}`
             : n > 1
             ? `QA requested changes on ${item.code} "${item.title}" (iteration ${iteration}). Fix every finding below, then call complete_development explaining each fix.\n\n## QA findings\n${findings}${testReportBlock(itemId)}`
@@ -751,6 +774,28 @@ async function deliverItem(projectId: string, itemId: string, dev: Agent | undef
       endPhase(devPhase);
       devSummary = r.outcome.devCompleted ?? r.summary;
       lastDevSummary = devSummary;
+      // The developer asked the product owner something: wait for the answer instead of guessing in more rounds.
+      if (waitingForAnswers({ id: itemId })) {
+        patchItem(itemId, { state: "Requires additional information" });
+        logActivity({ projectId, agentId: "orchestrator", itemId, type: "gate", summary: `⏸ ${item.code} waits for your answer to the developer's question` });
+        return;
+      }
+      // Not handed over (the checks fail, or complete_development wasn't called): QA can't approve it, so it isn't run.
+      if (r.outcome.devCompleted === undefined) {
+        const failure = r.outcome.checks?.failure;
+        if (failure && failure === lastFailure) {
+          stuck = true;
+          break;
+        }
+        lastFailure = failure;
+        findings = failure ? `The checks still fail:
+${failure}` : `complete_development wasn't called. Your last message:
+${r.summary.slice(0, 2000)}`;
+        findingsFrom = "checks";
+        patchItem(itemId, { rework_count: (getItem(itemId)!.rework_count ?? 0) + 1 });
+        logActivity({ projectId, agentId: "orchestrator", itemId, type: "note", summary: `↩ ${item.code} wasn't handed over — back to development, QA skipped` });
+        continue;
+      }
     }
     item = patchItem(itemId, { state: "In Peer Testing" });
     if (!qa.length) {
@@ -802,8 +847,13 @@ async function deliverItem(projectId: string, itemId: string, dev: Agent | undef
   }
 
   if (!approved) {
+    const code = getItem(itemId)!.code;
     patchItem(itemId, { state: "Blocked" });
-    postMessage({ projectId, from: "orchestrator", to: "human", itemId, kind: "question", content: `${getItem(itemId)!.code} still fails ${findingsFrom === "review" ? "the code review" : "QA"} after ${maxRework} rework loop(s). Please review.` });
+    const why = stuck
+      ? `${code} fails the same check the same way twice in a row (${lastFailure!.split(":")[0]}), so more rework won't help. It probably needs something it can't make itself: code from another story, a setup step or a decision.`
+      : `${code} still fails ${findingsFrom === "review" ? "the code review" : findingsFrom === "checks" ? "its checks" : "QA"} after ${maxRework} rework loop(s). Please review.`;
+    postMessage({ projectId, from: "orchestrator", to: "human", itemId, kind: "question", content: why });
+    if (stuck) logActivity({ projectId, agentId: "orchestrator", itemId, type: "blocked", summary: `⛔ ${code} stopped early: the same check failure twice in a row` });
     return;
   }
 
