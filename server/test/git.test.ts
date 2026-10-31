@@ -90,3 +90,51 @@ test("push sends branches and tags to origin only when the project opts in", asy
   assert.match(refs, /refs\/heads\/feature\/US-301-pushed/);
   assert.match(refs, /refs\/tags\/v1\.0\.0/);
 });
+
+test("a resolution the developer's run already committed still merges (no second commit)", async () => {
+  const { p } = project("GDC");
+  await ensureRepo(p);
+  const a = { ...item("US-401", "First"), branch: (await ensureItemBranch(p, item("US-401", "First"))).branch };
+  const b = { ...item("US-402", "Second"), branch: (await ensureItemBranch(p, item("US-402", "Second"))).branch };
+  write(worktreeDir(p, "US-401"), "src/config.ts", "export const a = 1;\n");
+  write(worktreeDir(p, "US-402"), "src/config.ts", "export const b = 2;\n");
+  assert.ok((await mergeItemBranch(p, a)).merged);
+  assert.deepEqual((await mergeItemBranch(p, b)).conflicts, ["src/config.ts"]);
+  // The developer resolves the file; the end of their run commits everything, which concludes the merge.
+  write(worktreeDir(p, "US-402"), "src/config.ts", "export const a = 1;\nexport const b = 2;\n");
+  await commitWork(p, { author: "Dev", email: "dev@x", message: "US-402: development", itemCode: "US-402" });
+  const done = await finishMerge(p, b, { author: "Dev", email: "dev@x" });
+  assert.ok(done.merged, done.output ?? "not merged");
+  assert.match(fs.readFileSync(path.join(workspaceDir(p), "src/config.ts"), "utf8"), /a = 1[\s\S]*b = 2/);
+});
+
+test("a task branch picked up again is brought up to date with main; conflicts are reported", async () => {
+  const { p } = project("GUP");
+  await ensureRepo(p);
+  const story = item("US-501", "Retry");
+  const { branch } = await ensureItemBranch(p, story);
+  write(worktreeDir(p, "US-501"), "src/feature.ts", "export const x = 1;\n");
+  write(worktreeDir(p, "US-501"), "package.json", '{ "scripts": {} }\n');
+  await commitWork(p, { author: "Dev", email: "dev@x", message: "US-501: dev", itemCode: "US-501" });
+  // Meanwhile main gets the project skeleton (another story).
+  const main = workspaceDir(p);
+  write(main, "eslint.config.js", "export default [];\n");
+  write(main, "package.json", '{ "scripts": { "lint": "eslint ." } }\n');
+  sh(main, "add", "-A");
+  sh(main, "-c", "user.name=t", "-c", "user.email=t@t", "commit", "-q", "-m", "skeleton");
+
+  const again = await ensureItemBranch(p, { ...story, branch });
+  assert.equal(again.created, false);
+  assert.deepEqual(again.conflicts, ["package.json"], "the conflict is reported, not hidden");
+  assert.ok(fs.existsSync(path.join(worktreeDir(p, "US-501"), "eslint.config.js")), "main's new files are on the branch");
+  // Picked up again before the developer resolved it: the same conflicts, no new merge attempt.
+  assert.deepEqual((await ensureItemBranch(p, { ...story, branch })).conflicts, ["package.json"]);
+
+  write(worktreeDir(p, "US-501"), "package.json", '{ "scripts": { "lint": "eslint ." } }\n');
+  await commitWork(p, { author: "Dev", email: "dev@x", message: "US-501: resolve", itemCode: "US-501" });
+  write(main, "README.md", "# Project\n");
+  sh(main, "add", "-A");
+  sh(main, "-c", "user.name=t", "-c", "user.email=t@t", "commit", "-q", "-m", "readme");
+  assert.deepEqual((await ensureItemBranch(p, { ...story, branch })).conflicts, [], "a clean update merges silently");
+  assert.ok(fs.existsSync(path.join(worktreeDir(p, "US-501"), "README.md")));
+});

@@ -17,6 +17,7 @@ summary: What a good test proves — one test per acceptance criterion, failure 
 - Tests are independent and repeatable: no order dependence, no shared mutable state, no real network or clock unless the project already does that.
 - Assert outcomes, not implementation details. A test without an assertion proves nothing.
 - Keep test data small and explicit in the test.
+- One test file per feature, with a test case per acceptance criterion — not a file per criterion. Reuse the project's test helpers instead of writing new ones.
 
 ## The checks gate
 

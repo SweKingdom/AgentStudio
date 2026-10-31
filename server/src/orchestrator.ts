@@ -308,7 +308,13 @@ export function undeliveredItems(projectId: string): UndeliveredItem[] {
     const d = open.find((x) => deps.includes(x.code));
     return d ? `Waits for ${d.code}` : "Not started";
   };
-  return open.map((it) => ({ id: it.id, code: it.code, title: it.title, state: it.state, reason: why(it) }));
+  // With a release manager on the team, merged work isn't delivered until a release publishes it.
+  const p = getProject(projectId);
+  const unreleased = p && agentsFor(p, "release").length ? items.filter((i) => i.state === "Release Ready" || i.state === "Smoke Testing") : [];
+  return [
+    ...open.map((it) => ({ id: it.id, code: it.code, title: it.title, state: it.state, reason: why(it) })),
+    ...unreleased.map((it) => ({ id: it.id, code: it.code, title: it.title, state: it.state, reason: "Not released" })),
+  ];
 }
 
 /** All stages ran but items are left: stop at a gate where you continue with them or close the project anyway. */
@@ -630,13 +636,23 @@ function prDescription(it: WorkItem, summary: string) {
   });
 }
 
-/** The task gets its own git branch and working copy before anyone works on it. */
+/** The task gets its own git branch and working copy before anyone works on it; an existing branch is brought up to
+ *  date with the base branch. Returns the files left in conflict by that update (the developer resolves them). */
 async function startBranch(projectId: string, itemId: string) {
   const it = getItem(itemId)!;
-  const { branch, created } = await ensureItemBranch(getProject(projectId)!, it);
+  const base = getProject(projectId)!.settings.repo?.branch || "main";
+  const { branch, created, conflicts } = await ensureItemBranch(getProject(projectId)!, it);
   if (it.branch !== branch) patchItem(itemId, { branch });
-  if (created) logActivity({ projectId, agentId: "orchestrator", itemId, type: "file", summary: `Created branch ${branch} for ${it.code} from ${getProject(projectId)!.settings.repo?.branch || "main"}` });
+  if (created) logActivity({ projectId, agentId: "orchestrator", itemId, type: "file", summary: `Created branch ${branch} for ${it.code} from ${base}` });
+  if (conflicts.length) logActivity({ projectId, agentId: "orchestrator", itemId, type: "gate", summary: `⚠ ${it.code}: bringing ${base} into ${branch} left conflicts in ${conflicts.join(", ")} — the developer resolves them first` });
+  return conflicts;
 }
+
+/** The first thing a developer does on a branch whose update from the base branch conflicted. */
+const conflictsBlock = (conflicts: string[], base: string) =>
+  conflicts.length
+    ? `## First: merge conflicts with ${base}\nYour branch was brought up to date with ${base} and these files have conflicts:\n${conflicts.map((f) => `- ${f}`).join("\n")}\nRead each file (it contains <<<<<<< / ======= / >>>>>>> markers), write the resolved version keeping both sides' intent and remove every marker before anything else.`
+    : "";
 
 /** Integrate a finished task: base branch → task branch (conflicts resolved by the developer, or automatically in
  *  simulation), then task branch → base branch with a merge commit. Pushes both when the project pushes; a project
@@ -660,7 +676,7 @@ async function integrateItem(projectId: string, itemId: string, dev: Agent | und
         checkpoint(projectId);
         postMessage({ projectId, from: "orchestrator", to: dev.id, itemId, kind: "rework", content: `${it.code} conflicts with ${base} in: ${m.conflicts.join(", ")}. Resolve them on ${it.branch}.` });
         const phase = startPhase(projectId, itemId, "development", dev.id, lastIteration(itemId, "development") + 1);
-        await runAgent({
+        const r = await runAgent({
           project: project(),
           agent: dev,
           stage: "development",
@@ -670,6 +686,13 @@ async function integrateItem(projectId: string, itemId: string, dev: Agent | und
           task: `Merging ${base} into ${it.branch} for ${it.code} "${it.title}" produced conflicts in:\n${m.conflicts.map((f) => `- ${f}`).join("\n")}\n\nRead each file (it contains <<<<<<< / ======= / >>>>>>> markers), write the resolved version keeping both sides' intent, and remove every marker. Then call complete_development summarising the resolution.`,
         });
         endPhase(phase, "merge resolved");
+        // The resolution is code too: it goes in only when the checks pass on it (complete_development).
+        if (r.outcome.devCompleted === undefined) {
+          patchItem(itemId, { state: "Blocked" });
+          const failure = r.outcome.checks?.failure;
+          postMessage({ projectId, from: "orchestrator", to: "human", itemId, kind: "question", content: `${it.code}'s merge conflicts with ${base} were resolved, but it wasn't handed over${failure ? ` — the checks fail:\n${failure.slice(0, 1500)}` : "."} Continue gives it another try.` });
+          return false;
+        }
         m = await finishMerge(project(), { ...getItem(itemId)!, body, via }, { author: `${dev.name} (${dev.title})`, email: agentEmail(dev.name) });
       }
       if (!m.merged && !m.ready) {
@@ -708,7 +731,7 @@ async function deliverItem(projectId: string, itemId: string, dev: Agent | undef
   }
   const s = appSettings();
   const project = () => getProject(projectId)!;
-  await startBranch(projectId, itemId);
+  const conflicts = await startBranch(projectId, itemId);
   const qa = agentsFor(project(), "qa");
   const writer = agentsFor(project(), "writer")[0];
   const maxRework = project().settings.maxRework ?? s.maxRework;
@@ -741,7 +764,8 @@ async function deliverItem(projectId: string, itemId: string, dev: Agent | undef
     checkpoint(projectId);
     let item = getItem(itemId)!;
     let devSummary = "";
-    if (dev && !(n === 1 && startAt === "qa")) {
+    // Resumed at peer testing, but the branch update left conflicts: the developer resolves them first.
+    if (dev && !(n === 1 && startAt === "qa" && !conflicts.length)) {
       item = patchItem(itemId, { state: "In Progress", assigned_agent_id: dev.id });
       const devPhase = startPhase(projectId, itemId, "development", dev.id, iteration);
       const isBug = item.type === "bug";
@@ -756,7 +780,8 @@ async function deliverItem(projectId: string, itemId: string, dev: Agent | undef
         kind: opts.kind,
         feedback: n === 1 ? opts.feedback : undefined,
         task:
-          n > 1 && findingsFrom === "checks"
+          (n === 1 && conflicts.length ? `${conflictsBlock(conflicts, project().settings.repo?.branch || "main")}\n\nThen: ` : "") +
+          (n > 1 && findingsFrom === "checks"
             ? `You didn't hand ${item.code} "${item.title}" over in the last run (iteration ${iteration}). Fix what stopped you below, run run_checks until it passes, then call complete_development.
 
 ## What stopped the hand-over
@@ -769,7 +794,7 @@ ${findings}`
               ? `The product owner asked you to rework ${item.code} "${item.title}". Apply this feedback, keep everything else working, then call complete_development explaining the change.\n\n## Feedback\n${opts.feedback}${commentsBlock(itemId)}`
               : isBug
                 ? `Fix bug ${item.code} "${item.title}". Read it with get_item (steps to reproduce, expected and actual behaviour) and the parent story's files, fix the cause, add a regression test, then call complete_development.${commentsBlock(itemId)}`
-                : `Implement ${item.code} "${item.title}". Read it with get_item first. Finish with complete_development.${commentsBlock(itemId)}`,
+                : `Implement ${item.code} "${item.title}". Read it with get_item first. Finish with complete_development.${commentsBlock(itemId)}`),
       });
       endPhase(devPhase);
       devSummary = r.outcome.devCompleted ?? r.summary;
@@ -882,7 +907,8 @@ ${r.summary.slice(0, 2000)}`;
 
 async function stageRelease(p: Project, signal: AbortSignal, onlyIds?: string[]) {
   const agent = agentsFor(p, "release")[0];
-  const scope = listItems(p.id).filter((i) => i.state === "Release Ready" && (!onlyIds?.length || onlyIds.includes(i.id)));
+  // Smoke Testing too: a release interrupted midway (stopped, plan limit) leaves its items there.
+  const scope = listItems(p.id).filter((i) => (i.state === "Release Ready" || i.state === "Smoke Testing") && (!onlyIds?.length || onlyIds.includes(i.id)));
   if (!scope.length) {
     logActivity({ projectId: p.id, agentId: agent.id, type: "note", summary: "Nothing is Release Ready — release skipped." });
     return;
@@ -1155,7 +1181,7 @@ export function releaseNow(projectId: string, itemIds?: string[]) {
   const p = getProject(projectId);
   if (!p) throw new Error("Project not found");
   if (!agentsFor(p, "release").length) throw new Error("This project has no release manager on its team.");
-  const ready = listItems(p.id).filter((i) => i.state === "Release Ready" && (!itemIds?.length || itemIds.includes(i.id)));
+  const ready = listItems(p.id).filter((i) => (i.state === "Release Ready" || i.state === "Smoke Testing") && (!itemIds?.length || itemIds.includes(i.id)));
   if (!ready.length) throw new Error("Nothing selected is Release Ready.");
   startJob(p.id, `release:${p.id}`, `Release ${ready.length} item(s)`, undefined, async (signal) => {
     await stageRelease(getProject(p.id)!, signal, ready.map((i) => i.id));

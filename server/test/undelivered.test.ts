@@ -132,4 +132,11 @@ test("finish anyway closes the project; reopen brings the gate back", async () =
   assert.equal(p.status, "awaiting_approval");
   assert.equal(p.stage, "open_items");
   await assert.rejects(api("POST", "/projects/UNF/start"), /409/, "the gate is answered with continue or finish");
+
+  // Merged but never released (a release that wasn't published or was interrupted) isn't delivered either.
+  const deployed = all<{ id: string; code: string }>("SELECT id, code FROM work_items WHERE project_id = ? AND type IN ('story', 'task') AND id != ? LIMIT 2", pid, left.id);
+  run("UPDATE work_items SET state = 'Release Ready' WHERE id = ?", deployed[0].id);
+  run("UPDATE work_items SET state = 'Smoke Testing' WHERE id = ?", deployed[1].id);
+  p = await project("UNF");
+  for (const d of deployed) assert.equal(p.undelivered.find((i: any) => i.code === d.code)?.reason, "Not released");
 });
