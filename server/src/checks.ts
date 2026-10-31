@@ -103,6 +103,20 @@ export function checksFor(project: Project, itemCode?: string | null): CheckComm
   return configured.length ? configured : detectChecks(rootFor(project, itemCode));
 }
 
+/** Files that make a folder a buildable project, for the ecosystems AgentStudio's checks can run. */
+const MANIFESTS = ["package.json", "pyproject.toml", "requirements.txt", "setup.py", "go.mod", "Cargo.toml", "pom.xml", "build.gradle", "build.gradle.kts", "composer.json", "Gemfile", "Makefile"];
+
+/**
+ * The base branch has no project yet (an empty or docs-only repository) or nothing to check it with. Stories built in
+ * parallel then each invent their own skeleton, fail the checks round after round and conflict when merged — so
+ * delivery builds one story at a time until the first one has set the project up.
+ */
+export function baseNeedsSetup(project: Project) {
+  const root = rootFor(project, null);
+  const hasProject = fs.existsSync(root) && (MANIFESTS.some((f) => fs.existsSync(path.join(root, f))) || fs.readdirSync(root).some((f) => /\.(csproj|sln|fsproj)$/i.test(f)));
+  return !hasProject || !checksFor(project, null).length;
+}
+
 function runOne(c: CheckCommand, cwd: string, timeoutMs: number): Promise<CheckResult> {
   const started = Date.now();
   return new Promise((resolve) => {
