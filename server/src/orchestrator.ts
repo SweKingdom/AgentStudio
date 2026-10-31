@@ -10,7 +10,7 @@ import { appSettings, effectiveMode } from "./settings.js";
 import { failedChecks } from "./agents/context.js";
 import { fill, teamSettings } from "./team.js";
 import { ensureItemBranch, finishMerge, mergeItemBranch, pushRefs } from "./git.js";
-import { commentQaFindings, integrateViaPr, openDraftPr, prRepoFor } from "./pullrequests.js";
+import { PrConflictError, commentQaFindings, integrateViaPr, openDraftPr, prRepoFor } from "./pullrequests.js";
 import { needsCodeReview, runCodeReview } from "./review.js";
 import {
   createItem,
@@ -667,44 +667,62 @@ async function integrateItem(projectId: string, itemId: string, dev: Agent | und
   const via = prRepoFor(project()) ? "pr" : "local";
   try {
     let m = await mergeItemBranch(project(), { ...it, body, via });
-    if (m.conflicts.length) {
-      logActivity({ projectId, agentId: "orchestrator", itemId, type: "gate", summary: `⚠ ${it.code}: merge conflicts with ${base} in ${m.conflicts.join(", ")}` });
-      if (isSimulated(project()) || !dev) {
-        m = await finishMerge(project(), { ...it, body, via }, { author: "AgentStudio", email: "arm@agentstudio.local", keep: "task" });
-        logActivity({ projectId, agentId: "orchestrator", itemId, type: "note", summary: `Conflicts on ${it.code} resolved automatically by keeping the task's version (simulation)` });
-      } else {
-        checkpoint(projectId);
-        postMessage({ projectId, from: "orchestrator", to: dev.id, itemId, kind: "rework", content: `${it.code} conflicts with ${base} in: ${m.conflicts.join(", ")}. Resolve them on ${it.branch}.` });
-        const phase = startPhase(projectId, itemId, "development", dev.id, lastIteration(itemId, "development") + 1);
-        const r = await runAgent({
-          project: project(),
-          agent: dev,
-          stage: "development",
-          item: getItem(itemId)!,
-          signal,
-          kind: "merge",
-          task: `Merging ${base} into ${it.branch} for ${it.code} "${it.title}" produced conflicts in:\n${m.conflicts.map((f) => `- ${f}`).join("\n")}\n\nRead each file (it contains <<<<<<< / ======= / >>>>>>> markers), write the resolved version keeping both sides' intent, and remove every marker. Then call complete_development summarising the resolution.`,
-        });
-        endPhase(phase, "merge resolved");
-        // The resolution is code too: it goes in only when the checks pass on it (complete_development).
-        if (r.outcome.devCompleted === undefined) {
+    // Conflicts can come back: GitHub's base branch may move (another lane merged) while this one is resolved.
+    for (let round = 1; ; round++) {
+      if (m.conflicts.length) {
+        logActivity({ projectId, agentId: "orchestrator", itemId, type: "gate", summary: `⚠ ${it.code}: merge conflicts with ${base} in ${m.conflicts.join(", ")}` });
+        if (round > 3) {
           patchItem(itemId, { state: "Blocked" });
-          const failure = r.outcome.checks?.failure;
-          postMessage({ projectId, from: "orchestrator", to: "human", itemId, kind: "question", content: `${it.code}'s merge conflicts with ${base} were resolved, but it wasn't handed over${failure ? ` — the checks fail:\n${failure.slice(0, 1500)}` : "."} Continue gives it another try.` });
+          postMessage({ projectId, from: "orchestrator", to: "human", itemId, kind: "question", content: `${it.code} could not be merged into ${base}: conflicts keep coming back in ${m.conflicts.join(", ")}.` });
           return false;
         }
-        m = await finishMerge(project(), { ...getItem(itemId)!, body, via }, { author: `${dev.name} (${dev.title})`, email: agentEmail(dev.name) });
+        if (isSimulated(project()) || !dev) {
+          m = await finishMerge(project(), { ...it, body, via }, { author: "AgentStudio", email: "arm@agentstudio.local", keep: "task" });
+          logActivity({ projectId, agentId: "orchestrator", itemId, type: "note", summary: `Conflicts on ${it.code} resolved automatically by keeping the task's version (simulation)` });
+        } else {
+          checkpoint(projectId);
+          postMessage({ projectId, from: "orchestrator", to: dev.id, itemId, kind: "rework", content: `${it.code} conflicts with ${base} in: ${m.conflicts.join(", ")}. Resolve them on ${it.branch}.` });
+          const phase = startPhase(projectId, itemId, "development", dev.id, lastIteration(itemId, "development") + 1);
+          const r = await runAgent({
+            project: project(),
+            agent: dev,
+            stage: "development",
+            item: getItem(itemId)!,
+            signal,
+            kind: "merge",
+            task: `Merging ${base} into ${it.branch} for ${it.code} "${it.title}" produced conflicts in:\n${m.conflicts.map((f) => `- ${f}`).join("\n")}\n\nRead each file (it contains <<<<<<< / ======= / >>>>>>> markers), write the resolved version keeping both sides' intent, and remove every marker. Then call complete_development summarising the resolution.`,
+          });
+          endPhase(phase, "merge resolved");
+          // The resolution is code too: it goes in only when the checks pass on it (complete_development).
+          if (r.outcome.devCompleted === undefined) {
+            patchItem(itemId, { state: "Blocked" });
+            const failure = r.outcome.checks?.failure;
+            postMessage({ projectId, from: "orchestrator", to: "human", itemId, kind: "question", content: `${it.code}'s merge conflicts with ${base} were resolved, but it wasn't handed over${failure ? ` — the checks fail:\n${failure.slice(0, 1500)}` : "."} Continue gives it another try.` });
+            return false;
+          }
+          m = await finishMerge(project(), { ...getItem(itemId)!, body, via }, { author: `${dev.name} (${dev.title})`, email: agentEmail(dev.name) });
+        }
+        if (m.conflicts.length) continue;
+        if (!m.merged && !m.ready) {
+          patchItem(itemId, { state: "Blocked" });
+          postMessage({ projectId, from: "orchestrator", to: "human", itemId, kind: "question", content: `${it.code} could not be merged into ${base}: ${m.output ?? "the merge didn't complete"}.` });
+          return false;
+        }
       }
-      if (!m.merged && !m.ready) {
-        patchItem(itemId, { state: "Blocked" });
-        postMessage({ projectId, from: "orchestrator", to: "human", itemId, kind: "question", content: `${it.code} could not be merged into ${base}: conflicts remain in ${m.conflicts.join(", ")}.` });
-        return false;
+      // GitHub: the branch is up to date with the base branch — the merge happens through the story's pull request.
+      if (m.ready) {
+        try {
+          await integrateViaPr(projectId, itemId, body);
+          return true;
+        } catch (e) {
+          if (!(e instanceof PrConflictError) || round > 3) throw e;
+          // Another lane's PR got in first: bring the new base into this branch and try again.
+          logActivity({ projectId, agentId: "orchestrator", itemId, type: "note", summary: `↻ ${e.message} — updating ${it.branch} from ${base} and trying again` });
+          m = await mergeItemBranch(project(), { ...getItem(itemId)!, body, via });
+          continue;
+        }
       }
-    }
-    // GitHub: the branch is up to date with the base branch — the merge happens through the story's pull request.
-    if (m.ready) {
-      await integrateViaPr(projectId, itemId, body);
-      return true;
+      break;
     }
     if (m.merged) {
       logActivity({ projectId, agentId: "orchestrator", itemId, type: "file", summary: `Merged ${it.branch} into ${base} (${m.commit})` });

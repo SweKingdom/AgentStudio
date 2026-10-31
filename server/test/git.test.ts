@@ -5,7 +5,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { execFileSync } from "node:child_process";
 import { TMP, fileUrl } from "./setup.ts";
-import { ensureItemBranch, ensureRepo, commitWork, finishMerge, listBranches, mergeItemBranch, pushRefs } from "../src/git.ts";
+import { ensureItemBranch, ensureRepo, commitWork, finishMerge, listBranches, mergeItemBranch, pushRefs, syncBaseAfterPr } from "../src/git.ts";
 import { workspaceDir, worktreeDir } from "../src/store.ts";
 
 const sh = (cwd: string, ...args: string[]) => execFileSync("git", args, { cwd, encoding: "utf8" }).trim();
@@ -138,3 +138,83 @@ test("a task branch picked up again is brought up to date with main; conflicts a
   assert.deepEqual((await ensureItemBranch(p, { ...story, branch })).conflicts, [], "a clean update merges silently");
   assert.ok(fs.existsSync(path.join(worktreeDir(p, "US-501"), "README.md")));
 });
+
+/** Another lane's pull request merged on GitHub: a separate clone commits to the remote's main, like GitHub would. */
+function mergeOnGitHub(remote: string, rel: string, content: string, branch?: string) {
+  const clone = fs.mkdtempSync(path.join(TMP, "gh-"));
+  sh(clone, "clone", "-q", fileUrl(remote), ".");
+  if (branch) sh(clone, "-c", "user.name=gh", "-c", "user.email=gh@x", "merge", "-q", "--no-ff", "-m", `Merge ${branch}`, `origin/${branch}`);
+  else {
+    write(clone, rel, content);
+    sh(clone, "add", "-A");
+    sh(clone, "-c", "user.name=gh", "-c", "user.email=gh@x", "commit", "-q", "-m", `other lane: ${rel}`);
+  }
+  sh(clone, "push", "-q", "origin", "main");
+}
+
+test("pull requests: the branch takes GitHub's newer main first, and the local main follows GitHub", async () => {
+  const { p, remote } = project("GPR", true);
+  await ensureRepo(p);
+  write(workspaceDir(p), "web/App.tsx", "routes: home\n");
+  sh(workspaceDir(p), "add", "-A");
+  sh(workspaceDir(p), "-c", "user.name=t", "-c", "user.email=t@t", "commit", "-q", "-m", "app");
+  assert.ok((await pushRefs(p, ["main"])).pushed);
+
+  const story = item("US-601", "My bookings");
+  const branch = (await ensureItemBranch(p, story)).branch;
+  write(worktreeDir(p, "US-601"), "web/App.tsx", "routes: home, my-bookings\n");
+  await commitWork(p, { author: "Dev", email: "dev@x", message: "US-601: dev", itemCode: "US-601" });
+
+  // Meanwhile another lane's PR changed the same line on GitHub.
+  mergeOnGitHub(remote, "web/App.tsx", "routes: home, new-class\n");
+
+  const m = await mergeItemBranch(p, { ...story, branch, via: "pr" });
+  assert.deepEqual(m.conflicts, ["web/App.tsx"], "the conflict with GitHub's main is found on the story's branch");
+  write(worktreeDir(p, "US-601"), "web/App.tsx", "routes: home, new-class, my-bookings\n");
+  const ready = await finishMerge(p, { ...story, branch, via: "pr" }, { author: "Dev", email: "dev@x" });
+  assert.equal(ready.ready, true, ready.output ?? "");
+  sh(worktreeDir(p, "US-601"), "push", "-q", "origin", `${branch}:${branch}`);
+
+  // GitHub merges the PR (cleanly, since the branch has its main); the local main catches up without a local merge.
+  mergeOnGitHub(remote, "", "", branch);
+  const s = await syncBaseAfterPr(p, { ...story, branch, via: "pr" });
+  assert.equal(s.fallback, undefined, s.fallback ?? "");
+  sh(workspaceDir(p), "fetch", "-q", "origin");
+  // Line endings follow this machine's git settings (CRLF on Windows).
+  assert.equal(fs.readFileSync(path.join(workspaceDir(p), "web/App.tsx"), "utf8").replace(/\r\n/g, "\n"), "routes: home, new-class, my-bookings\n");
+  assert.ok(pushable(p), "the local main can be pushed: it isn't split from GitHub's");
+});
+
+test("pull requests: a local main that disagrees with GitHub keeps GitHub's side instead of splitting", async () => {
+  const { p, remote } = project("GSP", true);
+  await ensureRepo(p);
+  write(workspaceDir(p), "docs/manual.md", "# Manual\n");
+  sh(workspaceDir(p), "add", "-A");
+  sh(workspaceDir(p), "-c", "user.name=t", "-c", "user.email=t@t", "commit", "-q", "-m", "manual");
+  assert.ok((await pushRefs(p, ["main"])).pushed);
+  const story = item("US-701", "Docs");
+  const branch = (await ensureItemBranch(p, story)).branch;
+  write(worktreeDir(p, "US-701"), "src/a.ts", "export {};\n");
+  await commitWork(p, { author: "Dev", email: "dev@x", message: "US-701: dev", itemCode: "US-701" });
+  sh(worktreeDir(p, "US-701"), "push", "-q", "origin", `${branch}:${branch}`);
+  // A living document changed locally and on GitHub in the same place.
+  write(workspaceDir(p), "docs/manual.md", "# Manual\nLocal section\n");
+  mergeOnGitHub(remote, "docs/manual.md", "# Manual\nGitHub section\n");
+  mergeOnGitHub(remote, "", "", branch);
+
+  const s = await syncBaseAfterPr(p, { ...story, branch, via: "pr" });
+  assert.equal(s.fallback, undefined, s.fallback ?? "");
+  assert.match(fs.readFileSync(path.join(workspaceDir(p), "docs/manual.md"), "utf8"), /GitHub section/);
+  assert.ok(fs.existsSync(path.join(workspaceDir(p), "src/a.ts")), "the story's work came from GitHub's merge");
+  assert.ok(pushable(p));
+});
+
+/** Local main contains origin/main, so a push is a fast-forward. */
+function pushable(p: any) {
+  try {
+    sh(workspaceDir(p), "merge-base", "--is-ancestor", "origin/main", "main");
+    return true;
+  } catch {
+    return false;
+  }
+}
