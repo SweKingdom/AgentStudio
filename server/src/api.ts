@@ -14,7 +14,7 @@ import { buildSystemPrompt, countPdfTokens } from "./agents/runner.js";
 import { deleteCustomKnowledge, listKnowledge, saveCustomKnowledge } from "./knowledge.js";
 import { estimateProject } from "./estimate.js";
 import { buildPlanFromText, readPdf } from "./agents/simplan.js";
-import { approveGate, buildStages, fixBug, humanTransition, isPausing, pauseAll, resumeAll, startItem, startPlan, isRunning, listJobs, pauseProject, pipelineRunning, releaseNow, reportBug, rerunItem, startProject, teamOf, type RerunRole } from "./orchestrator.js";
+import { approveGate, buildStages, finishUndelivered, fixBug, humanTransition, isPausing, pauseAll, resumeAll, startItem, startPlan, isRunning, listJobs, pauseProject, pipelineRunning, releaseNow, reportBug, reopenProject, rerunItem, startProject, teamOf, undeliveredItems, type RerunRole } from "./orchestrator.js";
 import { chat, chatHistory } from "./chat.js";
 import { autoResumeAllowed, globalPause, spendStatus } from "./pause.js";
 import { ensureRepo, gitLog, listBranches, providerOf, repoName, testRemoteUrl, validateRepoUrl, webUrlOf } from "./git.js";
@@ -294,6 +294,7 @@ function projectSummary(p: Project) {
     costUsd: cost.c,
     tokens: cost.t,
     openQuestions,
+    undelivered: undeliveredItems(p.id),
     activeRuns,
   };
 }
@@ -481,12 +482,14 @@ api.patch("/projects/:pid", wrap(async (req, res) => {
       const old = p.stages.find((o) => o.key === s.key);
       return old && (old.status === "done" || old.status === "awaiting_approval") ? { ...s, status: old.status } : s;
     });
+    patch.stages.push(...p.stages.filter((s) => s.key === "open_items"));
   } else if (body.settings?.gates !== undefined && !isRunning(p.id)) {
     const fresh = buildStages({ agent_ids: p.agent_ids, settings: patch.settings! });
     patch.stages = fresh.map((s) => {
       const old = p.stages.find((o) => o.key === s.key);
       return old && old.status === "done" ? old : s;
     });
+    patch.stages.push(...p.stages.filter((s) => s.key === "open_items"));
   }
   const saved = patchProject(p.id, patch)!;
   if (body.settings?.repo) await ensureRepo(saved);
@@ -541,6 +544,28 @@ api.post("/projects/:pid/approve", (req, res) => {
     const before = getProject(String(req.params.pid));
     approveGate(String(req.params.pid));
     audit(req, "gate.approve", before?.key ?? String(req.params.pid), { stage: before?.stage });
+    res.json({ ok: true });
+  } catch (e) {
+    res.status(409).json({ error: e instanceof Error ? e.message : String(e) });
+  }
+});
+
+api.post("/projects/:pid/finish", (req, res) => {
+  try {
+    const before = getProject(String(req.params.pid));
+    finishUndelivered(String(req.params.pid));
+    audit(req, "project.finish", before?.key ?? String(req.params.pid), { undelivered: before ? undeliveredItems(before.id).length : 0 });
+    res.json({ ok: true });
+  } catch (e) {
+    res.status(409).json({ error: e instanceof Error ? e.message : String(e) });
+  }
+});
+
+api.post("/projects/:pid/reopen", (req, res) => {
+  try {
+    const before = getProject(String(req.params.pid));
+    reopenProject(String(req.params.pid));
+    audit(req, "project.reopen", before?.key ?? String(req.params.pid), {});
     res.json({ ok: true });
   } catch (e) {
     res.status(409).json({ error: e instanceof Error ? e.message : String(e) });

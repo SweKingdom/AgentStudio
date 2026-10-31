@@ -225,6 +225,7 @@ export function approveGate(projectId: string) {
   const p = getProject(projectId)!;
   const gate = p.stages.find((s) => s.status === "awaiting_approval");
   if (!gate) throw new Error("Nothing is waiting for approval");
+  if (gate.key === OPEN_ITEMS) return continueUndelivered(projectId);
   setStage(projectId, gate.key, "done");
   postMessage({ projectId, from: "human", to: "orchestrator", kind: "approval", content: `Approved: ${gate.label}` });
   logActivity({ projectId, agentId: "human", type: "approval", summary: `✅ Approved: ${gate.label}` });
@@ -256,14 +257,89 @@ async function loop(projectId: string, signal: AbortSignal) {
     await runStage(getProject(projectId)!, next.key, signal);
     setStage(projectId, next.key, "done");
   }
-  await finishProject(projectId);
+  if (undeliveredItems(projectId).length) return openUndeliveredGate(projectId);
+  finishProject(projectId);
 }
 
-async function finishProject(projectId: string) {
-  patchProject(projectId, { status: "completed", stage: null, finished_at: now() });
-  const items = listItems(projectId).filter((i) => i.type === "story" || i.type === "task");
+function finishProject(projectId: string) {
+  patchProject(projectId, { status: "completed", stage: null, finished_at: now(), stages: getProject(projectId)!.stages.filter((s) => s.key !== OPEN_ITEMS) });
+  const items = listItems(projectId).filter((i) => i.type === "story" || i.type === "task" || i.type === "bug");
+  const delivered = items.filter((i) => DELIVERED_STATES.includes(i.state)).length;
   const cost = projectCost(projectId);
-  logActivity({ projectId, agentId: "orchestrator", type: "pipeline", summary: `🏁 Project completed — ${items.length} items, $${cost.toFixed(2)}` });
+  logActivity({ projectId, agentId: "orchestrator", type: "pipeline", summary: `🏁 Project completed — ${delivered} of ${items.length} items delivered, $${cost.toFixed(2)}` });
+}
+
+// ---------------------------------------------------------------------------------------------------------------------
+// Undelivered items: the project isn't done while stories are blocked, waiting for answers or never started.
+
+const OPEN_ITEMS = "open_items";
+
+export interface UndeliveredItem {
+  id: string;
+  code: string;
+  title: string;
+  state: string;
+  reason: string;
+}
+
+/** Stories, tasks and bugs that aren't delivered (merged and release-ready, released, or cancelled), with why. */
+export function undeliveredItems(projectId: string): UndeliveredItem[] {
+  const items = listItems(projectId).filter((i) => i.type === "story" || i.type === "task" || i.type === "bug");
+  const open = items.filter((i) => !DELIVERED_STATES.includes(i.state));
+  const why = (it: WorkItem) => {
+    const q = openQuestionCount(it.id);
+    if (q) return `${q} open question(s)`;
+    if (it.state === "Blocked") return "Blocked";
+    const d = open.find((x) => it.depends_on.includes(x.code));
+    return d ? `Waits for ${d.code}` : "Not started";
+  };
+  return open.map((it) => ({ id: it.id, code: it.code, title: it.title, state: it.state, reason: why(it) }));
+}
+
+/** All stages ran but items are left: stop at a gate where you continue with them or close the project anyway. */
+function openUndeliveredGate(projectId: string) {
+  const left = undeliveredItems(projectId);
+  const p = getProject(projectId)!;
+  const gate: StageState = { key: OPEN_ITEMS, role: "human", label: "Undelivered items", gate: true, status: "awaiting_approval" };
+  patchProject(projectId, { status: "awaiting_approval", stage: OPEN_ITEMS, stages: [...p.stages.filter((s) => s.key !== OPEN_ITEMS), gate] });
+  const list = left.map((i) => `- ${i.code} ${i.title} — ${i.reason}`).join("\n");
+  postMessage({ projectId, from: "orchestrator", to: "human", kind: "question", content: `${left.length} item(s) are not delivered:\n${list}\n\nAnswer their questions or fix what blocks them, then continue — or finish the project without them.` });
+  logActivity({ projectId, agentId: "orchestrator", type: "gate", summary: `⏸ ${left.length} item(s) not delivered (${left.map((i) => i.code).join(", ")}) — continue with them or finish the project` });
+}
+
+/** Continue at the undelivered-items gate: Blocked items get another try, then delivery and release run again. */
+function continueUndelivered(projectId: string) {
+  const left = undeliveredItems(projectId);
+  for (const it of left) if (it.state === "Blocked") patchItem(it.id, { state: "To Do" });
+  const again = new Set(["delivery", "approve_release", "release"]);
+  const p = getProject(projectId)!;
+  patchProject(projectId, {
+    stage: null,
+    stages: p.stages.filter((s) => s.key !== OPEN_ITEMS).map((s) => (again.has(s.key) && s.status !== "skipped" ? { ...s, status: "pending" } : s)),
+  });
+  postMessage({ projectId, from: "human", to: "orchestrator", kind: "approval", content: `Continue with ${left.length} undelivered item(s)` });
+  logActivity({ projectId, agentId: "human", type: "approval", summary: `▶ Continue with ${left.length} undelivered item(s): ${left.map((i) => i.code).join(", ")}` });
+  startProject(projectId);
+}
+
+/** Close the project at the undelivered-items gate; the items stay as they are. */
+export function finishUndelivered(projectId: string) {
+  const p = getProject(projectId);
+  if (!p?.stages.some((s) => s.key === OPEN_ITEMS && s.status === "awaiting_approval")) throw new Error("The project isn't waiting at the undelivered-items gate");
+  logActivity({ projectId, agentId: "human", type: "approval", summary: `⏹ Finished without ${undeliveredItems(projectId).length} undelivered item(s)` });
+  finishProject(projectId);
+}
+
+/** A completed project with undelivered items (e.g. completed before this gate existed) goes back to the gate. */
+export function reopenProject(projectId: string) {
+  const p = getProject(projectId);
+  if (!p) throw new Error("Project not found");
+  if (p.status !== "completed") throw new Error("Only a completed project can be reopened");
+  if (isRunning(projectId)) throw new Error("A re-run or release job is in progress — wait for it to finish.");
+  if (!undeliveredItems(projectId).length) throw new Error("Every item is delivered — there is nothing to continue with");
+  patchProject(projectId, { finished_at: null });
+  logActivity({ projectId, agentId: "human", type: "approval", summary: "↺ Project reopened for its undelivered items" });
+  openUndeliveredGate(projectId);
 }
 
 // ---------------------------------------------------------------------------------------------------------------------
@@ -408,13 +484,26 @@ async function stageDelivery(p: Project, signal: AbortSignal) {
   const busy = new Map<string, number>();
   const inFlight = new Set<Promise<void>>();
   const parallelism = Math.max(1, getProject(p.id)!.settings.parallelism);
+  const held = new Set<string>();
 
+  // A story builds on its dependencies' code, which reaches the base branch only once they are delivered (merged).
   const depsReady = (it: WorkItem) => {
     const items = all();
     return it.depends_on.every((code) => {
       const d = items.find((x) => x.code === code);
-      return !d || DONE_STATES.includes(d.state) || d.state === "Blocked" || !pending.some((x) => x.id === d.id);
+      return !d || DELIVERED_STATES.includes(d.state);
     });
+  };
+  /** The dependency that can't be delivered in this run (Blocked, waiting for answers, or itself held), if any. */
+  const stuckDependency = (it: WorkItem, seen = new Set<string>()): WorkItem | undefined => {
+    seen.add(it.id);
+    const items = all();
+    for (const code of it.depends_on) {
+      const d = items.find((x) => x.code === code);
+      if (!d || DELIVERED_STATES.includes(d.state) || seen.has(d.id)) continue;
+      if (!pending.some((x) => x.id === d.id) || d.state === "Blocked" || stuckDependency(d, seen)) return d;
+    }
+    return undefined;
   };
 
   for (;;) {
@@ -427,9 +516,22 @@ async function stageDelivery(p: Project, signal: AbortSignal) {
       }
       throw new PauseRequestedError("Paused");
     }
+    // Questions answered while the stage runs: those items join the delivery.
+    for (const w of all().filter((i) => !DELIVERED_STATES.includes(i.state) && !["Blocked", "Cancelled"].includes(i.state) && !pending.some((x) => x.id === i.id) && !waitingForAnswers(i))) {
+      pending.push(w);
+      logActivity({ projectId: p.id, agentId: "orchestrator", itemId: w.id, type: "pipeline", summary: `▶ ${w.code}'s questions are answered — it joins the delivery` });
+    }
     const fresh = pending.filter((i) => !started.has(i.id)).map((i) => getItem(i.id)!);
-    let ready = fresh.filter(depsReady);
-    if (!ready.length && !inFlight.size && fresh.length) ready = fresh.slice(0, 1); // break dependency cycles
+    for (const it of fresh) {
+      const d = stuckDependency(it);
+      if (d && !held.has(it.id)) {
+        held.add(it.id);
+        logActivity({ projectId: p.id, agentId: "orchestrator", itemId: it.id, type: "gate", summary: `⏸ ${it.code} waits for ${d.code} (${waitingForAnswers(d) ? "open questions" : d.state}) — it builds on that code` });
+      } else if (!d) held.delete(it.id);
+    }
+    const startable = fresh.filter((i) => !held.has(i.id));
+    let ready = startable.filter(depsReady);
+    if (!ready.length && !inFlight.size && startable.length) ready = startable.slice(0, 1); // break dependency cycles
     while (inFlight.size < parallelism && ready.length) {
       const it = ready.shift()!;
       started.add(it.id);
@@ -438,7 +540,8 @@ async function stageDelivery(p: Project, signal: AbortSignal) {
       busy.set(dev.id, (busy.get(dev.id) ?? 0) + 1);
       // Resume where the item was left: after development, continue at peer testing.
       const startAt = it.state === "In Peer Testing" ? "qa" : "development";
-      const job: Promise<void> = deliverItem(p.id, it.id, dev, signal, { startAt })
+      const job: Promise<void> = refineIfNeeded(p.id, it.id, signal, "delivery")
+        .then(() => deliverItem(p.id, it.id, dev, signal, { startAt }))
         .catch((e) => {
           // Graceful pause inside a lane: the lane stops at its checkpoint; the scheduler drains the other lanes.
           if (e instanceof PauseRequestedError) return;
@@ -890,6 +993,21 @@ export function startPlan(itemId: string) {
   return { steps: steps.filter((s) => s.agent), skipped: steps.filter((s) => !s.agent).map((s) => s.what), blockedBy: reasons };
 }
 
+/** An item still before refinement (e.g. its questions were answered late) gets the architect's refinement first. */
+async function refineIfNeeded(projectId: string, itemId: string, signal: AbortSignal, kind: string) {
+  const cur = getItem(itemId)!;
+  if (!PRE_REFINED.includes(cur.state)) return;
+  const arch = agentsFor(getProject(projectId)!, "architect")[0];
+  if (arch) {
+    checkpoint(projectId);
+    postMessage({ projectId, from: "orchestrator", to: arch.id, itemId, kind: "handoff", content: `Refine ${cur.code} before development starts.` });
+    const ph = startPhase(projectId, itemId, "architecture", arch.id, lastIteration(itemId, "architecture") + 1);
+    await runAgent({ project: getProject(projectId)!, agent: arch, stage: "architecture", item: cur, signal, kind, task: `Refine ${cur.code} "${cur.title}" only: complete its technical specification and update the solution design.${commentsBlock(itemId)}` });
+    endPhase(ph);
+  }
+  if (PRE_REFINED.includes(getItem(itemId)!.state)) patchItem(itemId, { state: "Ready for Sprint" });
+}
+
 function normaliseItem(itemId: string) {
   const it = getItem(itemId)!;
   const items = listItems(it.project_id).filter((i) => i.type === "story" || i.type === "task" || i.type === "bug");
@@ -909,18 +1027,8 @@ export function startItem(itemId: string) {
   const p = getProject(it.project_id)!;
   postMessage({ projectId: p.id, from: "human", to: "orchestrator", itemId, kind: "handoff", content: `Start work on ${it.code}: ${plan.steps.map((s) => `${s.agent} (${s.what})`).join(" → ")}` });
   startJob(p.id, `item:${it.id}`, `Start work on ${it.code}`, it.id, async (signal) => {
+    await refineIfNeeded(p.id, itemId, signal, "start");
     let cur = getItem(itemId)!;
-    if (PRE_REFINED.includes(cur.state)) {
-      const arch = agentsFor(getProject(p.id)!, "architect")[0];
-      if (arch) {
-        postMessage({ projectId: p.id, from: "orchestrator", to: arch.id, itemId, kind: "handoff", content: `Refine ${cur.code} before development starts.` });
-        const ph = startPhase(p.id, itemId, "architecture", arch.id, lastIteration(itemId, "architecture") + 1);
-        await runAgent({ project: getProject(p.id)!, agent: arch, stage: "architecture", item: cur, signal, kind: "start", task: `Refine ${cur.code} "${cur.title}" only: complete its technical specification and update the solution design.${commentsBlock(itemId)}` });
-        endPhase(ph);
-      }
-      if (PRE_REFINED.includes(getItem(itemId)!.state)) patchItem(itemId, { state: "Ready for Sprint" });
-    }
-    cur = getItem(itemId)!;
     if (cur.state === "Ready for Sprint" || cur.story_points == null) {
       const planner = agentsFor(getProject(p.id)!, "planner")[0];
       if (planner) {

@@ -40,7 +40,7 @@ export interface Project {
   settings: ProjectSettings; estimate: Estimate | null; mode: "live" | "simulation"; error: string | null; created_at: string;
   started_at: string | null; finished_at: string | null; running: boolean;
   counts: { epics: number; features: number; stories: number; done: number; releaseReady: number; inProgress: number; blocked: number; points: number };
-  costUsd: number; tokens: number; openQuestions: number; activeRuns: { agent_id: string; item_id: string | null; stage: string }[];
+  costUsd: number; tokens: number; openQuestions: number; undelivered: { id: string; code: string; title: string; state: string; reason: string }[]; activeRuns: { agent_id: string; item_id: string | null; stage: string }[];
   pipelineRunning: boolean; pausing: boolean; jobs: { key: string; label: string; itemId: string | null }[]; checks: CheckCommand[]; repoInfo: RepoInfo | null;
   liveEstimate?: Estimate | null;
 }

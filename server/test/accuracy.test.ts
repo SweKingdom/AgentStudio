@@ -48,6 +48,15 @@ before(async () => {
 
 after(() => server.close());
 
+/** Runs to the end; stories held by open questions are left out with "Finish anyway" at the undelivered-items gate. */
+async function finished(key: string) {
+  await waitFor(async () => {
+    const p = await api("GET", `/projects/${key}`);
+    return p.status === "completed" || (p.stage === "open_items" && !p.running);
+  }, `${key} to finish`);
+  if ((await api("GET", `/projects/${key}`)).status !== "completed") await api("POST", `/projects/${key}/finish`);
+}
+
 test("interval union counts overlapping time once and ignores empty intervals", () => {
   assert.equal(unionMs([]), 0);
   assert.equal(unionMs([{ start: 0, end: 10 }]), 10);
@@ -96,7 +105,7 @@ test("estimate vs actual after a simulated run", async () => {
   assert.match(before.reason, /activity/i);
 
   await api("POST", `/projects/${created.id}/start`);
-  await waitFor(async () => (await api("GET", "/projects/ACC")).status === "completed", "project completion");
+  await finished("ACC");
 
   const r = await api("GET", "/projects/ACC/accuracy");
   assert.equal(r.available, true);
@@ -168,7 +177,7 @@ test("older estimates without detail/breakdown/detected still work", async () =>
     settings: { gates: false, parallelism: 3, budgetUsd: 0, maxRework: 2, repo: repo("legacy-estimate") },
     start: true,
   });
-  await waitFor(async () => (await api("GET", "/projects/LEG")).status === "completed", "legacy project completion");
+  await finished("LEG");
   const r = await api("GET", `/projects/${created.id}/accuracy`);
   assert.equal(r.available, true);
   assert.ok(Math.abs(r.totals.estimated.low - legacy.totalUsd * 0.6) < 1e-9, "default range when none was stored");
