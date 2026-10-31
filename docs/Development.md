@@ -15,7 +15,7 @@
 Run one test file from `server/`:
 
 ```bash
-node --no-warnings --import tsx --test test/pause.test.ts
+node --disable-warning=ExperimentalWarning --import tsx --test test/pause.test.ts
 ```
 
 ## Tests
