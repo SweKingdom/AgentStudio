@@ -146,6 +146,7 @@ Ett avslutat projekt med stories kvar visar knappen **Reopen**, som tar tillbaka
 
 **Så sparar AgentStudio tokens i leveransen:**
 - **Grunduppgifter först.** En uppgift (task) i kategorin *devops* utan egna beroenden, till exempel "Set up repository skeleton and CI", levereras före allt annat. Alla andra stories väntar på den, eftersom de inte kan köra checkarna utan projektets grund.
+- **Ett tomt repo byggs upp av en story i taget.** Så länge `main` saknar en projektfil (t.ex. `package.json`) eller checks att köra, levererar AgentStudio en story i taget, oavsett antalet lanes. En grunduppgift tas först om det finns en. Den första utvecklaren får i uppgift att sätta upp ett minimalt skelett med typecheck-, lint-, test- och build-skript. När den storyn är mergad hittas checkarna automatiskt, och resten körs med alla lanes. Det gäller även om analytikern inte skapade någon grunduppgift.
 - **Ingen QA på ofärdigt arbete.** Om utvecklaren inte lämnar över storyn, till exempel för att checkarna fortfarande faller, hoppar AgentStudio över QA och skickar storyn direkt tillbaka till utvecklaren.
 - **Tidigt stopp.** Faller samma check på samma sätt två gånger i rad blir storyn *Blocked* direkt, med ett meddelande till dig. Den behöver då troligen något den inte kan skapa själv: kod från en annan story, ett installationssteg eller ett beslut.
 - **Ställer utvecklaren en fråga** väntar storyn på ditt svar i stället för att gissa i fler rundor.

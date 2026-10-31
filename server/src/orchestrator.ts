@@ -8,6 +8,7 @@ import { autoResumeAllowed, globalPause, pauseLabel, setGlobalPause, spendStatus
 import { ROLES } from "./agents/roles.js";
 import { appSettings, effectiveMode } from "./settings.js";
 import { failedChecks } from "./agents/context.js";
+import { baseNeedsSetup } from "./checks.js";
 import { fill, teamSettings } from "./team.js";
 import { ensureItemBranch, finishMerge, mergeItemBranch, pushRefs } from "./git.js";
 import { PrConflictError, commentQaFindings, integrateViaPr, openDraftPr, prRepoFor } from "./pullrequests.js";
@@ -506,6 +507,7 @@ async function stageDelivery(p: Project, signal: AbortSignal) {
   const inFlight = new Set<Promise<void>>();
   const parallelism = Math.max(1, getProject(p.id)!.settings.parallelism);
   const held = new Set<string>();
+  let setupNoted = false;
 
   // A story builds on its dependencies' code, which reaches the base branch only once they are delivered (merged).
   const depsReady = (it: WorkItem) => {
@@ -553,7 +555,18 @@ async function stageDelivery(p: Project, signal: AbortSignal) {
     const startable = fresh.filter((i) => !held.has(i.id));
     let ready = startable.filter(depsReady);
     if (!ready.length && !inFlight.size && startable.length) ready = startable.slice(0, 1); // break dependency cycles
-    while (inFlight.size < parallelism && ready.length) {
+    // An empty repository: parallel stories would each invent the project skeleton, fail their checks and conflict.
+    // One story at a time (a foundation task first) until the base branch has a project and checks to run.
+    const setup = !isSimulated(getProject(p.id)!) && baseNeedsSetup(getProject(p.id)!);
+    const lanes = setup ? 1 : parallelism;
+    if (setup) {
+      ready.sort((a, b) => Number(isFoundation(b)) - Number(isFoundation(a)));
+      if (!setupNoted && ready.length && parallelism > 1) {
+        setupNoted = true;
+        logActivity({ projectId: p.id, agentId: "orchestrator", type: "pipeline", summary: `⏸ ${getProject(p.id)!.settings.repo?.branch || "main"} has no project or checks yet — building one story at a time until the first one has set it up, then ${parallelism} lanes` });
+      }
+    }
+    while (inFlight.size < lanes && ready.length) {
       const it = ready.shift()!;
       started.add(it.id);
       const devs = agentsFor(getProject(p.id)!, "developer");
@@ -647,6 +660,12 @@ async function startBranch(projectId: string, itemId: string) {
   if (conflicts.length) logActivity({ projectId, agentId: "orchestrator", itemId, type: "gate", summary: `⚠ ${it.code}: bringing ${base} into ${branch} left conflicts in ${conflicts.join(", ")} — the developer resolves them first` });
   return conflicts;
 }
+
+/** The first story on a repository without a project sets up the skeleton every other story builds on. */
+const setupBlock = (p: Project) =>
+  !isSimulated(p) && baseNeedsSetup(p)
+    ? `\n\n## First story on this repository\nThe base branch has no project yet, or nothing the checks can run. As part of this story, set up the smallest skeleton the rest of the backlog builds on: the project manifest (e.g. package.json) with typecheck, lint, test and build scripts that pass, the configuration they need and one real test. Keep it minimal — later stories extend it.`
+    : "";
 
 /** The first thing a developer does on a branch whose update from the base branch conflicted. */
 const conflictsBlock = (conflicts: string[], base: string) =>
@@ -812,7 +831,7 @@ ${findings}`
               ? `The product owner asked you to rework ${item.code} "${item.title}". Apply this feedback, keep everything else working, then call complete_development explaining the change.\n\n## Feedback\n${opts.feedback}${commentsBlock(itemId)}`
               : isBug
                 ? `Fix bug ${item.code} "${item.title}". Read it with get_item (steps to reproduce, expected and actual behaviour) and the parent story's files, fix the cause, add a regression test, then call complete_development.${commentsBlock(itemId)}`
-                : `Implement ${item.code} "${item.title}". Read it with get_item first. Finish with complete_development.${commentsBlock(itemId)}`),
+                : `Implement ${item.code} "${item.title}". Read it with get_item first. Finish with complete_development.${commentsBlock(itemId)}${setupBlock(project())}`),
       });
       endPhase(devPhase);
       devSummary = r.outcome.devCompleted ?? r.summary;
