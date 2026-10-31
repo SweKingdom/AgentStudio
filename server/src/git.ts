@@ -194,19 +194,34 @@ export function ensureItemBranch(project: Pick<Project, "key" | "settings">, ite
       const base = project.settings.repo?.branch || "main";
       const wt = worktreeDir(project, item.code);
       const branch = item.branch || branchNameFor(item);
-      if (fs.existsSync(path.join(wt, ".git"))) return { branch, created: false };
+      // A task worked on before (a retry, or re-opened) continues on its branch, brought up to date with the base
+      // branch first: work merged since then (shared setup, other stories) must be there to build on.
+      if (fs.existsSync(path.join(wt, ".git"))) return { branch, created: false, conflicts: await updateFromBase(wt, base, item.code) };
       fs.mkdirSync(path.dirname(wt), { recursive: true });
       await tryGit(main, ["worktree", "prune"]);
       const exists = (await git(main, ["branch", "--list", branch])).trim();
       if (exists) {
         await git(main, ["worktree", "add", "-q", wt, branch]);
-        await tryGit(wt, [...ARM_IDENTITY, "merge", "-q", "--no-edit", base]);
-      } else {
-        await git(main, ["worktree", "add", "-q", "-b", branch, wt, base]);
+        return { branch, created: false, conflicts: await updateFromBase(wt, base, item.code) };
       }
-      return { branch, created: !exists };
+      await git(main, ["worktree", "add", "-q", "-b", branch, wt, base]);
+      return { branch, created: true, conflicts: [] as string[] };
     }),
   );
+}
+
+const mergeInProgress = async (wt: string) => (await tryGit(wt, ["rev-parse", "-q", "--verify", "MERGE_HEAD"])).ok;
+const conflictedFiles = async (wt: string) => (await git(wt, ["diff", "--name-only", "--diff-filter=U"])).split("\n").filter(Boolean);
+
+/** Merge the base branch into a task branch. Conflicts stay in the worktree for the developer and are returned. */
+async function updateFromBase(wt: string, base: string, code: string): Promise<string[]> {
+  if (await mergeInProgress(wt)) return conflictedFiles(wt);
+  await commitPending(wt, `${code}: work in progress`);
+  const r = await tryGit(wt, [...ARM_IDENTITY, "merge", "-q", "--no-edit", "-m", `Merge ${base} into ${code}`, base]);
+  if (r.ok) return [];
+  const conflicts = await conflictedFiles(wt);
+  if (!conflicts.length) await tryGit(wt, ["merge", "--abort"]);
+  return conflicts;
 }
 
 /** `body`: the merge commit's description — the team's PR template, filled in by the orchestrator.
@@ -265,7 +280,11 @@ export function finishMerge(project: Pick<Project, "key" | "settings">, item: Me
     }
     if (marked.length) return { merged: false, conflicts: marked, output: "Conflict markers are still present." };
     await git(wt, [...ARM_IDENTITY, "add", "-A"]);
-    await git(wt, [...ARM_IDENTITY, "-c", `user.name=${o.author}`, "-c", `user.email=${o.email}`, "commit", "-q", "--no-edit"]);
+    // The developer's run usually commits the resolution already (and with it the merge); only what's left is committed.
+    const staged = (await git(wt, ["diff", "--cached", "--name-only"])).trim();
+    if ((await mergeInProgress(wt)) || staged) {
+      await git(wt, [...ARM_IDENTITY, "-c", `user.name=${o.author}`, "-c", `user.email=${o.email}`, "commit", "-q", ...((await mergeInProgress(wt)) ? ["--no-edit"] : ["-m", `${item.code}: resolve merge conflicts`])]);
+    }
     return item.via === "pr" ? readyForPr(project) : integrate(project, item);
   });
 }

@@ -126,6 +126,7 @@ export const SV: Record<string, string> = {
   "Waits for": "Väntar på",
   "open question(s)": "öppna frågor",
   Blocked: "Blockerad",
+  "Not released": "Inte releasad",
   "Workspace (.zip)": "Arbetsyta (.zip)",
   "Backlog (CSV for Excel)": "Backlogg (CSV för Excel)",
   "Azure DevOps import (CSV)": "Azure DevOps-import (CSV)",

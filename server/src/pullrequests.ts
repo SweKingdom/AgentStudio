@@ -6,7 +6,7 @@
  */
 import { all } from "./db.js";
 import { getAgent } from "./agents/store.js";
-import { mergeIntoBase, mergeSubjectFor, pushRefs, syncBaseAfterPr, type MergeResult } from "./git.js";
+import { changedOnBranch, mergeIntoBase, mergeSubjectFor, pushRefs, syncBaseAfterPr, type MergeResult } from "./git.js";
 import { commentPr, findOrCreatePr, githubRepoOf, markReady, mergePr, prNumberOf } from "./github.js";
 import { getItem, getProject, logActivity, patchItem, type Project } from "./store.js";
 
@@ -71,6 +71,8 @@ export async function openDraftPr(projectId: string, itemId: string, body: strin
   if (!repo || !it.branch) return;
   const base = p.settings.repo?.branch || "main";
   try {
+    // GitHub refuses a pull request without commits; there is nothing to review yet anyway.
+    if (!(await changedOnBranch(p, it.code)).length) return;
     const pushed = await pushRefs(p, [base, it.branch]);
     if (!pushed.pushed) throw new Error(`push failed: ${firstLine(pushed.output)}`);
     const pr = await findOrCreatePr(repo, { head: it.branch, base, title: mergeSubjectFor(it), body, draft: true });

@@ -9,6 +9,7 @@ summary: Refining stories against an existing codebase — modules, data model, 
 - Read the repository before deciding: its folder layout, frameworks, how similar features were built, its tests and its README.
 - Follow the patterns already there. A new pattern needs a reason, written as a decision (see below).
 - Prefer extending a module over adding a new one; prefer an existing dependency over a new one.
+- Specify the fewest files that read well: one file per feature module until it passes about 300 lines, shared errors, types and config reused, no pass-through layers (repository, service, DTO) unless the codebase already uses them.
 
 ## Technical refinement checklist (per story)
 
