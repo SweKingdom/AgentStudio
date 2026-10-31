@@ -22,7 +22,7 @@ export interface AgentDetail extends Agent { systemPrompt: string; recentRuns: R
 export interface Run { id: string; project_id: string; agent_id: string; stage: string; item_id: string | null; status: string; turns: number; agent_version?: number; kind?: string; summary: string | null; error: string | null; started_at: string; ended_at: string | null; project_key?: string; item_code?: string }
 export interface Knowledge { id: string; title: string; summary: string; content: string; tokens: number; custom: boolean }
 export interface StageState { key: string; role: string; label: string; status: "pending" | "running" | "done" | "skipped" | "awaiting_approval" | "failed"; gate?: boolean }
-export interface ProjectSettings { gates: boolean; parallelism: number; budgetUsd: number; maxRework: number; repo?: { url: string; branch: string; push?: boolean } | null; codeReview?: "off" | "complex" | "all"; checks?: Partial<ChecksSettings>; ado?: AdoConfig | null }
+export interface ProjectSettings { gates: boolean; parallelism: number; budgetUsd: number; maxRework: number; repo?: { url: string; branch: string; push?: boolean } | null; codeReview?: "off" | "complex" | "all"; checks?: Partial<ChecksSettings>; ado?: AdoConfig | null; claudeAccount?: string | null }
 /** Azure DevOps project the backlog syncs to. The token lives only in .env (AZURE_DEVOPS_PAT). */
 export interface AdoConfig { orgUrl: string; project: string; areaPath?: string; iterationRoot?: string; stateMode: "same" | "agile" }
 export interface RepoInfo { url: string; branch: string; push?: boolean; provider: "github" | "azure" | "gitlab" | "bitbucket" | "other"; name: string; webUrl: string | null }

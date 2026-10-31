@@ -1,3 +1,4 @@
+import { accountStatus, addAccount, cancelLogin, listAccounts, loginCommandFor, loginState, logoutAccount, openLoginTerminal, removeAccount, setActiveAccount, startLogin } from "./claudeAccounts.js";
 import { Router, type Request, type Response, type NextFunction } from "express";
 import multer from "multer";
 import fs from "node:fs";
@@ -116,6 +117,55 @@ api.put("/settings", (req, res) => {
   emit({ type: "project" });
   res.json(appSettings());
 });
+
+// ---------------------------------------------------------------- Claude accounts (plan backend)
+
+async function accountsPayload() {
+  const { accounts, active } = listAccounts();
+  const [own, ...rows] = await Promise.all([accountStatus(null), ...accounts.map((a) => accountStatus(a.id))]);
+  return {
+    active,
+    computer: own,
+    accounts: accounts.map((a, i) => ({ ...a, status: rows[i], login: loginState(a.id), loginCommand: loginCommandFor(a.id) })),
+  };
+}
+
+const accountRoute = (fn: (req: Request) => unknown | Promise<unknown>) =>
+  wrap(async (req, res) => {
+    try {
+      await fn(req);
+    } catch (e) {
+      return res.status(400).json({ error: e instanceof Error ? e.message : String(e) });
+    }
+    res.json(await accountsPayload());
+  });
+
+api.get("/claude-accounts", wrap(async (_req, res) => res.json(await accountsPayload())));
+api.post("/claude-accounts", accountRoute((req) => {
+  const a = addAccount(String(req.body?.label ?? ""));
+  audit(req, "claude-account.add", a.id, { label: a.label });
+}));
+api.put("/claude-accounts/active", accountRoute((req) => {
+  const id = req.body?.id ? String(req.body.id) : null;
+  setActiveAccount(id);
+  audit(req, "claude-account.activate", id ?? "this computer", {});
+}));
+api.post("/claude-accounts/:id/login", accountRoute((req) => {
+  startLogin(String(req.params.id), { sso: Boolean(req.body?.sso), email: req.body?.email ? String(req.body.email) : undefined });
+  audit(req, "claude-account.login", String(req.params.id), {});
+}));
+api.post("/claude-accounts/:id/login/terminal", accountRoute((req) => {
+  if (!openLoginTerminal(String(req.params.id))) throw new Error(`No terminal can be opened on this system. Run this in a terminal: ${loginCommandFor(String(req.params.id))}`);
+}));
+api.delete("/claude-accounts/:id/login", accountRoute((req) => cancelLogin(String(req.params.id))));
+api.post("/claude-accounts/:id/logout", accountRoute(async (req) => {
+  await logoutAccount(String(req.params.id));
+  audit(req, "claude-account.logout", String(req.params.id), {});
+}));
+api.delete("/claude-accounts/:id", accountRoute(async (req) => {
+  await removeAccount(String(req.params.id));
+  audit(req, "claude-account.remove", String(req.params.id), {});
+}));
 
 api.put("/models", (req, res) => {
   setSetting("models", Array.isArray(req.body) && req.body.length ? req.body : DEFAULT_MODELS);
@@ -467,6 +517,11 @@ api.patch("/projects/:pid", wrap(async (req, res) => {
     } catch (e) {
       return res.status(400).json({ error: e instanceof Error ? e.message : String(e) });
     }
+  }
+  if (body.settings?.claudeAccount !== undefined) {
+    const id = body.settings.claudeAccount ? String(body.settings.claudeAccount) : null;
+    if (id && !listAccounts().accounts.some((a) => a.id === id)) return res.status(400).json({ error: "Unknown Claude account." });
+    body.settings.claudeAccount = id;
   }
   if (body.settings?.checks !== undefined) {
     try {

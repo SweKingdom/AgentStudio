@@ -2,6 +2,7 @@
  * System check: is this machine ready to run AgentStudio — and live work in particular? Used by Settings → System check
  * and by `npm run doctor`. Every check is read-only and free: no tokens are spent and nothing is changed anywhere.
  */
+import { accountStatus, listAccounts } from "./claudeAccounts.js";
 import { execFile } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
@@ -103,20 +104,17 @@ export async function runChecks(o: { network?: boolean } = {}): Promise<Check[]>
   }
 
   // ---------------------------------------------------------------- Claude API
-  // The plan backend runs agents through this machine's `claude` login; check it the way the user would.
+  // The plan backend runs agents through the active Claude account (Settings → Claude account), or this machine's own
+  // `claude` login; check it the way the user would.
   const planOn = claudeBackend() === "subscription" && !process.env.ARM_DISABLE_SUBSCRIPTION;
   if (planOn) {
-    const c = await run("claude", ["auth", "status"]);
-    const status = (() => {
-      try {
-        return JSON.parse(c.out) as { loggedIn?: boolean; authMethod?: string; email?: string };
-      } catch {
-        return null;
-      }
-    })();
-    if (c.missing) add({ id: "claude-login", group: "Claude API", label: "Claude login", status: "fail", detail: "Claude Code (claude) is not installed", fix: "Install Claude Code, run `claude /login`, or switch the backend to API in Settings → General." });
-    else if (status?.loggedIn) add({ id: "claude-login", group: "Claude API", label: "Claude login", status: "ok", detail: `Logged in${status.email ? ` as ${status.email}` : ""} (${status.authMethod ?? "claude"}) — live agents use this Claude plan` });
-    else add({ id: "claude-login", group: "Claude API", label: "Claude login", status: "fail", detail: "Not logged in", fix: "Run `claude /login` on this computer." });
+    const { accounts, active } = listAccounts();
+    const label = accounts.find((a) => a.id === active)?.label;
+    const status = await accountStatus(label ? active : null);
+    const which = label ? `account "${label}"` : "this computer's login";
+    if (/not installed/.test(status.error ?? "")) add({ id: "claude-login", group: "Claude API", label: "Claude login", status: "fail", detail: "Claude Code (claude) is not installed", fix: "Install Claude Code, run `claude /login`, or switch the backend to API in Settings → General." });
+    else if (status.loggedIn) add({ id: "claude-login", group: "Claude API", label: "Claude login", status: "ok", detail: `Logged in${status.email ? ` as ${status.email}` : ""}${status.orgName ? ` (${status.orgName})` : ""} via ${which} — live agents use this Claude plan` });
+    else add({ id: "claude-login", group: "Claude API", label: "Claude login", status: "fail", detail: `Not logged in (${which})`, fix: label ? "Sign in to it again in Settings → Claude account." : "Run `claude /login` on this computer, or add an account in Settings → Claude account." });
   }
   if (!hasApiKey()) {
     add(

@@ -220,6 +220,7 @@ const ADMIN_ONLY: { method: RegExp; path: RegExp }[] = [
   { method: /^PUT$/, path: /^\/(settings|models|team)\/?$/i },
   { method: /^POST$/, path: /^\/team\/import\/?$/i },
   { method: WRITE, path: /^\/system(\/|$)/i },
+  { method: WRITE, path: /^\/claude-accounts(\/|$)/i },
   { method: /./, path: /^\/audit(\/|$)/i },
 ];
 
