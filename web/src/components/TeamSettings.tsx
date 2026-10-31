@@ -156,7 +156,7 @@ export function TeamConventions() {
         <div className="card-head">
           <div>
             <div className="card-title">Checks</div>
-            <div className="card-sub">Commands every story must pass before hand-over, approval and release (Project settings can override them). Empty: detected from each repository's package.json (typecheck, lint, test, build).</div>
+            <div className="card-sub">Commands every story must pass before hand-over, approval and release (Project settings can override them). Empty: detected from each repository's package.json (typecheck, lint, test, build). The dependencies are installed first.</div>
           </div>
           <button className="btn sm primary" disabled={!dirty || save.isPending} onClick={() => save.mutate()}><Save size={13} /> Save</button>
         </div>
@@ -169,7 +169,7 @@ export function TeamConventions() {
 }
 
 /** Shared by the team defaults and the project overrides (where an empty list means "the team's checks"). */
-export function ChecksFields({ value, onChange, placeholder }: { value: Partial<ChecksSettings>; onChange: (v: Partial<ChecksSettings>) => void; placeholder?: string }) {
+export function ChecksFields({ value, onChange, placeholder, installPlaceholder }: { value: Partial<ChecksSettings>; onChange: (v: Partial<ChecksSettings>) => void; placeholder?: string; installPlaceholder?: string }) {
   const commands = value.commands ?? [];
   const setCommand = (i: number, p: Partial<{ name: string; command: string }>) => onChange({ ...value, commands: commands.map((c, j) => (j === i ? { ...c, ...p } : c)) });
   return (
@@ -182,6 +182,9 @@ export function ChecksFields({ value, onChange, placeholder }: { value: Partial<
           <button type="button" className="btn icon ghost" aria-label={`Remove ${c.name || "check"}`} onClick={() => onChange({ ...value, commands: commands.filter((_, j) => j !== i) })}><Trash2 size={14} /></button>
         </div>
       ))}
+      <Field label="Install dependencies first" help="Agents can't run commands, so the dependencies are installed before the checks and a new or changed lockfile is committed with the story. auto: from the lockfile (npm, pnpm, yarn, bun; npm when there is none). off: never. Or write your own command.">
+        <input className="input mono" value={value.install ?? ""} placeholder={installPlaceholder ?? "auto"} aria-label="Install command" onChange={(e) => onChange({ ...value, install: e.target.value })} />
+      </Field>
       <div className="row" style={{ gap: 12, justifyContent: "space-between" }}>
         <button type="button" className="btn sm ghost" disabled={commands.length >= 10} onClick={() => onChange({ ...value, commands: [...commands, { name: "", command: "" }] })}><Plus size={13} /> Add check</button>
         <Field label="Timeout per check (minutes)" help="A check that runs longer is stopped and counts as failed.">

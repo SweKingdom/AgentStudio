@@ -40,7 +40,10 @@ test("conventions drive branch names, merge commits and the PR description", asy
 test("checks: team defaults with validated project overrides", () => {
   team.saveTeamSettings({ checks: { commands: [{ name: "test", command: "npm test" }], timeoutMinutes: 20 } });
   const proj = { settings: { checks: team.cleanChecksOverride({ commands: [{ name: "", command: "make check" }] }) } } as any;
-  assert.deepEqual(team.projectChecks(proj), { commands: [{ name: "make check", command: "make check" }], timeoutMinutes: 20 });
+  assert.deepEqual(team.projectChecks(proj), { commands: [{ name: "make check", command: "make check" }], timeoutMinutes: 20, install: "auto" });
+  const own = { settings: { checks: team.cleanChecksOverride({ install: "pnpm install --frozen-lockfile" }) } } as any;
+  assert.equal(team.projectChecks(own).install, "pnpm install --frozen-lockfile", "the project's own install command wins");
+  assert.throws(() => team.cleanChecksOverride({ install: "npm i\nnpm run build" }), /one line/);
   assert.deepEqual(team.projectChecks({ settings: {} } as any).commands, [{ name: "test", command: "npm test" }], "no override: the team's checks");
   assert.throws(() => team.cleanChecksOverride({ commands: [{ name: "x", command: "a\nb" }] }), /one line/);
   assert.throws(() => team.saveTeamSettings({ checks: { timeoutMinutes: 0 } }), /timeout/);

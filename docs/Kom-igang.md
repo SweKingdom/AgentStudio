@@ -107,6 +107,14 @@ Kommandona hämtas i den här ordningen:
 
 Projektsidan visar hur många kontroller som gäller. **No checks** betyder att inga hittades. Lägg då till minst en, till exempel `npm test`, annars testas ingenting på riktigt.
 
+**Beroenden installeras automatiskt.** Agenterna kan inte köra kommandon själva, så AgentStudio installerar beroendena innan kontrollerna körs, på storyns gren:
+
+- **auto** (standard): kommandot väljs utifrån lockfilen. Det blir `pnpm install`, `yarn install` eller `bun install`, och annars `npm install`. Saknas lockfilen skapar `npm install` en `package-lock.json`.
+- En ny eller ändrad lockfil committas med storyn. `node_modules` committas aldrig, även om repots `.gitignore` saknar raden.
+- Har `package.json` och lockfilen inte ändrats sedan förra installationen hoppas steget över.
+- Misslyckas installationen stoppas kontrollerna, och felet syns för utvecklaren och QA.
+- Under **Settings → Checks** kan du ange ett eget kommando eller **off** för att stänga av steget.
+
 ## 6. Följa och styra arbetet
 
 | Flik | Vad du ser och gör |
