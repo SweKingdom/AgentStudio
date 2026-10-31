@@ -7,7 +7,7 @@
     "dev": "tsx watch --clear-screen=false src/index.ts",
     "start": "tsx src/index.ts",
     "typecheck": "tsc --noEmit",
-    "test": "node --no-warnings --import tsx --test --test-concurrency=1 \"test/**/*.test.ts\"",
+    "test": "node --disable-warning=ExperimentalWarning --import tsx --test --test-concurrency=1 --test-reporter=spec --test-reporter-destination=stdout --test-reporter=./test/exit-reporter.mjs --test-reporter-destination=stderr \"test/**/*.test.ts\"",
     "doctor": "node --no-warnings --import tsx scripts/doctor.ts"
   },
   "dependencies": {
