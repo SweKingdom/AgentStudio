@@ -109,13 +109,13 @@ export async function runChecks(o: { network?: boolean } = {}): Promise<Check[]>
     const c = await run("claude", ["auth", "status"]);
     const status = (() => {
       try {
-        return JSON.parse(c.out) as { loggedIn?: boolean; authMethod?: string };
+        return JSON.parse(c.out) as { loggedIn?: boolean; authMethod?: string; email?: string };
       } catch {
         return null;
       }
     })();
     if (c.missing) add({ id: "claude-login", group: "Claude API", label: "Claude login", status: "fail", detail: "Claude Code (claude) is not installed", fix: "Install Claude Code, run `claude /login`, or switch the backend to API in Settings → General." });
-    else if (status?.loggedIn) add({ id: "claude-login", group: "Claude API", label: "Claude login", status: "ok", detail: `Logged in (${status.authMethod ?? "claude"}) — live agents use your Claude plan` });
+    else if (status?.loggedIn) add({ id: "claude-login", group: "Claude API", label: "Claude login", status: "ok", detail: `Logged in${status.email ? ` as ${status.email}` : ""} (${status.authMethod ?? "claude"}) — live agents use this Claude plan` });
     else add({ id: "claude-login", group: "Claude API", label: "Claude login", status: "fail", detail: "Not logged in", fix: "Run `claude /login` on this computer." });
   }
   if (!hasApiKey()) {

@@ -112,9 +112,15 @@ function verdictComment(itemId: string) {
   return `### ✅ QA verdict: approved (iteration ${checks.iteration})\n\n${checks.table}\n\n${loops}\n\n${signature(checks.tester)}`;
 }
 
-/** The PR half of integrating a story whose branch is already up to date with the base branch: push, open or reuse the
- *  PR, post QA's verdict, mark it ready, merge it on GitHub and bring the local base branch up to date. Falls back to
- *  the local merge + push when any GitHub step fails. */
+/** GitHub refused to merge the PR because it conflicts with the base branch (another lane merged first). Merging it
+ *  locally instead would split the local base from GitHub's, so the story's branch is updated and tried again. */
+export class PrConflictError extends Error {}
+
+const CONFLICT = /not mergeable|merge conflict|conflicts? with|is not up to date|dirty/i;
+
+/** The PR half of integrating a story whose branch is already up to date with the base branch: push the branch, open
+ *  or reuse the PR, post QA's verdict, mark it ready, merge it on GitHub, bring the local base branch up to date and
+ *  push it. Falls back to the local merge + push when GitHub can't be used at all (no login, no network). */
 export async function integrateViaPr(projectId: string, itemId: string, body: string): Promise<MergeResult> {
   const p = () => getProject(projectId)!;
   const it = getItem(itemId)!;
@@ -123,7 +129,8 @@ export async function integrateViaPr(projectId: string, itemId: string, body: st
   const subject = mergeSubjectFor(it);
   let number: number | null = null;
   try {
-    const pushed = await pushRefs(p(), [base, it.branch!]);
+    // Only the story's branch: the base branch is pushed once it has GitHub's merge (below), never ahead of it.
+    const pushed = await pushRefs(p(), [it.branch!]);
     if (!pushed.pushed) throw new Error(`push failed: ${firstLine(pushed.output)}`);
     const pr = await findOrCreatePr(repo, { head: it.branch!, base, title: subject, body });
     number = pr.number;
@@ -135,6 +142,7 @@ export async function integrateViaPr(projectId: string, itemId: string, body: st
     await mergePr(repo, pr.number, { subject, body });
     logActivity({ projectId, agentId: "orchestrator", itemId, type: "file", summary: `Merged PR #${pr.number} into ${base}`, detail: pr.url });
   } catch (e) {
+    if (number && CONFLICT.test(message(e))) throw new PrConflictError(`GitHub can't merge PR #${number} for ${it.code}: ${message(e)}`);
     logActivity({ projectId, agentId: "orchestrator", itemId, type: "tool_error", summary: `⚠ GitHub ${number ? `PR #${number}` : "pull request"} for ${it.code} failed: ${message(e)} — merging locally and pushing instead.` });
     const m = await mergeIntoBase(p(), { ...it, body });
     logActivity({ projectId, agentId: "orchestrator", itemId, type: "file", summary: `Merged ${it.branch} into ${base} (${m.commit})` });
@@ -149,8 +157,13 @@ export async function integrateViaPr(projectId: string, itemId: string, body: st
     itemId,
     type: s.fallback ? "tool_error" : "file",
     summary: s.fallback
-      ? `⚠ Couldn't update ${base} from origin (${firstLine(s.fallback)}) — merged ${it.branch} locally instead (${s.commit})`
+      ? `⚠ Couldn't update ${base} from origin (${firstLine(s.fallback)})${s.commit ? ` — merged ${it.branch} locally instead (${s.commit})` : ""}`
       : `Updated local ${base} from origin/${base} (${s.fastForward ? "fast-forward" : "merge"}, ${s.commit})`,
   });
+  // The living documents the agents updated on the local base branch.
+  if (!s.fallback) {
+    const r = await pushRefs(p(), [base]);
+    if (!r.pushed) logActivity({ projectId, agentId: "orchestrator", itemId, type: "tool_error", summary: `Push of ${base} failed: ${firstLine(r.output)}`, detail: r.output });
+  }
   return s;
 }

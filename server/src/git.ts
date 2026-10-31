@@ -258,7 +258,7 @@ export function mergeItemBranch(project: Pick<Project, "key" | "settings">, item
         if (conflicts.length) return { merged: false, conflicts, output: up.out };
         throw new Error(`git merge ${base} → ${item.branch} failed: ${up.out}`);
       }
-      return item.via === "pr" ? readyForPr(project) : integrate(project, item);
+      return item.via === "pr" ? readyForPr(project, item) : integrate(project, item);
     }),
   );
 }
@@ -285,7 +285,7 @@ export function finishMerge(project: Pick<Project, "key" | "settings">, item: Me
     if ((await mergeInProgress(wt)) || staged) {
       await git(wt, [...ARM_IDENTITY, "-c", `user.name=${o.author}`, "-c", `user.email=${o.email}`, "commit", "-q", ...((await mergeInProgress(wt)) ? ["--no-edit"] : ["-m", `${item.code}: resolve merge conflicts`])]);
     }
-    return item.via === "pr" ? readyForPr(project) : integrate(project, item);
+    return item.via === "pr" ? readyForPr(project, item) : integrate(project, item);
   });
 }
 
@@ -307,8 +307,22 @@ async function integrate(project: Pick<Project, "key" | "settings">, item: Merge
 }
 
 /** Pull-request flow: the base branch's pending work (living documents) is committed so it can be pushed before the PR. */
-async function readyForPr(project: Pick<Project, "key" | "settings">): Promise<MergeResult> {
+async function readyForPr(project: Pick<Project, "key" | "settings">, item: MergeItem): Promise<MergeResult> {
   await commitPending(workspaceDir(project), "docs: update living documents");
+  // The pull request merges into origin's base branch, which other lanes may have moved since the local base was
+  // updated: bring it into the task branch too, so GitHub can merge the PR and any conflict is resolved on the branch.
+  const wt = worktreeDir(project, item.code);
+  const base = project.settings.repo?.branch || "main";
+  const f = await remoteGit(wt, ["fetch", "-q", "origin", base]);
+  if (f.ok && !(await tryGit(wt, ["merge-base", "--is-ancestor", `origin/${base}`, "HEAD"])).ok) {
+    const r = await tryGit(wt, [...ARM_IDENTITY, "merge", "--no-edit", "-m", `Merge origin/${base} into ${item.branch}`, `origin/${base}`]);
+    if (!r.ok) {
+      const conflicts = await conflictedFiles(wt);
+      if (conflicts.length) return { merged: false, conflicts, output: r.out };
+      await tryGit(wt, ["merge", "--abort"]);
+      throw new Error(`git merge origin/${base} → ${item.branch} failed: ${r.out}`);
+    }
+  }
   return { merged: false, conflicts: [], ready: true };
 }
 
@@ -318,8 +332,9 @@ export function mergeIntoBase(project: Pick<Project, "key" | "settings">, item: 
 }
 
 /** After the task's PR was merged on GitHub: bring the local base branch up to date with origin (fast-forward when
- *  possible; a normal merge when other lanes committed meanwhile) and remove the task's worktree. If origin can't be
- *  fetched or merged, the task branch is merged locally instead, so the local base never misses the story. */
+ *  possible; a normal merge when other lanes committed meanwhile) and remove the task's worktree. Origin is the truth:
+ *  the local base only adds living documents, so a conflict with origin keeps origin's side. If origin can't be
+ *  fetched at all, the task branch is merged locally instead, so the local base never misses the story. */
 export function syncBaseAfterPr(project: Pick<Project, "key" | "settings">, item: MergeItem): Promise<MergeResult & { fastForward: boolean; fallback?: string }> {
   return serial(project.key, async () => {
     const main = workspaceDir(project);
@@ -327,9 +342,19 @@ export function syncBaseAfterPr(project: Pick<Project, "key" | "settings">, item
     await commitPending(main, "docs: update living documents");
     const f = await remoteGit(main, ["fetch", "-q", "origin", base]);
     const ff = f.ok && (await tryGit(main, ["merge-base", "--is-ancestor", base, `origin/${base}`])).ok;
-    const m = f.ok ? await tryGit(main, [...ARM_IDENTITY, "merge", "-q", "--no-edit", "-m", `Merge origin/${base} into ${base}`, `origin/${base}`]) : f;
+    const syncArgs = [...ARM_IDENTITY, "merge", "-q", "--no-edit", "-m", `Merge origin/${base} into ${base}`];
+    let m = f.ok ? await tryGit(main, [...syncArgs, `origin/${base}`]) : f;
+    if (!m.ok && f.ok) {
+      await tryGit(main, ["merge", "--abort"]);
+      m = await tryGit(main, [...syncArgs, "-X", "theirs", `origin/${base}`]);
+      if (m.ok) m = { ok: true, out: `Conflicts with origin/${base} resolved by keeping origin's side.` };
+    }
     if (!m.ok) {
-      if (f.ok) await tryGit(main, ["merge", "--abort"]);
+      if (f.ok) {
+        // Merging local work onto a base that disagrees with origin would split them for good: report it instead.
+        await tryGit(main, ["merge", "--abort"]);
+        return { merged: true, conflicts: [], fastForward: false, fallback: `the local ${base} can't take origin/${base}: ${m.out}` };
+      }
       const local = await integrate(project, item);
       return { ...local, fastForward: false, fallback: m.out };
     }
