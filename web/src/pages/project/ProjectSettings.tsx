@@ -10,6 +10,7 @@ import { ChecksFields, useTeam } from "../../components/TeamSettings";
 import { AdoSettings, adoConfigError, adoFormValue, adoSettingsOf } from "../../components/AdoSettings";
 import { BookmarkPlus } from "lucide-react";
 import { CodeReviewField } from "../../components/CodeReviewField";
+import { useClaudeAccounts } from "../../components/ClaudeAccounts";
 
 /** Edit a project after creation: identity, repository, run settings and checks. */
 export function ProjectSettingsModal({ p, onClose }: { p: Project; onClose: () => void }) {
@@ -17,14 +18,15 @@ export function ProjectSettingsModal({ p, onClose }: { p: Project; onClose: () =
   const [name, setName] = useState(p.name);
   const [description, setDescription] = useState(p.description);
   const [repo, setRepo] = useState({ url: p.settings.repo?.url ?? "", branch: p.settings.repo?.branch ?? "main", push: p.settings.repo?.push ?? false });
-  const [s, setS] = useState({ gates: p.settings.gates, parallelism: p.settings.parallelism, budgetUsd: p.settings.budgetUsd, maxRework: p.settings.maxRework, codeReview: p.settings.codeReview ?? "off" });
+  const [s, setS] = useState({ gates: p.settings.gates, parallelism: p.settings.parallelism, budgetUsd: p.settings.budgetUsd, maxRework: p.settings.maxRework, codeReview: p.settings.codeReview ?? "off", claudeAccount: p.settings.claudeAccount ?? null });
+  const { data: claude } = useClaudeAccounts();
   const { data: team } = useTeam();
   // Only what differs from the team defaults is stored on the project; an empty list follows the team.
   const [checks, setChecks] = useState<Partial<ChecksSettings>>(p.settings.checks ?? {});
   const [ado, setAdo] = useState(adoFormValue(p.settings.ado));
   const err = repoUrlError(repo.url);
   const save = useMutation({
-    mutationFn: () => api.patch(`/projects/${p.id}`, { name, description, settings: { ...s, repo: { url: repo.url.trim(), branch: repo.branch.trim() || "main", push: repo.push }, checks: { commands: (checks.commands ?? []).filter((c) => c.command.trim()), ...(checks.timeoutMinutes ? { timeoutMinutes: checks.timeoutMinutes } : {}) }, ado: adoSettingsOf(ado) } }),
+    mutationFn: () => api.patch(`/projects/${p.id}`, { name, description, settings: { ...s, repo: { url: repo.url.trim(), branch: repo.branch.trim() || "main", push: repo.push }, checks: { commands: (checks.commands ?? []).filter((c) => c.command.trim()), ...(checks.timeoutMinutes ? { timeoutMinutes: checks.timeoutMinutes } : {}), ...(checks.install?.trim() ? { install: checks.install.trim() } : {}) }, ado: adoSettingsOf(ado) } }),
     onSuccess: () => { qc.invalidateQueries(); toast("Project settings saved"); onClose(); },
     onError: (e: Error) => toast(e.message, "bad"),
   });
@@ -57,6 +59,12 @@ export function ProjectSettingsModal({ p, onClose }: { p: Project; onClose: () =
             <input className="input" type="number" min={0} max={5} value={s.maxRework} onChange={(e) => setS({ ...s, maxRework: Number(e.target.value) })} />
           </Field>
           <CodeReviewField value={s.codeReview} onChange={(v) => setS({ ...s, codeReview: v })} />
+          <Field label="Claude account" help="Which Claude login this project's live agents use on the plan backend (Settings → Claude account). Takes effect from the next agent run.">
+            <select className="input" value={s.claudeAccount ?? ""} onChange={(e) => setS({ ...s, claudeAccount: e.target.value || null })}>
+              <option value="">{`Default (${claude?.accounts.find((a) => a.id === claude.active)?.label ?? "this computer's login"})`}</option>
+              {claude?.accounts.map((a) => <option key={a.id} value={a.id}>{a.label}{a.status.email ? ` — ${a.status.email}` : a.status.loggedIn ? "" : " — not signed in"}</option>)}
+            </select>
+          </Field>
         </div>
         <div className="col" style={{ gap: 6 }}>
           <div className="row" style={{ gap: 8 }}>

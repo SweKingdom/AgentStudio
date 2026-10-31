@@ -71,6 +71,16 @@ Byt till live under **Settings → General → Mode**. Under **Claude backend** 
 - **API:** nyckeln i `.env` (`ANTHROPIC_API_KEY=...`). Du betalar per token.
 - **Auto:** API om det finns en nyckel, annars Plan.
 
+**Vilket Claude-konto?** Under **Settings → Claude account** väljer du vilken Claude-inloggning live-agenterna använder:
+
+- **This computer's login** (standard): samma konto som `claude` i terminalen på datorn.
+- **Egna konton:** tryck **Add account**, ge kontot ett namn (t.ex. Jobb) och tryck **Sign in**. Webbläsaren öppnas och du loggar in. Välj rätt organisation, t.ex. ert Team, på inloggningssidan. Slå på **SSO** om företaget loggar in via single sign-on. Fungerar inte inloggningen i webbläsaren, använd **Sign in from a terminal**. Då öppnas ett terminalfönster där du kan klistra in koden som inloggningssidan visar.
+- Markera kontot som ska användas. Bytet gäller från nästa agentkörning, och Claude Code i terminalen påverkas inte.
+- Ett projekt kan använda ett annat konto under projektets **Settings → Claude account**.
+- AgentStudio sparar ingen token. Inloggningen ligger i Claudes egna filer under `data/claude-accounts/`, som aldrig committas. **Settings → System check** visar vilket konto som är aktivt.
+
+Kontrollera att ett jobbkonto får användas till det här, eftersom AgentStudio skickar projektets krav och kod till Claude.
+
 Prenumerationen är för personligt bruk. Ska flera personer använda appen, eller ska den köra oövervakad hela tiden, behövs API-nyckeln enligt Anthropics villkor.
 
 Projekt behåller det läge de skapades i. Ett simulerat projekt blir alltså inte live för att du byter läge efteråt.

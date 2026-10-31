@@ -28,6 +28,8 @@ export interface ProjectSettings {
   checks?: Partial<import("./team.js").ChecksSettings>;
   /** Azure DevOps project the backlog syncs to. The token is never stored: it lives in .env as AZURE_DEVOPS_PAT. */
   ado?: import("./ado.js").AdoConfig | null;
+  /** The Claude account this project's live agents use on the plan backend; unset = the active account. */
+  claudeAccount?: string | null;
 }
 
 export interface Project {

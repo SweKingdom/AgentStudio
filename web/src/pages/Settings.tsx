@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { CheckCircle2, KeyRound, Save, RotateCcw, AlertTriangle, SlidersHorizontal, Stethoscope, Users, FolderKanban, Coins, ShieldCheck } from "lucide-react";
+import { CheckCircle2, KeyRound, Save, RotateCcw, AlertTriangle, SlidersHorizontal, Stethoscope, Users, FolderKanban, Coins, ShieldCheck, UserRound } from "lucide-react";
 import { NavLink, Navigate, useParams } from "react-router-dom";
 import { api, type AppSettings, type ModelPrice } from "../lib/api";
 import { useMeta } from "../lib/queries";
@@ -11,10 +11,12 @@ import { Field, Hint } from "../components/Hint";
 import { PageSkeleton } from "../components/Skeleton";
 import { SystemCheck, TeamConventions, TeamTemplate } from "../components/TeamSettings";
 import { UsersAccess } from "../components/Users";
+import { ClaudeAccountsSettings } from "../components/ClaudeAccounts";
 import { t } from "../lib/i18n";
 
 const SECTIONS = [
   { key: "general", label: "General", icon: SlidersHorizontal, sub: "Mode, spend limits", saves: true },
+  { key: "claude", label: "Claude account", icon: UserRound, sub: "Which Claude login agents use", saves: false },
   { key: "system", label: "System check", icon: Stethoscope, sub: "Is this computer ready?", saves: false },
   { key: "team", label: "Team", icon: Users, sub: "Conventions, checks, template", saves: false },
   { key: "projects", label: "Projects", icon: FolderKanban, sub: "Defaults, human baseline, currency", saves: true },
@@ -75,6 +77,7 @@ export default function Settings() {
           ))}
         </nav>
       <div className="col settings-body fade-in" key={current.key} style={{ gap: 14 }}>
+        {current.key === "claude" && <ClaudeAccountsSettings />}
         {current.key === "general" && (<>
         <div className="card">
           <div className="card-head"><div className="card-title">{t("Execution")}</div></div>
@@ -83,7 +86,7 @@ export default function Settings() {
               {meta.backend === "subscription" ? (
                 <div className="banner info">
                   <CheckCircle2 size={16} color="var(--good)" />
-                  <div className="small"><b>{t("Using your Claude plan.")}</b> Live agents run through this machine's <code className="code-tag">claude /login</code>; usage counts against the plan's limits, and the dollar figures are estimates.</div>
+                  <div className="small"><b>{t("Using your Claude plan.")}</b> Live agents run on the Claude login chosen under <NavLink to="/settings/claude" style={{ textDecoration: "underline" }}>{t("Claude account")}</NavLink>; usage counts against that plan's limits, and the dollar figures are estimates.</div>
                 </div>
               ) : (
                 <div className={`banner ${meta.hasApiKey ? "info" : "warn"}`}>

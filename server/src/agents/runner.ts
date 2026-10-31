@@ -5,6 +5,7 @@ import { knowledgeById } from "../knowledge.js";
 import { costOf, type Usage } from "../pricing.js";
 import { appSettings, claudeBackend, effectiveMode } from "../settings.js";
 import { sdkRun, type SdkCall } from "./runner-sdk.js";
+import { claudeConfigDir } from "../claudeAccounts.js";
 import { answeredQuestions, findDoc, getItem, getProject, logActivity, type Project, type WorkItem } from "../store.js";
 import { agentEmail, renderPrompt, type Agent } from "./store.js";
 import { executeTool, toolDefs, type ToolContext } from "./tools.js";
@@ -354,6 +355,7 @@ async function sdkLoop(ctx: ToolContext, o: RunOptions): Promise<string> {
       itemId: o.item?.id,
       maxTurns: agent.max_turns,
       effort: agent.effort,
+      configDir: claudeConfigDir(getProject(project.id)),
       budgetLeftUsd: budget > 0 ? Math.max(0.01, budget - projectCost(project.id)) : undefined,
       signal: o.signal,
       onText: (text) => logActivity({ projectId: project.id, agentId: agent.id, runId: ctx.runId, itemId: o.item?.id, type: "note", summary: text.slice(0, 300), detail: text }),
@@ -392,6 +394,7 @@ export async function consultAgent(target: Agent, question: string, ctx: ToolCon
           content: [{ type: "text", text: `${consultContext(project, ctx.item)}\n\n---\n\n${ctx.agent.name} (${ctx.agent.title}) asks you:\n\n${question}\n\nAnswer directly and concisely (a few sentences or a short list). You cannot use tools in a consultation.` }],
           maxTurns: 1,
           effort: "low",
+          configDir: claudeConfigDir(project),
         }),
         { runId, projectId: project.id, agentId: target.id, itemId: ctx.item?.id, stage: "consult" },
       );
@@ -483,6 +486,7 @@ export async function liveChat(agent: Agent, project: Project | null, history: {
       content: [{ type: "text", text: `${transcript ? `# Conversation so far\n${transcript}\n\n---\n\n` : ""}${messages[messages.length - 1].content}` }],
       maxTurns: 1,
       effort: "low",
+      configDir: claudeConfigDir(project),
     });
     if (project) recordSdkCalls(r.calls, { runId: null, projectId: project.id, agentId: agent.id, stage: "chat" });
     return r.text;

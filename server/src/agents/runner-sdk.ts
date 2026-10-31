@@ -3,6 +3,7 @@
 import { createSdkMcpServer, query as sdkQuery, type Options, type SDKMessage, type SDKRateLimitInfo, type SDKUserMessage } from "@anthropic-ai/claude-agent-sdk";
 import { z } from "zod";
 import { logActivity } from "../store.js";
+import { claudeEnv } from "../claudeAccounts.js";
 import { AbortedError, BudgetExceededError, LimitReachedError } from "../errors.js";
 import type { Usage } from "../pricing.js";
 import { executeTool, toolDefs, type ToolContext } from "./tools.js";
@@ -52,20 +53,9 @@ export function zodShape(schema: Record<string, unknown>): z.ZodRawShape {
   return s instanceof z.ZodObject ? s.shape : {};
 }
 
-/**
- * The child `claude` process must use the plan login, not a key: an API key in the environment would win and bill the
- * API account. Everything else is passed through (PATH, HOME/USERPROFILE for the login).
- */
-function planEnv() {
-  const env: Record<string, string> = {};
-  for (const [k, v] of Object.entries(process.env)) if (v !== undefined) env[k] = v;
-  delete env.ANTHROPIC_API_KEY;
-  delete env.ANTHROPIC_AUTH_TOKEN;
-  return env;
-}
-
-/** Isolation: no built-in tools (Bash, Read, Edit…), no settings, CLAUDE.md, MCP servers or session files from this machine. */
-function baseOptions(agent: Agent, system: string, signal?: AbortSignal): Options {
+/** Isolation: no built-in tools (Bash, Read, Edit…), no settings, CLAUDE.md, MCP servers or session files from this machine.
+ *  The child `claude` process uses the chosen account's plan login (claudeEnv), never an API key. */
+function baseOptions(agent: Agent, system: string, signal?: AbortSignal, configDir?: string): Options {
   const abortController = new AbortController();
   if (signal) {
     if (signal.aborted) abortController.abort();
@@ -81,7 +71,7 @@ function baseOptions(agent: Agent, system: string, signal?: AbortSignal): Option
     permissionMode: "dontAsk",
     thinking: { type: "adaptive" },
     abortController,
-    env: planEnv(),
+    env: claudeEnv(configDir),
   };
 }
 
@@ -99,8 +89,10 @@ export async function sdkRun(o: {
   onText?: (text: string) => void;
   /** The plan's usage window as Claude reports it (a warning or a rejection) — shown in the activity, not a stop. */
   onRateLimit?: (info: SDKRateLimitInfo) => void;
+  /** The Claude account's login folder (CLAUDE_CONFIG_DIR); unset = this computer's own login. */
+  configDir?: string;
 }): Promise<SdkRun> {
-  const options = baseOptions(o.agent, o.system, o.signal);
+  const options = baseOptions(o.agent, o.system, o.signal, o.configDir);
   options.maxTurns = o.maxTurns;
   options.effort = o.effort;
   if (o.budgetLeftUsd !== undefined && o.budgetLeftUsd > 0) options.maxBudgetUsd = o.budgetLeftUsd;
