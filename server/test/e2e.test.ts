@@ -90,13 +90,20 @@ test("estimate from an uploaded PDF", async () => {
 });
 
 test("the full pipeline runs on the document's own requirements", async () => {
-  await waitFor(async () => (await project()).status === "completed", "project completion");
-  const p = await project();
-  assert.equal(p.counts.epics, 6);
-  assert.equal(p.counts.stories, 19);
+  // Stories held by open questions aren't delivered, so the project stops at the undelivered-items gate.
+  await waitFor(async () => (await project()).stage === "open_items" && !(await project()).running, "the undelivered-items gate");
+  const atGate = await project();
+  assert.equal(atGate.status, "awaiting_approval");
   const questionsNow = await api<any[]>("GET", "/projects/NFS/questions");
   const heldIds = new Set(questionsNow.filter((q) => q.item_id && !q.answer).map((q) => q.item_id));
   assert.ok(heldIds.size >= 2, "the analyst raised questions on some stories");
+  assert.deepEqual(new Set(atGate.undelivered.map((i: any) => i.id)), heldIds, "exactly the held stories are left");
+  assert.ok(atGate.undelivered.every((i: any) => /open question/.test(i.reason)));
+  await api("POST", "/projects/NFS/finish");
+  const p = await project();
+  assert.equal(p.status, "completed");
+  assert.equal(p.counts.epics, 6);
+  assert.equal(p.counts.stories, 19);
   assert.equal(p.counts.done, 19 - heldIds.size, "every story without open questions is deployed");
   assert.ok(p.costUsd > 0);
 

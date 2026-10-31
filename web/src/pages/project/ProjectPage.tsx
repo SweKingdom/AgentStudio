@@ -47,7 +47,20 @@ const STAGE_HELP: Record<string, string> = {
   delivery: "Per story, in parallel lanes: developer builds and runs the project's checks, QA peer-tests (with rework loops), writer documents.",
   approve_release: "You approve the release once everything is built, tested and documented.",
   release: "The release manager runs the checks on the base branch, smoke-tests and publishes the release with a git tag.",
+  open_items: "Items are left after every stage ran: continue with them or finish the project without them.",
 };
+
+function UndeliveredList({ p, base }: { p: Project; base: string }) {
+  return (
+    <ul className="small" style={{ margin: "6px 0 0", paddingLeft: 18 }}>
+      {p.undelivered.map((i) => (
+        <li key={i.id}>
+          <NavLink to={`${base}/backlog?item=${i.id}`} style={{ color: "var(--text)", textDecoration: "underline" }}>{i.code}</NavLink> {i.title} — <span className="muted">{i.reason.startsWith("Waits for") ? `${t("Waits for")} ${i.reason.slice(10)}` : /open question/.test(i.reason) ? `${i.reason.split(" ")[0]} ${t("open question(s)")}` : t(i.reason)}</span>
+        </li>
+      ))}
+    </ul>
+  );
+}
 
 function Pipeline({ p }: { p: Project }) {
   const { data: agents } = useAgents();
@@ -129,7 +142,7 @@ export default function ProjectPage() {
   const { canWrite } = useCan();
   const { data: p, error } = useQuery({ queryKey: ["project", key], queryFn: () => api.get<Project>(`/projects/${key}`), retry: (n, e) => !/404|not found/i.test((e as Error).message) && n < 2 });
   const act = useMutation({
-    mutationFn: (action: "start" | "pause" | "pause-now" | "approve") =>
+    mutationFn: (action: "start" | "pause" | "pause-now" | "approve" | "finish" | "reopen") =>
       action === "pause" || action === "pause-now" ? api.post(`/projects/${p!.id}/pause`, { mode: action === "pause-now" ? "now" : "graceful" }) : api.post(`/projects/${p!.id}/${action}`),
     onSuccess: () => qc.invalidateQueries({ queryKey: ["project", key] }),
     onError: (e: Error) => toast(e.message, "bad"),
@@ -204,7 +217,11 @@ export default function ProjectPage() {
             ) : p.jobs.length ? (
               null
             ) : gate ? (
-              <button className="btn primary" onClick={() => act.mutate("approve")}><CheckCircle2 size={14} /> {t("Approve:")} {t(gate.label)}</button>
+              gate.key === "open_items" ? (
+                <button className="btn primary" onClick={() => act.mutate("approve")}><Play size={14} /> {t("Continue with the undelivered items")}</button>
+              ) : (
+                <button className="btn primary" onClick={() => act.mutate("approve")}><CheckCircle2 size={14} /> {t("Approve:")} {t(gate.label)}</button>
+              )
             ) : p.status !== "completed" ? (
               <button className="btn primary" onClick={() => act.mutate("start")}><Play size={14} /> {p.started_at ? "Resume" : "Start"}</button>
             ) : null}
@@ -219,7 +236,31 @@ export default function ProjectPage() {
             {canWrite && <PauseMenu compact pausing={p.pausing} onPause={(m) => act.mutate(m === "now" ? "pause-now" : "pause")} />}
           </div>
         )}
-        {gate && (
+        {gate?.key === "open_items" ? (
+          <div className="banner warn">
+            <Hand size={16} color="var(--warn)" />
+            <div style={{ flex: 1 }}>
+              <b>{t("Undelivered items")}</b> — {t("every stage has run, but these items are not delivered. Answer their questions or fix what blocks them, then continue: blocked items get another try. Or finish the project without them.")}
+              <UndeliveredList p={p} base={base} />
+            </div>
+            {canWrite && (
+              <div className="row" style={{ alignSelf: "flex-start" }}>
+                <button className="btn sm" onClick={() => confirm(t("Finish the project without these items?")) && act.mutate("finish")}>{t("Finish anyway")}</button>
+                <button className="btn primary sm" onClick={() => act.mutate("approve")}>{t("Continue")}</button>
+              </div>
+            )}
+          </div>
+        ) : p.status === "completed" && p.undelivered.length > 0 ? (
+          <div className="banner warn">
+            <ShieldAlert size={16} />
+            <div style={{ flex: 1 }}>
+              <b>{p.undelivered.length} {t("item(s) not delivered")}</b> — {t("the project was closed with these items left. Reopen it to continue with them.")}
+              <UndeliveredList p={p} base={base} />
+            </div>
+            {canWrite && !p.running && <button className="btn primary sm" style={{ alignSelf: "flex-start" }} onClick={() => act.mutate("reopen")}>{t("Reopen")}</button>}
+          </div>
+        ) : null}
+        {gate && gate.key !== "open_items" && (
           <div className="banner warn">
             <Hand size={16} color="var(--warn)" />
             <div style={{ flex: 1 }}>

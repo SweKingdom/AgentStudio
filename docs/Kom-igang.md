@@ -120,6 +120,12 @@ Projektsidan visar hur många kontroller som gäller. **No checks** betyder att 
 
 **Vid en grind** står projektet på *Awaiting approval*. Svara på öppna frågor (**Questions**), granska och godkänn för att gå vidare.
 
+**Stories som inte blev levererade:** projektet blir inte *Completed* så länge stories står kvar. När alla steg har körts stannar det i stället vid grinden **Undelivered items**, som listar varje story med orsaken: öppna frågor, *Blocked* eller att den väntar på en annan story. En story startar inte förrän de stories den bygger på är levererade.
+- **Continue:** blockerade stories får ett nytt försök, och stories vars frågor har besvarats tas med. Därefter körs leverans och release igen.
+- **Finish anyway:** projektet avslutas utan dem.
+
+Ett avslutat projekt med stories kvar visar knappen **Reopen**, som tar tillbaka grinden.
+
 **Pausa och stoppa:** **Pause** låter pågående steg bli klara. **Pause all** högst upp pausar allt arbete.
 
 **Köra om en story:** öppna storyn och välj att köra om den med feedback, så går den genom bygge, test och dokumentation igen.
