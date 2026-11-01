@@ -37,6 +37,15 @@ import { effectiveMode } from "../settings.js";
 import { agentEmail, listAgents } from "./store.js";
 
 const pexec = promisify(execFile);
+
+/** A list of { ac, how } from a tool call, cleaned: only entries with both fields. */
+function acNotes(v: unknown): { ac: string; how: string }[] {
+  if (!Array.isArray(v)) return [];
+  return v
+    .map((x) => ({ ac: String((x as { ac?: unknown })?.ac ?? "").trim(), how: String((x as { how?: unknown })?.how ?? "").trim() }))
+    .filter((x) => x.ac && x.how)
+    .slice(0, 20);
+}
 const LIST_FILES_MAX = 300;
 
 export interface ToolContext {
@@ -55,6 +64,12 @@ export interface ToolContext {
     validation?: { ok: boolean; output: string };
     /** Last run_checks result in this run: the gate for complete_development, an approval and a release. */
     checks?: { ok: boolean; failure?: string };
+    /** ACs the developer met differently or more weakly than written (complete_development): the PO decides. */
+    deviations?: { ac: string; how: string }[];
+    /** ACs QA approved only by reading them differently from their wording (submit_review): the PO decides. */
+    reinterpretations?: { ac: string; how: string }[];
+    /** ⛔ ACs QA couldn't test because they need another story's code first (record_test_result waits_for). */
+    waitsFor?: { ac: string; code: string }[];
   };
   /** Lets consult_agent run another agent (injected by the runner to avoid import cycles). */
   consult?: (target: Agent, question: string, ctx: ToolContext) => Promise<string>;
@@ -552,7 +567,16 @@ const TOOLS: Record<string, ToolSpec> = {
       description: "Declare the assigned story implemented and hand it over to QA. Call once, at the end.",
       input_schema: {
         type: "object",
-        properties: { code: { type: "string" }, summary: { type: "string", description: "What was built; for rework, how each finding was fixed." } },
+        properties: {
+          code: { type: "string" },
+          summary: { type: "string", description: "What was built; for rework, how each finding was fixed." },
+          deviations: {
+            type: "array",
+            description:
+              "Every acceptance criterion you met differently or more weakly than written: behaviour changed, documented instead of built, a value or step left out, a different mechanism. Each one goes to the product owner to approve before QA; never leave one out. Not needed for what the product owner already approved in an answered question.",
+            items: { type: "object", properties: { ac: { type: "string", description: "e.g. 'AC 3'" }, how: { type: "string", description: "What the AC asks and what you did instead, and why." } }, required: ["ac", "how"] },
+          },
+        },
         required: ["code", "summary"],
       },
     },
@@ -563,7 +587,10 @@ const TOOLS: Record<string, ToolSpec> = {
         throw new Error(ctx.outcome.checks ? "The project's checks failed — fix every failure and run run_checks again, then call complete_development." : "Run the project's checks with run_checks first; complete_development needs them to pass.");
       }
       ctx.outcome.devCompleted = String(i.summary);
-      return "Development marked complete. QA will be notified by the orchestrator.";
+      ctx.outcome.deviations = acNotes(i.deviations);
+      return ctx.outcome.deviations.length
+        ? `Development marked complete. ${ctx.outcome.deviations.length} deviation(s) go to the product owner before QA.`
+        : "Development marked complete. QA will be notified by the orchestrator.";
     },
   },
 
@@ -579,6 +606,10 @@ const TOOLS: Record<string, ToolSpec> = {
           ac_ref: { type: "string", description: "e.g. 'AC 1' or 'AC 2 — negative'" },
           result: { type: "string", enum: ["pass", "fail", "blocked"] },
           notes: { type: "string", description: "Evidence: file and what was found / what is wrong." },
+          waits_for: {
+            type: "string",
+            description: "Only for result 'blocked': the code of the story whose code this AC needs before it can be tested (e.g. 'US-140'). The story then waits for it to be merged and is tested again, instead of passing untested.",
+          },
         },
         required: ["code", "ac_ref", "result", "notes"],
       },
@@ -587,6 +618,8 @@ const TOOLS: Record<string, ToolSpec> = {
       req(i, "code", "ac_ref", "result");
       const it = itemOrThrow(ctx, i.code);
       const result = ["pass", "fail", "blocked"].includes(i.result) ? i.result : "blocked";
+      const waitsFor = result === "blocked" && typeof i.waits_for === "string" && /^[A-Z]{1,5}-\d+$/.test(i.waits_for.trim()) && i.waits_for.trim() !== it.code ? i.waits_for.trim() : null;
+      if (waitsFor && ctx.agent.role === "qa") (ctx.outcome.waitsFor ??= []).push({ ac: String(i.ac_ref), code: waitsFor });
       addTestResult({
         projectId: ctx.project.id,
         itemId: it.id,
@@ -596,6 +629,7 @@ const TOOLS: Record<string, ToolSpec> = {
         notes: String(i.notes ?? ""),
         iteration: ctx.iteration,
         agentId: ctx.agent.id,
+        waitsFor,
       });
       const icon = result === "pass" ? "✅" : result === "fail" ? "❌" : "⛔";
       logActivity({
@@ -661,6 +695,12 @@ const TOOLS: Record<string, ToolSpec> = {
           code: { type: "string" },
           verdict: { type: "string", enum: ["approved", "changes_requested"] },
           findings: { type: "string", description: "Markdown. One bullet per failure: AC, what is wrong, where, expected. Notes if approved." },
+          reinterpretations: {
+            type: "array",
+            description:
+              "Every AC you approved only by reading it differently from its wording, or that is met in a weaker way than written (e.g. a step documented instead of done, a value missing). Each goes to the product owner instead of being approved by you. Not needed for what the product owner already approved in an answered question.",
+            items: { type: "object", properties: { ac: { type: "string" }, how: { type: "string", description: "What the AC says, what is actually there, and why you'd accept it." } }, required: ["ac", "how"] },
+          },
         },
         required: ["code", "verdict", "findings"],
       },
@@ -674,7 +714,8 @@ const TOOLS: Record<string, ToolSpec> = {
         verdict: i.verdict === "approved" ? "approved" : "changes_requested",
         findings: String(i.findings ?? ""),
       };
-      return "Verdict recorded.";
+      ctx.outcome.reinterpretations = acNotes(i.reinterpretations);
+      return ctx.outcome.reinterpretations.length && i.verdict === "approved" ? `Verdict recorded. ${ctx.outcome.reinterpretations.length} reinterpreted AC(s) go to the product owner before the story is approved.` : "Verdict recorded.";
     },
   },
 

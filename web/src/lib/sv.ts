@@ -127,6 +127,10 @@ export const SV: Record<string, string> = {
   "open question(s)": "öppna frågor",
   Blocked: "Blockerad",
   "Not released": "Inte releasad",
+  "Approve untested ACs": "Godkänn otestade AC",
+  "QA couldn't test these acceptance criteria. Verify them yourself (or send the story back), then approve the release.": "QA kunde inte testa de här acceptanskriterierna. Verifiera dem själv (eller skicka tillbaka storyn), och godkänn sedan releasen.",
+  "acceptance criteria couldn't be tested": "acceptanskriterier kunde inte testas",
+  "approving the release approves them too:": "godkänner du releasen godkänner du dem också:",
   // Claude account
   "Claude account": "Claude-konto",
   "Which Claude login agents use": "Vilken Claude-inloggning agenterna använder",

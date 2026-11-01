@@ -48,6 +48,7 @@ const STAGE_HELP: Record<string, string> = {
   approve_release: "You approve the release once everything is built, tested and documented.",
   release: "The release manager runs the checks on the base branch, smoke-tests and publishes the release with a git tag.",
   open_items: "Items are left after every stage ran: continue with them or finish the project without them.",
+  approve_untested: "QA marked acceptance criteria as untested (⛔): the release waits until you approve them.",
 };
 
 function UndeliveredList({ p, base }: { p: Project; base: string }) {
@@ -267,7 +268,18 @@ export default function ProjectPage() {
               <b>{t(gate.label)}</b> —{" "}
               {gate.key === "review_backlog" ? "review the backlog the analyst built and answer any open questions, then approve to start technical refinement." :
                gate.key === "approve_plan" ? "check the estimates, priorities and sprint plan, then approve to start building." :
+               gate.key === "approve_untested" ? t("QA couldn't test these acceptance criteria. Verify them yourself (or send the story back), then approve the release.") :
                "every story is built, tested and documented. Approve to deploy, smoke test and publish the release."}
+              {(gate.key === "approve_untested" || gate.key === "approve_release") && p.untested.length > 0 && (
+                <>
+                  {gate.key === "approve_release" && <div className="small" style={{ marginTop: 6 }}><b>⛔ {p.untested.length} {t("acceptance criteria couldn't be tested")}</b> — {t("approving the release approves them too:")}</div>}
+                  <ul className="small" style={{ margin: "6px 0 0", paddingLeft: 18 }}>
+                    {p.untested.map((u, i) => (
+                      <li key={i}><NavLink to={`${base}/backlog?item=${u.itemId}`} style={{ color: "var(--text)", textDecoration: "underline" }}>{u.code}</NavLink> {u.ac} — <span className="muted">{u.notes.slice(0, 220)}</span></li>
+                    ))}
+                  </ul>
+                </>
+              )}
               {p.openQuestions > 0 && <> <NavLink to={`${base}/questions`} style={{ color: "var(--text)", textDecoration: "underline" }}>{p.openQuestions} open question(s)</NavLink>.</>}
             </div>
             {canWrite && <button className="btn primary sm" onClick={() => act.mutate("approve")}>{t("Approve & continue")}</button>}

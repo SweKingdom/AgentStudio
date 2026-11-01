@@ -15,7 +15,7 @@ import { buildSystemPrompt, countPdfTokens } from "./agents/runner.js";
 import { deleteCustomKnowledge, listKnowledge, saveCustomKnowledge } from "./knowledge.js";
 import { estimateProject } from "./estimate.js";
 import { buildPlanFromText, readPdf } from "./agents/simplan.js";
-import { approveGate, buildStages, finishUndelivered, fixBug, humanTransition, isPausing, pauseAll, resumeAll, startItem, startPlan, isRunning, listJobs, pauseProject, pipelineRunning, releaseNow, reportBug, reopenProject, rerunItem, startProject, teamOf, undeliveredItems, type RerunRole } from "./orchestrator.js";
+import { approveGate, buildStages, finishUndelivered, fixBug, humanTransition, isPausing, pauseAll, resumeAll, startItem, startPlan, isRunning, listJobs, pauseProject, pipelineRunning, releaseNow, reportBug, reopenProject, rerunItem, startProject, teamOf, undeliveredItems, untestedAcs, type RerunRole } from "./orchestrator.js";
 import { chat, chatHistory } from "./chat.js";
 import { autoResumeAllowed, globalPause, spendStatus } from "./pause.js";
 import { ensureRepo, gitLog, listBranches, providerOf, repoName, testRemoteUrl, validateRepoUrl, webUrlOf } from "./git.js";
@@ -346,6 +346,7 @@ function projectSummary(p: Project) {
     tokens: cost.t,
     openQuestions,
     undelivered: undeliveredItems(p.id),
+    untested: untestedAcs(p.id),
     activeRuns,
   };
 }
@@ -538,14 +539,14 @@ api.patch("/projects/:pid", wrap(async (req, res) => {
       const old = p.stages.find((o) => o.key === s.key);
       return old && (old.status === "done" || old.status === "awaiting_approval") ? { ...s, status: old.status } : s;
     });
-    patch.stages.push(...p.stages.filter((s) => s.key === "open_items"));
+    patch.stages.push(...p.stages.filter((s) => s.key === "open_items" || s.key === "approve_untested"));
   } else if (body.settings?.gates !== undefined && !isRunning(p.id)) {
     const fresh = buildStages({ agent_ids: p.agent_ids, settings: patch.settings! });
     patch.stages = fresh.map((s) => {
       const old = p.stages.find((o) => o.key === s.key);
       return old && old.status === "done" ? old : s;
     });
-    patch.stages.push(...p.stages.filter((s) => s.key === "open_items"));
+    patch.stages.push(...p.stages.filter((s) => s.key === "open_items" || s.key === "approve_untested"));
   }
   const saved = patchProject(p.id, patch)!;
   if (body.settings?.repo) await ensureRepo(saved);

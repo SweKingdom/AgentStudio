@@ -14,6 +14,7 @@ import { ensureItemBranch, finishMerge, mergeItemBranch, pushRefs } from "./git.
 import { PrConflictError, commentQaFindings, integrateViaPr, openDraftPr, prRepoFor } from "./pullrequests.js";
 import { needsCodeReview, runCodeReview } from "./review.js";
 import {
+  addQuestion,
   createItem,
   endPhase,
   findDoc,
@@ -228,6 +229,8 @@ export function approveGate(projectId: string) {
   if (!gate) throw new Error("Nothing is waiting for approval");
   if (gate.key === OPEN_ITEMS) return continueUndelivered(projectId);
   setStage(projectId, gate.key, "done");
+  // The release approval was given with the untested ACs on screen: it counts as approving them too.
+  if (gate.key === "approve_release" && untestedAcs(projectId).length) markUntestedApproved(projectId);
   postMessage({ projectId, from: "human", to: "orchestrator", kind: "approval", content: `Approved: ${gate.label}` });
   logActivity({ projectId, agentId: "human", type: "approval", summary: `✅ Approved: ${gate.label}` });
   startProject(projectId);
@@ -247,6 +250,8 @@ async function loop(projectId: string, signal: AbortSignal) {
       patchProject(projectId, { status: "awaiting_approval" });
       return;
     }
+    // ⛔ ACs nobody could test never pass silently: the release waits for your approval of them, even on autopilot.
+    if (next.key === "release" && untestedAcs(projectId).length && p.stages.find((s) => s.key === UNTESTED)?.status !== "done") return openUntestedGate(projectId);
     if (next.gate) {
       setStage(projectId, next.key, "awaiting_approval");
       patchProject(projectId, { status: "awaiting_approval" });
@@ -268,6 +273,52 @@ function finishProject(projectId: string) {
   const delivered = items.filter((i) => DELIVERED_STATES.includes(i.state)).length;
   const cost = projectCost(projectId);
   logActivity({ projectId, agentId: "orchestrator", type: "pipeline", summary: `🏁 Project completed — ${delivered} of ${items.length} items delivered, $${cost.toFixed(2)}` });
+}
+
+// ---------------------------------------------------------------------------------------------------------------------
+// Untested acceptance criteria: QA marked them ⛔ (couldn't test). The release needs your approval of each.
+
+const UNTESTED = "approve_untested";
+
+export interface UntestedAc {
+  itemId: string;
+  code: string;
+  ac: string;
+  notes: string;
+}
+
+/** ⛔ results in the latest QA round of each story about to be released. */
+export function untestedAcs(projectId: string): UntestedAc[] {
+  return listItems(projectId)
+    .filter((i) => i.state === "Release Ready" || i.state === "Smoke Testing")
+    .flatMap((it) =>
+      all<{ ac_ref: string; notes: string }>(
+        "SELECT ac_ref, notes FROM test_results WHERE item_id = ? AND kind = 'qa' AND result = 'blocked' AND iteration = (SELECT MAX(iteration) FROM test_results WHERE item_id = ? AND kind = 'qa') ORDER BY id",
+        it.id,
+        it.id,
+      ).map((r) => ({ itemId: it.id, code: it.code, ac: r.ac_ref, notes: r.notes })),
+    );
+}
+
+const untestedStage = (status: StageState["status"]): StageState => ({ key: UNTESTED, role: "human", label: "Approve untested ACs", gate: true, status });
+
+/** The untested-ACs approval sits right before the release stage. */
+function withUntestedStage(stages: StageState[], status: StageState["status"]) {
+  const rest = stages.filter((s) => s.key !== UNTESTED);
+  const at = rest.findIndex((s) => s.key === "release");
+  return at < 0 ? [...rest, untestedStage(status)] : [...rest.slice(0, at), untestedStage(status), ...rest.slice(at)];
+}
+
+function openUntestedGate(projectId: string) {
+  const list = untestedAcs(projectId);
+  const p = getProject(projectId)!;
+  patchProject(projectId, { status: "awaiting_approval", stage: UNTESTED, stages: withUntestedStage(p.stages, "awaiting_approval") });
+  postMessage({ projectId, from: "orchestrator", to: "human", kind: "question", content: `${list.length} acceptance criteria couldn't be tested:\n${list.map((u) => `- ${u.code} ${u.ac}: ${u.notes}`.slice(0, 300)).join("\n")}\n\nVerify them yourself, then approve the release — or send the stories back.` });
+  logActivity({ projectId, agentId: "orchestrator", type: "gate", summary: `⏸ ${list.length} untested AC(s) (${[...new Set(list.map((u) => u.code))].join(", ")}) — the release waits for your approval` });
+}
+
+function markUntestedApproved(projectId: string) {
+  patchProject(projectId, { stages: withUntestedStage(getProject(projectId)!.stages, "done") });
 }
 
 // ---------------------------------------------------------------------------------------------------------------------
@@ -337,7 +388,7 @@ function continueUndelivered(projectId: string) {
   const p = getProject(projectId)!;
   patchProject(projectId, {
     stage: null,
-    stages: p.stages.filter((s) => s.key !== OPEN_ITEMS).map((s) => (again.has(s.key) && s.status !== "skipped" ? { ...s, status: "pending" } : s)),
+    stages: p.stages.filter((s) => s.key !== OPEN_ITEMS && s.key !== UNTESTED).map((s) => (again.has(s.key) && s.status !== "skipped" ? { ...s, status: "pending" } : s)),
   });
   postMessage({ projectId, from: "human", to: "orchestrator", kind: "approval", content: `Continue with ${left.length} undelivered item(s)` });
   logActivity({ projectId, agentId: "human", type: "approval", summary: `▶ Continue with ${left.length} undelivered item(s): ${left.map((i) => i.code).join(", ")}` });
@@ -507,6 +558,8 @@ async function stageDelivery(p: Project, signal: AbortSignal) {
   const inFlight = new Set<Promise<void>>();
   const parallelism = Math.max(1, getProject(p.id)!.settings.parallelism);
   const held = new Set<string>();
+  /** Stories that stopped to wait (for the product owner, or another story's merge) and resume once that's done. */
+  const parked = new Set<string>();
   let setupNoted = false;
 
   // A story builds on its dependencies' code, which reaches the base branch only once they are delivered (merged).
@@ -544,6 +597,13 @@ async function stageDelivery(p: Project, signal: AbortSignal) {
       pending.push(w);
       logActivity({ projectId: p.id, agentId: "orchestrator", itemId: w.id, type: "pipeline", summary: `▶ ${w.code}'s questions are answered — it joins the delivery` });
     }
+    for (const id of [...parked]) {
+      const it = getItem(id)!;
+      if (waitingForAnswers(it) || !depsReady(it)) continue;
+      parked.delete(id);
+      started.delete(id);
+      logActivity({ projectId: p.id, agentId: "orchestrator", itemId: id, type: "pipeline", summary: `▶ ${it.code} resumes — what it waited for is done` });
+    }
     const fresh = pending.filter((i) => !started.has(i.id)).map((i) => getItem(i.id)!);
     for (const it of fresh) {
       const d = stuckDependency(it);
@@ -576,6 +636,9 @@ async function stageDelivery(p: Project, signal: AbortSignal) {
       const startAt = it.state === "In Peer Testing" ? "qa" : "development";
       const job: Promise<void> = refineIfNeeded(p.id, it.id, signal, "delivery")
         .then(() => deliverItem(p.id, it.id, dev, signal, { startAt }))
+        .then((r) => {
+          if (r === "parked") parked.add(it.id);
+        })
         .catch((e) => {
           // Graceful pause inside a lane: the lane stops at its checkpoint; the scheduler drains the other lanes.
           if (e instanceof PauseRequestedError) return;
@@ -764,7 +827,16 @@ async function integrateItem(projectId: string, itemId: string, dev: Agent | und
   }
 }
 
-async function deliverItem(projectId: string, itemId: string, dev: Agent | undefined, signal: AbortSignal, opts: DeliverOptions = {}) {
+/** Questions for the product owner on a story; it doesn't advance until they're answered. */
+function askProductOwner(projectId: string, itemId: string, askedBy: string, questions: string[]) {
+  for (const q of questions) {
+    addQuestion(projectId, q.slice(0, 2000), itemId, askedBy);
+    postMessage({ projectId, from: askedBy, to: "human", itemId, kind: "question", content: q.slice(0, 2000) });
+  }
+}
+
+/** "parked": the story waits (for the product owner, or another story) and resumes where it left off once that's done. */
+async function deliverItem(projectId: string, itemId: string, dev: Agent | undefined, signal: AbortSignal, opts: DeliverOptions = {}): Promise<"parked" | undefined> {
   if (waitingForAnswers({ id: itemId })) {
     const it = getItem(itemId)!;
     patchItem(itemId, { state: "Requires additional information" });
@@ -863,6 +935,13 @@ ${r.summary.slice(0, 2000)}`;
         logActivity({ projectId, agentId: "orchestrator", itemId, type: "note", summary: `↩ ${item.code} wasn't handed over — back to development, QA skipped` });
         continue;
       }
+      // An AC met differently than written isn't the developer's call: the product owner decides before QA.
+      if (r.outcome.deviations?.length) {
+        askProductOwner(projectId, itemId, dev.id, r.outcome.deviations.map((d) => `${item.code} ${d.ac} is met differently than written: ${d.how} — is that acceptable, or must it be met as written?`));
+        patchItem(itemId, { state: "In Peer Testing" });
+        logActivity({ projectId, agentId: "orchestrator", itemId, type: "gate", summary: `⏸ ${item.code} waits for your decision on ${r.outcome.deviations.length} AC(s) the developer met differently than written` });
+        return "parked";
+      }
     }
     item = patchItem(itemId, { state: "In Peer Testing" });
     if (!qa.length) {
@@ -895,6 +974,24 @@ ${r.summary.slice(0, 2000)}`;
     qaNotes = q.outcome.review?.findings ?? "";
     endPhase(qaPhase, verdict);
     if (verdict === "approved") {
+      // QA approved an AC by reading it differently, or more weakly met than written: the product owner decides.
+      if (q.outcome.reinterpretations?.length) {
+        askProductOwner(projectId, itemId, tester.id, q.outcome.reinterpretations.map((x) => `QA would approve ${item.code} ${x.ac} only on a reading that differs from its wording: ${x.how} — do you accept that, or must it be met as written?`));
+        logActivity({ projectId, agentId: "orchestrator", itemId, type: "gate", summary: `⏸ ${item.code} waits for your decision on ${q.outcome.reinterpretations.length} AC(s) QA reinterpreted` });
+        return "parked";
+      }
+      // ⛔ ACs that need another story's code: wait for it to be merged and test again, instead of passing untested.
+      const needs = [...new Set((q.outcome.waitsFor ?? []).map((w) => w.code))].filter((code) => {
+        const d = listItems(projectId).find((x) => x.code === code);
+        return d && !DELIVERED_STATES.includes(d.state);
+      });
+      if (needs.length) {
+        const cur = getItem(itemId)!;
+        patchItem(itemId, { depends_on: [...new Set([...cur.depends_on, ...needs])] });
+        const acs = (q.outcome.waitsFor ?? []).filter((w) => needs.includes(w.code)).map((w) => `${w.ac} (needs ${w.code})`);
+        logActivity({ projectId, agentId: "orchestrator", itemId, type: "gate", summary: `⏸ ${item.code} waits for ${needs.join(", ")} to be merged: ${acs.join(", ")} can't be tested before that` });
+        return "parked";
+      }
       if (await reviewPasses(iteration, n)) {
         approved = true;
         patchItem(itemId, { state: "Ready for UAT" });

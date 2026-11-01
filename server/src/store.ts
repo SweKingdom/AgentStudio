@@ -517,6 +517,8 @@ export function addTestResult(t: {
   notes: string;
   iteration: number;
   agentId: string;
+  /** ⛔ only: the story whose code this AC needs before it can be tested. */
+  waitsFor?: string | null;
 }) {
   insert("test_results", {
     project_id: t.projectId,
@@ -527,6 +529,7 @@ export function addTestResult(t: {
     notes: t.notes,
     iteration: t.iteration,
     agent_id: t.agentId,
+    waits_for: t.waitsFor ?? null,
     created_at: now(),
   });
   emit({ type: "item", projectId: t.projectId });
