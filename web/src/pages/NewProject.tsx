@@ -9,7 +9,7 @@ import { hours, money, num, tokens } from "../lib/format";
 import { AgentAvatar, Switch } from "../components/ui";
 import { MiniBar } from "../components/Charts";
 import { PathBar } from "../components/PathBar";
-import { RepoFields, repoUrlError } from "../components/Repo";
+import { RepoFields, isRemoteUrl, repoUrlError } from "../components/Repo";
 import { toast } from "../lib/toast";
 import { Field, Hint, Req } from "../components/Hint";
 import { CodeReviewField, type CodeReviewMode } from "../components/CodeReviewField";
@@ -229,6 +229,12 @@ export default function NewProject() {
     },
     onError: (e: Error) => toast(e.message, "bad"),
   });
+  // A remote repository with push off stays empty: everything the agents build stays on this computer.
+  const pushOff = !!repo.url.trim() && !repo.push && isRemoteUrl(repo.url);
+  const submit = (start: boolean) => {
+    if (pushOff && !confirm(t("Push to origin is off, so nothing this project builds will reach the repository — it stays on this computer. Create the project anyway?"))) return;
+    create.mutate(start);
+  };
 
   const pick = (f: File | undefined) => {
     if (!f) return;
@@ -291,6 +297,7 @@ export default function NewProject() {
               )}
               <Field label={t("Project name")} required help="Name of the project. A short key (e.g. NFS) is generated from it for work item references and the project tab."><input className="input" value={name} onChange={(e) => setName(e.target.value)} placeholder={t("e.g. Task tracker")} /></Field>
               <RepoFields {...repo} onChange={setRepo} />
+              {pushOff && <div className="banner warn small" style={{ marginTop: 8 }}>{t("Push to origin is off: the repository will stay empty and everything stays on this computer. Turn it on to get branches, pull requests and releases on GitHub.")}</div>}
               <Field label={file ? t("Context for the team (optional with a PDF)") : t("Context for the team — describe the requirements (no PDF)")} required={!file} help="Extra context every agent receives: client, goals, constraints, technical details, priorities. Without a PDF, describe the requirements here — each sentence with 'must', 'shall' or 'should' becomes a story.">
                 <textarea className="textarea" value={description} onChange={(e) => setDescription(e.target.value)} placeholder={t("Client, goals, constraints, technical details, what matters most… Without a PDF, describe the problem here.")} />
               </Field>
@@ -354,8 +361,8 @@ export default function NewProject() {
           {meta?.mode === "live" && meta.backend === "subscription" && <div className="banner accent tiny">{t("Live on your Claude plan: no API charges. The estimate shows what the same run would cost on the API — a measure of how much of the plan's usage it takes.")}</div>}
           {est?.estimate && budget > 0 && est.estimate.highUsd > budget && <div className="banner warn tiny"><TriangleAlert size={13} /> The high estimate exceeds your {money(budget)} budget — the run may pause before finishing.</div>}
           <div className="col" style={{ gap: 8 }}>
-            <button className="btn primary" style={{ justifyContent: "center", height: 38 }} disabled={!canCreate || create.isPending} onClick={() => create.mutate(true)}><Play size={15} /> {t("Create & start")}</button>
-            <button className="btn" style={{ justifyContent: "center" }} disabled={!canCreate || create.isPending} onClick={() => create.mutate(false)}>{t("Create without starting")}</button>
+            <button className="btn primary" style={{ justifyContent: "center", height: 38 }} disabled={!canCreate || create.isPending} onClick={() => submit(true)}><Play size={15} /> {t("Create & start")}</button>
+            <button className="btn" style={{ justifyContent: "center" }} disabled={!canCreate || create.isPending} onClick={() => submit(false)}>{t("Create without starting")}</button>
             {missing.length > 0 && <div className="tiny" style={{ color: "var(--muted)" }}><Req /> {t("Still needed:")} {missing.join(" · ")}</div>}
           </div>
         </div>

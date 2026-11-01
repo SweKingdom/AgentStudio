@@ -20,6 +20,9 @@ export function repoUrlError(url: string): string | null {
   return "Use an https:// or git@ URL, e.g. https://github.com/org/repo.git";
 }
 
+/** A repository on a server (GitHub, Azure…), as opposed to a local file:// one. */
+export const isRemoteUrl = (url: string) => /^(https?:\/\/|git@|ssh:\/\/)/i.test(url.trim());
+
 export interface RepoValue { url: string; branch: string; push: boolean }
 
 export function RepoFields({ url, branch, push, onChange }: RepoValue & { onChange: (v: RepoValue) => void }) {

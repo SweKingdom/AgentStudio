@@ -10,7 +10,7 @@ import { Count } from "../../components/Count";
 import { PageSkeleton } from "../../components/Skeleton";
 import { useLocation } from "react-router-dom";
 import { PathBar, type PathStep } from "../../components/PathBar";
-import { RepoChip } from "../../components/Repo";
+import { RepoChip, isRemoteUrl } from "../../components/Repo";
 import { ProjectSettingsModal } from "./ProjectSettings";
 import { PauseMenu } from "../../components/PauseControls";
 import { Settings2 } from "lucide-react";
@@ -157,6 +157,28 @@ export default function ProjectPage() {
     mutationFn: () => api.patch(`/projects/${p!.id}`, { settings: { budgetUsd: Math.ceil((p!.settings.budgetUsd || 0) * 1.5 + 10) } }),
     onSuccess: () => { qc.invalidateQueries({ queryKey: ["project", key] }); toast("Budget raised"); },
   });
+  const pushOn = useMutation({
+    mutationFn: () => api.patch(`/projects/${p!.id}`, { settings: { repo: { ...p!.settings.repo!, push: true } } }),
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ["project", key] }); toast(t("Push to origin is on")); },
+    onError: (e: Error) => toast(e.message, "bad"),
+  });
+  // "Keep it local" is remembered per project in this browser.
+  const localKey = `agentstudio.localOnly.${key}`;
+  const [localOnly, setLocalOnly] = useState(() => {
+    try {
+      return localStorage.getItem(localKey) === "1";
+    } catch {
+      return false;
+    }
+  });
+  const keepLocal = () => {
+    setLocalOnly(true);
+    try {
+      localStorage.setItem(localKey, "1");
+    } catch {
+      /* not remembered */
+    }
+  };
 
   if (error) {
     const missing = /404|not found/i.test((error as Error).message);
@@ -290,6 +312,16 @@ export default function ProjectPage() {
             <ShieldAlert size={16} />
             <div style={{ flex: 1 }}>{p.error}</div>
             {p.error.includes("Budget") && <button className="btn sm" onClick={() => raise.mutate()}>Raise budget 50%</button>}
+          </div>
+        )}
+        {p.repoInfo && !p.repoInfo.push && isRemoteUrl(p.repoInfo.url) && !localOnly && (
+          <div className="banner warn">
+            <ShieldAlert size={16} />
+            <div style={{ flex: 1 }}>
+              <b>{t("Push to origin is off.")}</b> {t("Nothing this project builds reaches")} <span className="mono">{p.repoInfo.name}</span> — {t("branches, pull requests and releases stay on this computer.")}
+            </div>
+            {canWrite && <button className="btn primary sm" disabled={pushOn.isPending} onClick={() => pushOn.mutate()}>{t("Turn on push")}</button>}
+            <button className="btn ghost sm" onClick={keepLocal}>{t("Keep it local")}</button>
           </div>
         )}
       </div>
