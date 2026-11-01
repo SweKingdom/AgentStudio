@@ -23,6 +23,7 @@ import {
   safeWorkspacePath,
   upsertDoc,
   workspaceDir,
+  worktreeDir,
   writeWorkspaceBinary,
   type Project,
   type WorkItem,
@@ -31,7 +32,8 @@ import type { Agent } from "./store.js";
 import { renderEvidenceSvg } from "../evidence.js";
 import { detectObject } from "./simplan.js";
 import { sections, toc } from "./context.js";
-import { changedOnBranch, commitWork, tagRelease } from "../git.js";
+import { changedOnBranch, commitWork, keepFiles, tagRelease, worktreeStatus } from "../git.js";
+import { allowedCommands, commandRefusal, runCommand } from "../commands.js";
 import { formatChecks, runChecks } from "../checks.js";
 import { effectiveMode } from "../settings.js";
 import { agentEmail, listAgents } from "./store.js";
@@ -820,6 +822,87 @@ const TOOLS: Record<string, ToolSpec> = {
       const answer = await ctx.consult(target, i.question, ctx);
       postMessage({ projectId: ctx.project.id, from: target.id, to: ctx.agent.id, itemId: it?.id ?? ctx.item?.id, kind: "answer", content: answer });
       return answer;
+    },
+  },
+
+  run_command: {
+    label: "Run an allowed command",
+    def: {
+      name: "run_command",
+      description:
+        "Run one of the project's allowed commands in your story's worktree (e.g. a migration generator or a seed CLI) and get its exit code and output. Only commands that start with an allowed command; no ; & | < > ` or $. Generated files are committed with your run; files .gitignore keeps out (e.g. a database) are only committed when you name them in keep.",
+      input_schema: {
+        type: "object",
+        properties: {
+          command: { type: "string", description: "The terminal line, e.g. 'dotnet run -- --seed-only'." },
+          keep: { type: "array", items: { type: "string" }, description: "Generated files to commit even though .gitignore excludes them (paths relative to the repository)." },
+        },
+        required: ["command"],
+      },
+    },
+    handler: async (i, ctx) => {
+      req(i, "command");
+      if (!ctx.item) throw new Error("run_command works on a story's worktree.");
+      const allowed = allowedCommands(ctx.project);
+      const refusal = commandRefusal(String(i.command), allowed);
+      if (refusal) throw new Error(refusal);
+      if (effectiveMode() === "simulation" || ctx.project.mode === "simulation") return `Simulated: \`${i.command}\` exit 0.`;
+      const r = await runCommand(ctx.project, ctx.item.code, String(i.command));
+      const kept = Array.isArray(i.keep) && i.keep.length ? await keepFiles(ctx.project, ctx.item.code, i.keep.map(String)) : [];
+      const status = await worktreeStatus(ctx.project, ctx.item.code);
+      logActivity({
+        projectId: ctx.project.id,
+        agentId: ctx.agent.id,
+        runId: ctx.runId,
+        itemId: ctx.item.id,
+        type: "validation",
+        summary: `${r.exitCode === 0 ? "✅" : "❌"} Ran \`${r.command}\` on ${ctx.item.code} (exit ${r.exitCode ?? "none"}, ${(r.durationMs / 1000).toFixed(1)} s)`,
+        detail: r.output,
+      });
+      return [
+        `exit ${r.exitCode ?? "none"} after ${(r.durationMs / 1000).toFixed(1)} s`,
+        status.changed.length ? `Changed or new files (committed with your run): ${status.changed.slice(0, 50).join(", ")}` : "No files changed.",
+        status.ignored.length ? `Ignored by .gitignore (not committed unless you pass them in keep): ${status.ignored.slice(0, 30).join(", ")}` : "",
+        kept.length ? `Kept despite .gitignore: ${kept.join(", ")}` : "",
+        r.output ? `Output (last lines):\n${r.output}` : "",
+      ]
+        .filter(Boolean)
+        .join("\n");
+    },
+  },
+
+  request_manual_step: {
+    label: "Ask a person to run a step",
+    def: {
+      name: "request_manual_step",
+      description:
+        "When the story needs something you can't do (a command that isn't allowed, a store release, a secret, a signed binary): ask the product owner to do it, with the exact commands. The story waits until they answer. Use this instead of stopping or calling the story blocked.",
+      input_schema: {
+        type: "object",
+        properties: {
+          code: { type: "string" },
+          title: { type: "string", description: "What has to be done, e.g. 'Generate the seed database'." },
+          why: { type: "string", description: "Why the story needs it and why you can't do it." },
+          commands: { type: "array", items: { type: "string" }, description: "The exact commands to run, in order." },
+        },
+        required: ["code", "title", "why", "commands"],
+      },
+    },
+    handler: (i, ctx) => {
+      req(i, "title", "why");
+      const it = itemOrThrow(ctx, i.code);
+      const commands = Array.isArray(i.commands) ? i.commands.map(String).filter(Boolean).slice(0, 20) : [];
+      const wt = worktreeDir(ctx.project, it.code);
+      const text = [
+        `🛠 Manual step for ${it.code}: ${i.title}`,
+        String(i.why),
+        `Run in ${wt}${it.branch ? ` (branch ${it.branch})` : ""}:`,
+        ...commands.map((c) => `    ${c}`),
+        "Then commit and push the result to the story's branch, and answer this question (e.g. 'Done'). The story continues with it.",
+      ].join("\n");
+      addQuestion(ctx.project.id, text, it.id, ctx.agent.id);
+      postMessage({ projectId: ctx.project.id, from: ctx.agent.id, to: "human", itemId: it.id, kind: "question", content: text });
+      return "Asked the product owner. The story waits for their answer; end your run with a short summary.";
     },
   },
 

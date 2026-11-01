@@ -913,11 +913,11 @@ ${findings}`
       endPhase(devPhase);
       devSummary = r.outcome.devCompleted ?? r.summary;
       lastDevSummary = devSummary;
-      // The developer asked the product owner something: wait for the answer instead of guessing in more rounds.
+      // The developer asked the product owner something (a question, or a manual step to run): wait for the answer
+      // instead of guessing in more rounds, then continue development where it stopped.
       if (waitingForAnswers({ id: itemId })) {
-        patchItem(itemId, { state: "Requires additional information" });
-        logActivity({ projectId, agentId: "orchestrator", itemId, type: "gate", summary: `⏸ ${item.code} waits for your answer to the developer's question` });
-        return;
+        logActivity({ projectId, agentId: "orchestrator", itemId, type: "gate", summary: `⏸ ${item.code} waits for your answer to the developer's question or manual step` });
+        return "parked";
       }
       // Not handed over (the checks fail, or complete_development wasn't called): QA can't approve it, so it isn't run.
       if (r.outcome.devCompleted === undefined) {

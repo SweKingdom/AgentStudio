@@ -1,4 +1,5 @@
 import { accountStatus, addAccount, cancelLogin, listAccounts, loginCommandFor, loginState, logoutAccount, openLoginTerminal, removeAccount, setActiveAccount, startLogin } from "./claudeAccounts.js";
+import { cleanAllowedCommands } from "./commands.js";
 import { Router, type Request, type Response, type NextFunction } from "express";
 import multer from "multer";
 import fs from "node:fs";
@@ -515,6 +516,13 @@ api.patch("/projects/:pid", wrap(async (req, res) => {
   if (body.settings?.ado !== undefined) {
     try {
       body.settings.ado = cleanAdoConfig(body.settings.ado);
+    } catch (e) {
+      return res.status(400).json({ error: e instanceof Error ? e.message : String(e) });
+    }
+  }
+  if (body.settings?.commands !== undefined) {
+    try {
+      body.settings.commands = cleanAllowedCommands(body.settings.commands);
     } catch (e) {
       return res.status(400).json({ error: e instanceof Error ? e.message : String(e) });
     }

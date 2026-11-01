@@ -30,6 +30,8 @@ export interface ProjectSettings {
   ado?: import("./ado.js").AdoConfig | null;
   /** The Claude account this project's live agents use on the plan backend; unset = the active account. */
   claudeAccount?: string | null;
+  /** Commands a developer agent may run in its story's worktree (each a prefix, word for word). */
+  commands?: string[];
 }
 
 export interface Project {

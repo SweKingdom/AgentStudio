@@ -6,6 +6,7 @@ import { costOf, type Usage } from "../pricing.js";
 import { appSettings, claudeBackend, effectiveMode } from "../settings.js";
 import { sdkRun, type SdkCall } from "./runner-sdk.js";
 import { claudeConfigDir } from "../claudeAccounts.js";
+import { allowedCommands } from "../commands.js";
 import { answeredQuestions, findDoc, getItem, getProject, logActivity, type Project, type WorkItem } from "../store.js";
 import { agentEmail, renderPrompt, type Agent } from "./store.js";
 import { executeTool, toolDefs, type ToolContext } from "./tools.js";
@@ -153,11 +154,19 @@ export function projectContext(project: Project) {
   return parts.join("\n\n");
 }
 
+/** Tools a developer gets from the project rather than from its own definition: asking for a manual step always, and
+ *  running commands when the project allows some. */
+function withProjectTools(agent: Agent, project: Project): Agent {
+  if (agent.role !== "developer") return agent;
+  const extra = ["request_manual_step", ...(allowedCommands(project).length ? ["run_command"] : [])].filter((t) => !agent.tools.includes(t));
+  return extra.length ? { ...agent, tools: [...agent.tools, ...extra] } : agent;
+}
+
 export async function runAgent(o: RunOptions): Promise<RunResult> {
   const runId = startRun(o);
   const ctx: ToolContext = {
     project: o.project,
-    agent: o.agent,
+    agent: withProjectTools(o.agent, o.project),
     runId,
     item: o.item,
     iteration: o.iteration ?? 1,

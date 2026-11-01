@@ -460,6 +460,30 @@ export async function testRemoteUrl(url: string) {
 }
 
 /** The files a task changed on its branch (committed or not), relative to where it left the base branch. */
+/** The worktree's uncommitted files after a command: changed or new, and those .gitignore keeps out. */
+export function worktreeStatus(project: Pick<Project, "key" | "settings">, code: string) {
+  return serial(project.key, async () => {
+    const wt = worktreeDir(project, code);
+    const lines = (await git(wt, ["status", "--porcelain", "--untracked-files=all", "--ignored"])).split("\n").filter(Boolean);
+    const file = (l: string) => l.slice(3).replace(/^"|"$/g, "");
+    return {
+      changed: lines.filter((l) => !l.startsWith("!!")).map(file),
+      ignored: lines.filter((l) => l.startsWith("!!")).map(file).filter((f) => !/(^|\/)node_modules\//.test(f)),
+    };
+  });
+}
+
+/** Stage files .gitignore would keep out (e.g. a generated database), so the run's commit includes them. Paths stay
+ *  inside the worktree. */
+export function keepFiles(project: Pick<Project, "key" | "settings">, code: string, paths: string[]) {
+  return serial(project.key, async () => {
+    const wt = worktreeDir(project, code);
+    const inside = paths.map((p) => p.replace(/\\/g, "/").trim()).filter((p) => p && !path.isAbsolute(p) && !p.split("/").includes("..") && fs.existsSync(path.join(wt, p)));
+    if (inside.length) await git(wt, [...ARM_IDENTITY, "add", "-f", "--", ...inside]);
+    return inside;
+  });
+}
+
 export function changedOnBranch(project: Pick<Project, "key" | "settings">, code: string) {
   return serial(project.key, async () => {
     const wt = worktreeDir(project, code);

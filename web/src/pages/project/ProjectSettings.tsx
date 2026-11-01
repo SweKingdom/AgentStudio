@@ -24,9 +24,10 @@ export function ProjectSettingsModal({ p, onClose }: { p: Project; onClose: () =
   // Only what differs from the team defaults is stored on the project; an empty list follows the team.
   const [checks, setChecks] = useState<Partial<ChecksSettings>>(p.settings.checks ?? {});
   const [ado, setAdo] = useState(adoFormValue(p.settings.ado));
+  const [commands, setCommands] = useState((p.settings.commands ?? []).join("\n"));
   const err = repoUrlError(repo.url);
   const save = useMutation({
-    mutationFn: () => api.patch(`/projects/${p.id}`, { name, description, settings: { ...s, repo: { url: repo.url.trim(), branch: repo.branch.trim() || "main", push: repo.push }, checks: { commands: (checks.commands ?? []).filter((c) => c.command.trim()), ...(checks.timeoutMinutes ? { timeoutMinutes: checks.timeoutMinutes } : {}), ...(checks.install?.trim() ? { install: checks.install.trim() } : {}) }, ado: adoSettingsOf(ado) } }),
+    mutationFn: () => api.patch(`/projects/${p.id}`, { name, description, settings: { ...s, repo: { url: repo.url.trim(), branch: repo.branch.trim() || "main", push: repo.push }, checks: { commands: (checks.commands ?? []).filter((c) => c.command.trim()), ...(checks.timeoutMinutes ? { timeoutMinutes: checks.timeoutMinutes } : {}), ...(checks.install?.trim() ? { install: checks.install.trim() } : {}) }, ado: adoSettingsOf(ado), commands: commands.split("\n").map((c) => c.trim()).filter(Boolean) } }),
     onSuccess: () => { qc.invalidateQueries(); toast("Project settings saved"); onClose(); },
     onError: (e: Error) => toast(e.message, "bad"),
   });
@@ -78,6 +79,12 @@ export function ProjectSettingsModal({ p, onClose }: { p: Project; onClose: () =
             placeholder={team?.checks.commands.length ? `Team checks: ${team.checks.commands.map((c) => c.command).join(" · ")}` : p.checks.length ? `Detected: ${p.checks.map((c) => c.command).join(" · ")}` : "No checks found — add one, e.g. npm test."}
           />
         </div>
+        <Field
+          label="Allowed commands"
+          help="Commands the developer agent may run itself in a story's worktree, one per line — e.g. dotnet ef migrations add, or dotnet run -- --seed-only. A command must start with one of these, word for word; ; & | < > ` and $ are never allowed. It runs with this computer's rights and without AgentStudio's keys. Generated files are committed with the story. Empty: the agent asks you for a manual step instead."
+        >
+          <textarea className="textarea mono" style={{ minHeight: 64 }} value={commands} placeholder={"dotnet ef migrations add\ndotnet run -- --seed-only"} onChange={(e) => setCommands(e.target.value)} />
+        </Field>
         <AdoSettings projectId={p.id} value={ado} onChange={setAdo} />
       </div>
     </Modal>
