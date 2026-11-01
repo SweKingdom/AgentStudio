@@ -218,3 +218,40 @@ function pushable(p: any) {
     return false;
   }
 }
+
+test("a story picked up again first takes what was pushed to its branch on origin; a diverged branch gets a warning", async () => {
+  const { p, remote } = project("GSY", true);
+  await ensureRepo(p);
+  assert.ok((await pushRefs(p, ["main"])).pushed);
+  const story = item("US-801", "Seed data");
+  const { branch } = await ensureItemBranch(p, story);
+  write(worktreeDir(p, "US-801"), "src/seed.ts", "export {};\n");
+  await commitWork(p, { author: "Dev", email: "dev@x", message: "US-801: dev", itemCode: "US-801" });
+  assert.ok((await pushRefs(p, [branch])).pushed);
+
+  // Someone commits a generated file to the story's branch by hand and pushes it.
+  const clone = fs.mkdtempSync(path.join(TMP, "manual-"));
+  sh(clone, "clone", "-q", "-b", branch, fileUrl(remote), ".");
+  write(clone, "data/app.db", "binary-ish\n");
+  sh(clone, "add", "-A");
+  sh(clone, "-c", "user.name=me", "-c", "user.email=me@x", "commit", "-q", "-m", "add generated database");
+  sh(clone, "push", "-q", "origin", branch);
+
+  const again = await ensureItemBranch(p, { ...story, branch });
+  assert.equal(again.remote.pulled, 1);
+  assert.equal(again.remote.warning, undefined);
+  assert.ok(fs.existsSync(path.join(worktreeDir(p, "US-801"), "data/app.db")), "the pushed file is in the worktree");
+
+  // Both sides move on: no fast-forward, a warning instead of a silent merge.
+  write(worktreeDir(p, "US-801"), "src/seed.ts", "export const local = 1;\n");
+  await commitWork(p, { author: "Dev", email: "dev@x", message: "US-801: local", itemCode: "US-801" });
+  sh(clone, "pull", "-q", "--no-rebase", "origin", branch);
+  write(clone, "data/other.db", "x\n");
+  sh(clone, "add", "-A");
+  sh(clone, "-c", "user.name=me", "-c", "user.email=me@x", "commit", "-q", "-m", "another manual file");
+  sh(clone, "push", "-q", "origin", branch);
+  const diverged = await ensureItemBranch(p, { ...story, branch });
+  assert.equal(diverged.remote.pulled, 0);
+  assert.match(diverged.remote.warning ?? "", /diverged/);
+  assert.ok(!fs.existsSync(path.join(worktreeDir(p, "US-801"), "data/other.db")));
+});

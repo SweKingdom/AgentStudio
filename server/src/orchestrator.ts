@@ -654,8 +654,13 @@ function prDescription(it: WorkItem, summary: string) {
 async function startBranch(projectId: string, itemId: string) {
   const it = getItem(itemId)!;
   const base = getProject(projectId)!.settings.repo?.branch || "main";
-  const { branch, created, conflicts } = await ensureItemBranch(getProject(projectId)!, it);
+  const { branch, created, conflicts, remote } = await ensureItemBranch(getProject(projectId)!, it);
   if (it.branch !== branch) patchItem(itemId, { branch });
+  if (remote.pulled) logActivity({ projectId, agentId: "orchestrator", itemId, type: "file", summary: `↓ ${it.code}: took ${remote.pulled} commit(s) pushed to origin/${branch} before continuing` });
+  if (remote.warning) {
+    logActivity({ projectId, agentId: "orchestrator", itemId, type: "gate", summary: `⚠ ${it.code}: ${remote.warning}` });
+    insert("comments", { project_id: projectId, item_id: itemId, author_id: "orchestrator", content: `⚠ ${remote.warning}`, created_at: now() });
+  }
   if (created) logActivity({ projectId, agentId: "orchestrator", itemId, type: "file", summary: `Created branch ${branch} for ${it.code} from ${base}` });
   if (conflicts.length) logActivity({ projectId, agentId: "orchestrator", itemId, type: "gate", summary: `⚠ ${it.code}: bringing ${base} into ${branch} left conflicts in ${conflicts.join(", ")} — the developer resolves them first` });
   return conflicts;
