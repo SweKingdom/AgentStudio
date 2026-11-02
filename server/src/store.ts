@@ -32,6 +32,8 @@ export interface ProjectSettings {
   claudeAccount?: string | null;
   /** Critique the solution design from three perspectives before planning (build plan step 5). Unset = on. */
   designCritique?: boolean;
+  /** Write down what a story was sent back for, and show it to later stories (lessons.ts). Unset = on. */
+  lessons?: boolean;
   /** Commands a developer agent may run in its story's worktree (each a prefix, word for word). */
   commands?: string[];
   /** Paths (globs) no story may add or change, on top of the built-in ones (env files, keys, credentials). */
