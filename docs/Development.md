@@ -70,4 +70,4 @@ Both run `npm ci`, the typecheck, the tests and the web build on every push and 
 
 ## Screenshots
 
-The images in `web/public/guide/` (in-app Guide) and `docs/.attachments/` (this wiki) were captured from a throwaway instance seeded with generic demo data. When the UI changes, retake them the same way and never capture a real project, org or account.
+The in-app Guide and this wiki have no screenshots: the old ones showed the Salesforce-era interface and were removed. If you add new ones, capture them from a throwaway instance in simulation mode seeded with generic demo data (`npm run demo`), never from a real project or account. Put them in `web/public/guide/` (in-app Guide) or `docs/.attachments/` (this wiki).

@@ -4,7 +4,6 @@
 
 The estimate appears on **New project** as soon as there are requirements. It costs nothing and doesn't use AI. Every figure shows its formula, and **How this is calculated** opens each step with the real numbers.
 
-![How the estimate is calculated](.attachments/estimate-how.png)
 
 1. **Stories:** a local analysis finds the epics, features and stories in the document, with each story's type (configuration, development, integration, data migration…) and points. Points start from a base by type, are raised by modifiers (offline, real-time, signature…) and are capped at 8. The panel shows the word that decided each story's type.
 2. **Effort per story:** a type factor (integration 1.35, data migration 1.25, development 1.15 … documentation 0.6) × (points ÷ 3)^0.7.
@@ -26,9 +25,7 @@ Every model call is recorded with its tokens, duration, agent, story and stage.
 
 The **Costs** tab shows estimate vs actual (total with the range, per agent, per stage, scope and time, with a plain-language verdict), cost and usage per agent, cost per story by agent, and spend over time. The **Timing** tab shows phase averages, lead time, first-pass yield and a Gantt chart per item.
 
-![Estimate vs actual](.attachments/costs-estimate.png)
 
-![Timing](.attachments/timing.png)
 
 ## Limits
 

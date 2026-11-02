@@ -2,7 +2,6 @@
 
 The team has seven agents, one per role. Each one can be tailored (model, effort, knowledge, tools, prompt), and every change is versioned. Creating additional agents is switched off for now.
 
-![The agents](.attachments/agents-names.png)
 
 ## Roles
 
@@ -46,7 +45,6 @@ Open an agent from the **Agents** page.
 
 *Reset to role defaults* restores the built-in definition. **Chat** lets you ask the agent questions; it answers from its real runs, costs and knowledge.
 
-![Agent editor](.attachments/agent-editor.png)
 
 ### Built-in knowledge packs
 
@@ -60,4 +58,3 @@ Stored in `server/knowledge/`: the story template, the DevOps workflow, the Rudo
 - **Checks:** the commands every story must pass. Empty: detected from each repository's `package.json`. Each project can override them.
 - **Export & import the team:** the whole team as one JSON file (agents, custom knowledge, conventions, checks, project defaults, model prices) to move it to another computer.
 
-![Team settings](.attachments/settings-team.png)

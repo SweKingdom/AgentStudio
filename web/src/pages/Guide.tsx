@@ -1,79 +1,16 @@
-import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
-import { createPortal } from "react-dom";
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { Link, useParams } from "react-router-dom";
 import {
-  ArrowUpRight, Bot, BookOpen, CheckCircle2, Cloud, Coins, GitBranch, Info, KanbanSquare, KeyRound, Library, LifeBuoy, Lightbulb,
-  ListChecks, Maximize2, Radio, Rocket, Search, Settings2, ShieldCheck, Workflow, X, type LucideIcon,
+  ArrowUpRight, Bot, BookOpen, Cloud, Coins, GitBranch, Info, KanbanSquare, KeyRound, Library, LifeBuoy, Lightbulb,
+  ListChecks, Radio, Rocket, Search, Settings2, ShieldCheck, Workflow, X, type LucideIcon,
 } from "lucide-react";
 import { useProjects } from "../lib/queries";
 import { prefersReducedMotion } from "../lib/motion";
 
 /*
- * Guide: how AgentStudio works, for someone who has never seen it. Screenshots live in web/public/guide (served as /guide/*.png)
- * and were captured from a throw-away instance with generic demo data. Facts follow the code and its history — when a
- * feature changes, update its section here too.
+ * Guide: how AgentStudio works, for someone who has never seen it. In Swedish it shows docs/Kom-igang.md, the Swedish
+ * guide. Facts follow the code and its history — when a feature changes, update its section here and there too.
  */
-
-// ---------------------------------------------------------------- screenshots & lightbox
-
-/** Pixel size of each screenshot (most are full 1440×900 windows; a few are cropped). Keeps layout stable while images load. */
-const SHOT_SIZE: Record<string, [number, number]> = {
-  "gate-backlog": [1204, 300],
-  "gate-environment": [1204, 240],
-  "settings-general": [1204, 560],
-  "settings-orgs": [1204, 560],
-  "settings-users": [1204, 560],
-  "settings-system": [1204, 690],
-  login: [640, 480],
-};
-
-type ShotInfo = { name: string; caption: string; alt: string };
-const LightboxContext = createContext<(s: ShotInfo) => void>(() => {});
-
-function Shot({ name, caption, alt }: { name: string; caption: string; alt?: string }) {
-  const open = useContext(LightboxContext);
-  const [w, h] = SHOT_SIZE[name] ?? [1440, 900];
-  const text = alt ?? caption;
-  return (
-    // Small crops keep their own size instead of being stretched.
-    <figure className="guide-shot" style={w < 900 ? { maxWidth: w } : undefined}>
-      <button type="button" className="guide-shot-btn" onClick={() => open({ name, caption, alt: text })} aria-label={`Enlarge screenshot: ${caption}`}>
-        <img src={`/guide/${name}.png`} alt={text} width={w} height={h} loading="lazy" decoding="async" />
-        <span className="guide-shot-zoom" aria-hidden><Maximize2 size={13} /> Enlarge</span>
-      </button>
-      <figcaption>{caption}</figcaption>
-    </figure>
-  );
-}
-
-/** Full-size view of one screenshot. Esc, the close button or a click outside the image closes it; focus returns to the thumbnail. */
-function Lightbox({ shot, onClose }: { shot: ShotInfo; onClose: () => void }) {
-  const closeRef = useRef<HTMLButtonElement>(null);
-  useEffect(() => {
-    const back = document.activeElement as HTMLElement | null;
-    closeRef.current?.focus();
-    const key = (e: KeyboardEvent) => {
-      if (e.key === "Escape") { e.preventDefault(); onClose(); }
-      // The close button is the only control inside: keep keyboard focus in the dialog.
-      if (e.key === "Tab") { e.preventDefault(); closeRef.current?.focus(); }
-    };
-    window.addEventListener("keydown", key);
-    return () => { window.removeEventListener("keydown", key); back?.focus?.(); };
-  }, [onClose]);
-  // Portal: page containers animate with transforms, which would trap a fixed overlay inside them.
-  return createPortal(
-    <div className="guide-lightbox" role="dialog" aria-modal="true" aria-label={shot.caption} onClick={onClose}>
-      <div className="guide-lightbox-inner" onClick={(e) => e.stopPropagation()}>
-        <div className="guide-lightbox-bar">
-          <span className="small">{shot.caption}</span>
-          <button ref={closeRef} type="button" className="btn ghost sm icon" onClick={onClose} aria-label="Close (Esc)"><X size={15} /></button>
-        </div>
-        <img src={`/guide/${shot.name}.png`} alt={shot.alt} />
-      </div>
-    </div>,
-    document.body,
-  );
-}
 
 // ---------------------------------------------------------------- small building blocks
 
@@ -155,17 +92,14 @@ const SECTIONS: Section[] = [
           <li><b>Xana</b> <span className="faint">· Asturias</span> — the fountain nymphs who spin golden thread; the writer weaves the project's documents into one clear thread.</li>
           <li><b>Nuberu</b> <span className="faint">· Asturias and Galicia</span> — the lord of the clouds who decides where the weather falls; the release manager decides when the work lands in each environment.</li>
         </ul>
-        <Shot name="agents-names" caption="Agents page: the seven agents, with one “Why …?” box open showing the story behind the name and its region." />
         <h3>The agent network</h3>
         <p>Every hand-off, question, answer and rework request is a message. Each project's <b>Network</b> tab draws them: <b>You</b> in the centre, the orchestrator below, the agents in a ring. Edges grow with the number of messages, dashed edges are rework, and messages in flight are animated. Click an agent or an edge count to filter the conversation on the right; click a message to see it in full.</p>
-        <Shot name="network" caption="A delivered project's network: who talked to whom, with cost and calls per agent." />
         <h3>Simulation and live</h3>
         <ul>
           <li><b>Simulation</b> (the default) is free. Nothing is sent to Claude and no checks are run. The requirements are read locally and turned into a real backlog; the rest of the team works through the same pipeline, tools, graph and timing, with realistic token counts priced at real model rates — so costs are estimates, not billed spend.</li>
           <li><b>Live</b>: agents really run, and the project's checks really run. With the <b>Plan</b> backend they use your Claude subscription through this computer's <Kbd>claude</Kbd> login — no API charges, but the plan's usage limits apply; with the <b>API</b> backend they call the Claude API with your key and are billed per use. The mode badge in the top bar, left of <i>Total spend</i>, turns into a red <b>LIVE</b> and a red line runs across the top and bottom of the window. In simulation the same badge reads <i>Simulation</i>. If Live is selected but there's no API key, an amber “Live · no API key” badge says the app is still simulating.</li>
         </ul>
         <Callout kind="note">Projects keep the mode they were created in. A project created in simulation stays simulated even after you switch the app to Live.</Callout>
-        <Shot name="overview" caption="Overview: projects, items deployed, AI spend, human-equivalent effort and live activity across all projects." />
         <Links><AppLink to="/">Overview</AppLink><ProjectLink tab="network">a project's Network tab</ProjectLink><AppLink to="/settings/general">Settings → General</AppLink></Links>
       </>
     ),
@@ -185,12 +119,9 @@ const SECTIONS: Section[] = [
           <li><b>Run settings.</b> Approval gates (on, or autopilot), parallel lanes (stories built at the same time — faster, same total cost), budget cap, maximum QA rework, <b>Architect code review</b> (Off, Complex stories, All stories). The checks every story must pass are set in the project settings.</li>
           <li><b>Check the estimate</b> on the right, then <b>Create &amp; start</b> — or <i>Create without starting</i> to start later. Required fields are marked with a red <b>*</b>; until they're filled in, a <i>Still needed: …</i> line under the buttons says what's missing.</li>
         </ol>
-        <Shot name="new-project" caption="New project: the requirements PDF and the git repository on the left; the live estimate on the right." />
         <h3>The up-front estimate</h3>
         <p>The estimate only appears once there are requirements — nothing is invented. A local analysis (no AI, free) finds the epics, features and stories in the document, with each story's type and points. From that it shows the expected AI cost with a likely range (× 0.6 to × 1.7), the AI wall-clock time, each agent's runs × cost per run, and a human-team comparison (effort, calendar and cost). Every formula is written under its figure.</p>
         <p><b>How this is calculated</b> opens every step with the real numbers: each story with the word that decided its type and how its points were set, the human-team formulas, tokens and prices per agent, the range and the wall-clock. <i>Show the N stories this is based on</i> lists them. Once the analyst has built the real backlog, the project's forecast is recalculated from it.</p>
-        <Shot name="estimate-how" caption="“How this is calculated”: stories and points, the human-team comparison and the AI cost per agent, step by step." />
-        <Shot name="new-project-team" caption="Team selection with the stage path, run settings (gates, lanes, budget, rework, code review) and the estimate's assumptions." />
         <Callout kind="tip">If the high end of the estimate is above your budget cap, a warning says the run may pause before it finishes. Raise the cap or reduce the scope.</Callout>
         <Callout kind="never">Repository URLs with a user name, password or token in them are refused. Git uses this computer's own login.</Callout>
         <Links><AppLink to="/projects/new">New project</AppLink></Links>
@@ -217,10 +148,8 @@ const SECTIONS: Section[] = [
         </ol>
         <h3>The path bar</h3>
         <p>Each step is outlined in the colours of the agents that own it (split into bands when several share it). Hover a step to read what happens there and who is working on it now. A ✓ means done, a spinner means running, a hand means it's waiting for you, and hatched, struck-through steps are skipped (gates off).</p>
-        <Shot name="project-running" caption="A running project: the path bar, the team with what each agent is doing, recent activity and the forecast." />
         <h3>Approval gates</h3>
         <p>When the pipeline reaches a gate, it stops and a banner explains what to check. <b>Approve &amp; continue</b> (or the <i>Approve: …</i> button in the header) moves on. Gates can be switched off per project (autopilot).</p>
-        <Shot name="gate-backlog" caption="Backlog review gate: the project waits until you approve." />
         <h3>Questions hold stories</h3>
         <p>When the analyst finds something ambiguous (“to be decided”, “approx.”…) it raises a question. A story with an open question stays in <i>Requires additional information</i> and doesn't advance — the rest of the backlog carries on. Answer it in the <b>Questions</b> tab (the badge shows how many are open). The agent that asked receives the answer, and when a story's last question is answered it moves to <i>Ready for Refinement</i>; use <b>Start work</b> on it if the pipeline has already finished.</p>
         <h3>Pause, resume and spend limits</h3>
@@ -249,10 +178,8 @@ const SECTIONS: Section[] = [
           <li>Drag within a column to <b>re-prioritise</b>. Drop a card on <b>In Progress</b> to start work — the right agents run each missing step in order.</li>
           <li>Filter by category; colours on the cards follow the same legend. A held card shows its open questions.</li>
         </ul>
-        <Shot name="board" caption="Board during delivery: held stories in Backlog, planned stories in To Do, Cuélebre peer-testing the stories Trasgu handed over." />
         <h3>Backlog</h3>
         <p>The hierarchy (epics → features → items) with category, state, points, MoSCoW, sprint, rank, test results and AI cost per item. With Azure DevOps configured, <b>Sync to Azure DevOps</b> sends the backlog there.</p>
-        <Shot name="backlog" caption="Backlog tab: the hierarchy the analyst built, with planning and quality columns." />
         <h3>The item drawer</h3>
         <p>Click any card or row to open it. The story follows the DevOps story template — <i>User Story, Background &amp; Context, Business Rules, Dependencies, Out of Scope, Acceptance Criteria, Technical Specification, How to Test, Manual Steps, Solution Components</i> — and each section shows the Azure DevOps field it maps to.</p>
         <ul>
@@ -264,7 +191,6 @@ const SECTIONS: Section[] = [
           <li><b>Start work</b>, <b>Put on hold</b>, <b>Cancel</b> and <b>Reopen</b> change the lifecycle. The state itself is moved by the agents, so it can't be edited by hand.</li>
           <li><b>Chat</b> with the agent that built the item — it answers from its real runs, costs and knowledge.</li>
         </ul>
-        <Shot name="item-drawer" caption="Item drawer: story template sections, chips (branch, rework count, sprint, rank) and the item's actions." />
         <h3>Bugs and patch releases</h3>
         <p><b>Report bug</b> on a delivered story creates a Bug linked to it. The developer fixes it, QA verifies it, the writer updates the changelog and the release manager publishes a <b>patch</b> release (1.0.0 → 1.0.1).</p>
         <Links><ProjectLink tab="board">the board</ProjectLink><ProjectLink tab="backlog">the backlog</ProjectLink></Links>
@@ -294,7 +220,6 @@ const SECTIONS: Section[] = [
           <li><b>Branches:</b> default, in progress and merged, with commits ahead and a link to the PR.</li>
           <li>For a file, pick any version and compare with the previous one, any older one or an empty file. <b>Changes</b> shows a GitHub-style diff, <b>File</b> the whole file; the choice is remembered.</li>
         </ul>
-        <Shot name="code-branches" caption="Code tab: one branch per task, merged into main; on the right, the developer's change to a class as a diff." />
         <Callout kind="note">With <i>Push to origin</i> off, everything stays in the local repository under the app's data folder — nothing goes over the network.</Callout>
         <Links><ProjectLink tab="code">the Code tab</ProjectLink></Links>
       </>
@@ -315,7 +240,6 @@ const SECTIONS: Section[] = [
           <li><b>Overall:</b> all ✅ → approved; any ❌ → changes requested, back to the developer with one finding per ❌. A code review against the standards runs alongside.</li>
         </ol>
         <p>Each rework loop counts toward the project's <i>Max QA rework</i>; beyond it the story is marked <b>Blocked</b> for you to review. The Tests tab of an item shows the checks per iteration and the latest <b>test report</b> (versioned, printable). Smoke tests after the release appear there too.</p>
-        <Shot name="test-evidence" caption="Test report in the item drawer: a check with its steps, what was found and the evidence image." />
         <h3>Evidence</h3>
         <ul>
           <li><b>Simulation:</b> evidence is a drawing of the app page the tester checked, with the verified fields and the outcome — and a red box around what is wrong for failures. It's labelled “simulated evidence”.</li>
@@ -366,12 +290,9 @@ const SECTIONS: Section[] = [
           <li><b>Estimate vs actual:</b> actual cost against the expected figure and its range, per agent and per stage, plus scope (stories, points), time and usage. It's marked <i>Final</i> once the project is done.</li>
           <li><b>Charts:</b> cost per agent and usage per agent (busy time, calls or output tokens), labelled <i>name · role</i> so everyone knows what Xana does; cost per task by agent; spend over time, cumulative or per interval.</li>
         </ul>
-        <Shot name="costs-estimate" caption="Estimate vs actual: the cost bar with the expected value and range, per agent and per stage." />
-        <Shot name="costs-charts" caption="Cost and usage per agent (name · role), with KPIs for cost, calls, tokens, cache hit rate and busy time." />
         <Callout kind="note">In simulation the figures are realistic estimates at real model prices, not billed spend — a banner says so. In live mode they're the token counts Claude reports.</Callout>
         <h3>Timing</h3>
         <p>Averages per phase (development, testing, documentation), lead time and first-pass yield, and a Gantt chart with one row per item and one colour per phase. It ticks every second while the project runs, with a <i>now</i> marker.</p>
-        <Shot name="timing" caption="Timing: phase averages and the Gantt chart per item (analysis, architecture, planning, development, testing, code review, documentation, release)." />
         <h3>Reports and exports</h3>
         <p>Project header → <b>Export</b>:</p>
         <ul>
@@ -380,7 +301,6 @@ const SECTIONS: Section[] = [
           <li><b>Azure DevOps import (CSV)</b> — for Boards → Work items → Import; the hierarchy is kept.</li>
           <li><b>Project report (PDF)</b> — a branded A4 report: cover, executive summary, team, backlog, quality, timing, cost, releases, questions and the living documents. <i>+ test reports</i> adds every task document and test report with screenshots. Use “Save as PDF” in the print dialog.</li>
         </ul>
-        <Shot name="report-cover" caption="The project report's cover, ready to print or save as PDF." />
         <h3>Azure DevOps sync</h3>
         <p>Project settings → <b>Azure DevOps</b>: organization URL, project, iteration root and how states are sent (same names, or mapped to the Agile process). <b>Test</b> reads the project without changing anything; <b>Sync to Azure DevOps</b> on the Backlog tab creates or updates every epic, feature, story, task and bug, parents first. Synced items get an Azure DevOps chip that opens them.</p>
         <Callout kind="never">The Azure DevOps personal access token lives only in your <Kbd>.env</Kbd> as <Kbd>AZURE_DEVOPS_PAT</Kbd>; it is sent only in the request header.</Callout>
@@ -404,14 +324,12 @@ const SECTIONS: Section[] = [
           <li><b>Versions:</b> every change to prompt, knowledge, tools or model is a version with its runs, cost and QA rework rate. Compare any version with the current one and restore it.</li>
           <li><b>Chat</b> with the agent, <b>Reset to role defaults</b>, or switch it off for new projects with <b>Enabled</b>.</li>
         </ul>
-        <Shot name="agent-editor" caption="Agent editor: profile, model and effort, usage, versions and recent runs." />
         <h3>Team settings</h3>
         <ul>
           <li><b>Team conventions:</b> deliverables language, branch, commit and merge formats, the PR description, the code review checklist and Azure DevOps area, iterations and tags.</li>
           <li><b>Checks:</b> the commands every story must pass (tests, build, typecheck, lint). Empty: detected from each repository's package.json. Each project can override them.</li>
           <li><b>Export &amp; import the team:</b> <i>Export</i> downloads the whole team as one JSON file (agents, custom knowledge packs, conventions, checks, project defaults, prices). <i>Import</i> shows a preview of what changes first. API keys, logins, git credentials, spend limits and the mode are never included.</li>
         </ul>
-        <Shot name="settings-team" caption="Team conventions and checks — every agent follows them, and they travel with the team export." />
         <Links><AppLink to="/agents">Agents</AppLink><AppLink to="/settings/team">Settings → Team</AppLink></Links>
       </>
     ),
@@ -437,10 +355,8 @@ const SECTIONS: Section[] = [
             </tbody>
           </table>
         </div>
-        <Shot name="settings-general" caption="Settings → General: the Claude backend, the mode switch and simulation speed." />
         <h3>System check</h3>
         <p>Checks Node.js, the data folder, git and its HTTPS login, the Claude login or API key and the Azure DevOps token. <b>Full check</b> also tests GitHub access and access to each agent's model — still read-only and free. The same check runs in a terminal with <Kbd>npm run doctor</Kbd>.</p>
-        <Shot name="settings-system" caption="System check: what is ready, what is missing and how to fix it." />
         <h3>Users and access</h3>
         <p>Login is off until you create the first admin — fine while the app only listens on your computer. Once on, everyone signs in, and every important change (deleting a project, approving a gate, changing settings or the team) is recorded in the <b>audit log</b>.</p>
         <ul>
@@ -449,8 +365,6 @@ const SECTIONS: Section[] = [
           <li><b>Viewer</b> — read-only: projects, documents, code and costs.</li>
         </ul>
         <p>Passwords are stored only as salted hashes, and sessions end after 12 hours without activity. This login doesn't affect git or Claude — they keep using this computer's own logins.</p>
-        <Shot name="settings-users" caption="Users & access before login is turned on." />
-        <Shot name="login" caption="The sign-in page once login is on." />
         <Links><AppLink to="/settings">Settings</AppLink><AppLink to="/settings/system">System check</AppLink><AppLink to="/settings/users">Users &amp; access</AppLink></Links>
       </>
     ),
@@ -556,12 +470,10 @@ export default function Guide() {
   const { section } = useParams();
   const [q, setQ] = useState("");
   const [active, setActive] = useState(SECTIONS[0].id);
-  const [shot, setShot] = useState<ShotInfo | null>(null);
   const [index, setIndex] = useState<Record<string, string>>({});
   const rootRef = useRef<HTMLDivElement>(null);
   const tocListRef = useRef<HTMLOListElement>(null);
   const searchRef = useRef<HTMLInputElement>(null);
-  const closeShot = useCallback(() => setShot(null), []);
 
   // Search index: each section's full text (title, steps, captions), read once from the rendered page.
   useEffect(() => {
@@ -639,12 +551,12 @@ export default function Guide() {
   }, []);
 
   return (
-    <LightboxContext.Provider value={setShot}>
+    <>
       <div className="page guide-page" ref={rootRef}>
         <div className="page-head">
           <div>
             <h1 className="page-title">Guide</h1>
-            <div className="page-sub">How AgentStudio works, from the first requirements to a tested, released change in your repository — with screenshots of every screen. Click any screenshot to enlarge it.</div>
+            <div className="page-sub">How AgentStudio works, from the first requirements to a tested, released change in your repository.</div>
           </div>
         </div>
         <div className="guide-layout">
@@ -696,11 +608,9 @@ export default function Guide() {
                 {s.body}
               </section>
             ))}
-            <div className="guide-foot tiny faint"><CheckCircle2 size={12} aria-hidden /> Screenshots come from a demo instance in simulation mode with made-up projects.</div>
           </div>
         </div>
       </div>
-      {shot && <Lightbox shot={shot} onClose={closeShot} />}
-    </LightboxContext.Provider>
+    </>
   );
 }

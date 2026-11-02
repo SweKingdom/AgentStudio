@@ -16,7 +16,6 @@ Cuélebre peer-tests every story against its acceptance criteria and records evi
 
 Each rework loop counts toward the project's *Max QA rework*. Beyond it the story is marked **Blocked** for a person to review. The item's **Tests** tab shows the checks per iteration and the latest test report (versioned and printable), plus the smoke tests after the release.
 
-![Test report with evidence](.attachments/test-evidence.png)
 
 ## Evidence
 

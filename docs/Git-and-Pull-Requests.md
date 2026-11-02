@@ -37,4 +37,3 @@ This uses the GitHub CLI's login (`gh auth login`). If `gh` is missing, logged o
 - **Branches:** default, in progress and merged, with commits ahead and a link to the PR.
 - **Diff:** pick any version of a file and compare it with the previous one, any older one or an empty file.
 
-![Code tab](.attachments/code-branches.png)
