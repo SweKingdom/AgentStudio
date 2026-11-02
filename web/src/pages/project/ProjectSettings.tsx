@@ -9,7 +9,7 @@ import { RepoFields, repoUrlError } from "../../components/Repo";
 import { ChecksFields, useTeam } from "../../components/TeamSettings";
 import { AdoSettings, adoConfigError, adoFormValue, adoSettingsOf } from "../../components/AdoSettings";
 import { BookmarkPlus } from "lucide-react";
-import { CodeReviewField, DESIGN_CRITIQUE_HELP } from "../../components/CodeReviewField";
+import { CodeReviewField, DESIGN_CRITIQUE_HELP, LESSONS_HELP } from "../../components/CodeReviewField";
 import { useClaudeAccounts } from "../../components/ClaudeAccounts";
 
 /** Edit a project after creation: identity, repository, run settings and checks. */
@@ -18,7 +18,7 @@ export function ProjectSettingsModal({ p, onClose }: { p: Project; onClose: () =
   const [name, setName] = useState(p.name);
   const [description, setDescription] = useState(p.description);
   const [repo, setRepo] = useState({ url: p.settings.repo?.url ?? "", branch: p.settings.repo?.branch ?? "main", push: p.settings.repo?.push ?? false });
-  const [s, setS] = useState({ gates: p.settings.gates, parallelism: p.settings.parallelism, budgetUsd: p.settings.budgetUsd, maxRework: p.settings.maxRework, codeReview: p.settings.codeReview ?? "off", designCritique: p.settings.designCritique !== false, claudeAccount: p.settings.claudeAccount ?? null });
+  const [s, setS] = useState({ gates: p.settings.gates, parallelism: p.settings.parallelism, budgetUsd: p.settings.budgetUsd, maxRework: p.settings.maxRework, codeReview: p.settings.codeReview ?? "off", designCritique: p.settings.designCritique !== false, lessons: p.settings.lessons !== false, claudeAccount: p.settings.claudeAccount ?? null });
   const { data: claude } = useClaudeAccounts();
   const { data: team } = useTeam();
   // Only what differs from the team defaults is stored on the project; an empty list follows the team.
@@ -63,6 +63,9 @@ export function ProjectSettingsModal({ p, onClose }: { p: Project; onClose: () =
           <CodeReviewField value={s.codeReview} onChange={(v) => setS({ ...s, codeReview: v })} />
           <Field label="Design critique" help={DESIGN_CRITIQUE_HELP}>
             <div className="row" style={{ height: 34 }}><Switch on={s.designCritique} onChange={(v) => setS({ ...s, designCritique: v })} label="Design critique" /><span className="small muted">{s.designCritique ? "On" : "Off"}</span></div>
+          </Field>
+          <Field label="Lessons learned" help={LESSONS_HELP}>
+            <div className="row" style={{ height: 34 }}><Switch on={s.lessons} onChange={(v) => setS({ ...s, lessons: v })} label="Lessons learned" /><span className="small muted">{s.lessons ? "On" : "Off"}</span></div>
           </Field>
           <Field label="Claude account" help="Which Claude login this project's live agents use on the plan backend (Settings → Claude account). Takes effect from the next agent run.">
             <select className="input" value={s.claudeAccount ?? ""} onChange={(e) => setS({ ...s, claudeAccount: e.target.value || null })}>

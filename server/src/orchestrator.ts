@@ -8,7 +8,8 @@ import { autoResumeAllowed, globalPause, pauseLabel, setGlobalPause, spendStatus
 import { ROLES } from "./agents/roles.js";
 import { appSettings, claudeBackend, effectiveMode } from "./settings.js";
 import { planUsageFor, usageLevel } from "./claudeAccounts.js";
-import { failedChecks } from "./agents/context.js";
+import { failedChecks, lessonsBlock } from "./agents/context.js";
+import { captureLessons, lessonsEnabled, type ReworkEntry } from "./lessons.js";
 import { baseNeedsSetup } from "./checks.js";
 import { attest, lastAttestation, verify } from "./attest.js";
 import { formatFindings, scanBranch } from "./scan.js";
@@ -1157,6 +1158,8 @@ async function deliverItem(projectId: string, itemId: string, dev: Agent | undef
   let findings = "";
   /** Who asked for the last rework: QA, or the architect's code review. */
   let findingsFrom = "qa" as "qa" | "review" | "checks"; // (a cast: it's also set inside reviewPasses, which TS can't follow)
+  /** Every rework round in this delivery and why — distilled into lessons for later stories once this one is approved. */
+  const reworkLog: ReworkEntry[] = [];
   /** The failing check when the developer last couldn't hand over; the same failure twice means rework is stuck. */
   let lastFailure: string | undefined;
   let stuck = false;
@@ -1173,6 +1176,7 @@ async function deliverItem(projectId: string, itemId: string, dev: Agent | undef
     if (rv.verdict === "approved") return true;
     findings = rv.findings;
     findingsFrom = "review";
+    reworkLog.push({ from: "review", findings });
     reviewRejections++;
     patchItem(itemId, { rework_count: (getItem(itemId)!.rework_count ?? 0) + 1 });
     return false;
@@ -1239,6 +1243,7 @@ ${findings}`
 ${failure}` : `complete_development wasn't called. Your last message:
 ${r.summary.slice(0, 2000)}`;
         findingsFrom = "checks";
+        reworkLog.push({ from: "checks", findings });
         patchItem(itemId, { rework_count: (getItem(itemId)!.rework_count ?? 0) + 1 });
         logActivity({ projectId, agentId: "orchestrator", itemId, type: "note", summary: `↩ ${item.code} wasn't handed over — back to development, QA skipped` });
         continue;
@@ -1258,6 +1263,7 @@ ${r.summary.slice(0, 2000)}`;
     if (!pre.ok) {
       findings = `The checks fail on the code handed over for QA:\n${pre.failure.slice(0, 3000)}`;
       findingsFrom = "checks";
+      reworkLog.push({ from: "checks", findings });
       patchItem(itemId, { rework_count: (getItem(itemId)!.rework_count ?? 0) + 1 });
       logActivity({ projectId, agentId: "orchestrator", itemId, type: "note", summary: `↩ ${item.code}: the checks fail before QA — back to development, QA not run` });
       if (!dev) break;
@@ -1287,7 +1293,7 @@ ${r.summary.slice(0, 2000)}`;
       signal,
       kind: opts.kind,
       feedback: n === 1 ? opts.feedback : undefined,
-      task: `Peer-test ${item.code} "${item.title}" (iteration ${iteration}) with the Rudolf method and submit your verdict with submit_review.${devSummary ? `\n\n## Developer's hand-over\n${devSummary.slice(0, 2000)}` : ""}${n > 1 && findings ? (findingsFrom === "review" ? `\n\n## Code review findings the developer fixed (re-test the checks they touch)\n${findings.slice(0, 3000)}` : `\n\n## Your findings from the previous iteration (check each one is fixed)\n${findings.slice(0, 3000)}`) : ""}${opts.feedback && n === 1 ? `\n\nAlso verify the product owner's feedback was applied: ${opts.feedback}` : ""}`,
+      task: `Peer-test ${item.code} "${item.title}" (iteration ${iteration}) with the Rudolf method and submit your verdict with submit_review.${devSummary ? `\n\n## Developer's hand-over\n${devSummary.slice(0, 2000)}` : ""}${n > 1 && findings ? (findingsFrom === "review" ? `\n\n## Code review findings the developer fixed (re-test the checks they touch)\n${findings.slice(0, 3000)}` : `\n\n## Your findings from the previous iteration (check each one is fixed)\n${findings.slice(0, 3000)}`) : ""}${opts.feedback && n === 1 ? `\n\nAlso verify the product owner's feedback was applied: ${opts.feedback}` : ""}${lessonsBlock(project()) ? "\n\nAlso check the story follows the project's lessons." : ""}`,
     });
     const verdict = q.outcome.review?.verdict ?? "approved";
     qaNotes = q.outcome.review?.findings ?? "";
@@ -1321,6 +1327,7 @@ ${r.summary.slice(0, 2000)}`;
     }
     findings = q.outcome.review?.findings || q.summary;
     findingsFrom = "qa";
+    reworkLog.push({ from: "qa", findings });
     patchItem(itemId, { rework_count: (getItem(itemId)!.rework_count ?? 0) + 1 });
     insert("comments", { project_id: projectId, item_id: itemId, author_id: tester.id, content: `QA findings (iteration ${iteration}):\n${findings}`, created_at: now() });
     await commentQaFindings(projectId, itemId, { iteration, findings, tester: tester.name });
@@ -1349,6 +1356,13 @@ ${r.summary.slice(0, 2000)}`;
     postMessage({ projectId, from: "orchestrator", to: "human", itemId, kind: "question", content: why });
     if (stuck) logActivity({ projectId, agentId: "orchestrator", itemId, type: "blocked", summary: `⛔ ${code} stopped early: the same check failure twice in a row` });
     return;
+  }
+
+  // What this story was sent back for, written down for later stories. Never blocks or fails the story.
+  if (reworkLog.length && lessonsEnabled(project())) {
+    await captureLessons({ project: project(), item: getItem(itemId)!, reworkLog, fix: lastDevSummary, agent: qa[0] ?? dev, signal }).catch((e) =>
+      logActivity({ projectId, agentId: "orchestrator", itemId, type: "note", summary: `Lessons not updated: ${e instanceof Error ? e.message : e}` }),
+    );
   }
 
   if (writer) {

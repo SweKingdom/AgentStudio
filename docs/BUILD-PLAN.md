@@ -93,9 +93,19 @@ AgentStudio är en kopia av SiroccoARM (2026-10-27) som blir ett generellt verkt
 - **Toasts:** `toast()` översätter fasta meddelanden centralt. Meddelanden med variabler och fel från servern visas på engelska.
 - **Skärmdumparna:** de visade Salesforce-utseendet och är borttagna, enligt beslut 2026-11-02, i stället för att tas om. Det gäller filerna i `web/public/guide/` och `docs/.attachments/`, guidens komponenter för bild och förstoring och bildlänkarna i `docs/`. `docs/Development.md` beskriver hur nya tas om de behövs.
 
+### Steg 7: Lärdomar per projekt
+Ett kort dokument per projekt, `project_lessons`, med det som QA, kodgranskningen och checkarna lärde en story, så att senare stories gör rätt första gången. Målet är färre omtag, det dyraste steget som upprepas i leveransen.
+- **Format** (`server/src/lessons.ts`): en Markdown-punkt per lärdom, nyast sist, med källa i slutet: `(US-121, qa)` eller `(product owner)`. Högst 20 lärdomar på 200 tecken. När listan är full går den äldsta automatiska; produktägarens tas aldrig bort automatiskt.
+- **I prompterna:** `lessonsBlock()` i `contextFor()` lägger lärdomarna (utan källor) i den delade, cachade delen för utvecklaren, QA och arkitekten. QA kontrollerar också att storyn följer dem.
+- **Redigera för hand:** `PUT /api/projects/:id/lessons` med auditrad, och en editor med **Add lesson** under Documents.
+- **Skrivs automatiskt:** leveransloopen loggar varje omtag (QA, kodgranskning, checkar). Efter godkännande anropar den `captureLessons()`: i simulering blir första fyndet en lärdom utan anrop; live görs ett anrop utan verktyg på låg effort som QA-agenten, sparat i `llm_calls` med steget `lessons`. Högst två lärdomar per story, nästan-dubbletter och sådant som bara gäller storyn sållas bort. Ett fel stoppar aldrig storyn.
+- **Inställning:** **Lessons learned** i projektinställningarna (på som standard), svenska texter i `sv.ts`.
+- Tester: `lessons.test.ts` (format, gränser, prompter, API, live-anropet med en skriptad modell, maskning av hemligheter, avstängt), `e2e.test.ts` (en lärdom efter omtag i simulering).
+- **Kvar:** en mätkörning live, samma krav två gånger med och utan lärdomar, och jämför omtag per story utanför de stories som fastnade.
+
 ## Kvar
 
-Inget kvar av byggplanen.
+- Mätkörningen för lärdomar (steg 7).
 
 ## Kända saker
 - Delar av gränssnittet är fortfarande bara på engelska: inställningssidorna, flera hjälptexter (`help=`) och dynamiska meddelanden.

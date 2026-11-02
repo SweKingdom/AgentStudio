@@ -64,6 +64,7 @@ export const DOC_KINDS: Record<string, string> = {
   design_critique: "Design critique",
   delivery_plan: "Delivery plan",
   plan_review: "Plan review",
+  project_lessons: "Lessons learned",
   user_manual: "User manual",
   technical_overview: "Technical overview",
   changelog: "Changelog",

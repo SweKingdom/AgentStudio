@@ -13,6 +13,7 @@ import { answeredQuestions, findDoc, listItems, listWorkspaceFiles, type Project
 import type { Agent } from "./store.js";
 import { teamSettings } from "../team.js";
 import { checksFor } from "../checks.js";
+import { LESSONS_KIND, lessonsEnabled, parseLessons } from "../lessons.js";
 
 /** The team's conventions every agent follows — short, and identical across runs (cache-friendly). */
 function conventionsBlock(project: Project) {
@@ -152,6 +153,14 @@ function projectAnswers(projectId: string) {
   return a.length ? `## Answers from the product owner\n${a.map((x) => `- **Q:** ${x.question}\n  **A:** ${x.answer}`).join("\n")}` : "";
 }
 
+/** What earlier stories in this project were sent back for, so later ones get it right first time. */
+export function lessonsBlock(project: Project) {
+  if (!lessonsEnabled(project)) return "";
+  const doc = findDoc(project.id, LESSONS_KIND, null);
+  const lessons = doc ? parseLessons(doc.content) : [];
+  return lessons.length ? `## Lessons from earlier stories in this project (follow them)\n${lessons.map((l) => `- ${l.text}`).join("\n")}` : "";
+}
+
 /** The brief's opening section (its executive summary) — what every agent needs to know about the project. */
 function briefSummary(projectId: string, max = 1500) {
   const brief = findDoc(projectId, "project_brief", null);
@@ -174,7 +183,7 @@ export function contextFor(project: Project, agent: Agent, item?: WorkItem, o: {
     if (existing) specific.push(`## Current backlog\n${backlogTable(project.id)}`);
   } else if (role === "architect") {
     const brief = findDoc(project.id, "project_brief", null);
-    shared.push(brief ? `## Project brief\n${clip(brief.content, 12_000)}` : desc, projectAnswers(project.id));
+    shared.push(brief ? `## Project brief\n${clip(brief.content, 12_000)}` : desc, projectAnswers(project.id), lessonsBlock(project));
     if (item) {
       specific.push(itemCard(item));
       const design = findDoc(project.id, "solution_design", null);
@@ -194,6 +203,7 @@ export function contextFor(project: Project, agent: Agent, item?: WorkItem, o: {
   } else {
     // developer, qa, writer, specialists: one story at a time.
     shared.push(briefSummary(project.id) || clip(desc, 1500), projectAnswers(project.id));
+    if (role === "developer" || role === "qa") shared.push(lessonsBlock(project));
     if (item) {
       specific.push(itemCard(item));
       const design = findDoc(project.id, "solution_design", null);
