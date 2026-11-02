@@ -1,5 +1,6 @@
 import { accountStatus, addAccount, cancelLogin, listAccounts, planUsageFor, loginCommandFor, loginState, logoutAccount, openLoginTerminal, removeAccount, setActiveAccount, startLogin } from "./claudeAccounts.js";
 import { cleanAllowedCommands } from "./commands.js";
+import { openTerminal } from "./terminal.js";
 import { Router, type Request, type Response, type NextFunction } from "express";
 import multer from "multer";
 import fs from "node:fs";
@@ -706,8 +707,12 @@ api.get("/items/:id", (req, res) => {
   if (!it) return res.status(404).json({ error: "Item not found" });
   const parent = it.parent_id ? getItem(it.parent_id) : null;
   const children = listItems(it.project_id).filter((c) => c.parent_id === it.id).map((c) => ({ id: c.id, code: c.code, title: c.title, type: c.type, state: c.state, category: c.category }));
+  const project = getProject(it.project_id)!;
+  // The story's working copy on this computer, for a person who has to run something in it by hand.
+  const wt = worktreeDir(project, it.code);
   res.json({
     ...it,
+    worktree: it.branch ? { path: wt, exists: fs.existsSync(path.join(wt, ".git")) } : null,
     parent: parent ? { id: parent.id, code: parent.code, title: parent.title, type: parent.type } : null,
     children,
     phases: phaseRows("item_id = ?", it.id),
@@ -821,6 +826,17 @@ api.get("/items/:id/start-plan", (req, res) => {
   } catch (e) {
     res.status(404).json({ error: e instanceof Error ? e.message : String(e) });
   }
+});
+
+/** Open a terminal window in the story's worktree on this computer (for a manual step). */
+api.post("/items/:id/terminal", (req, res) => {
+  const it = getItem(String(req.params.id));
+  if (!it) return res.status(404).json({ error: "Item not found" });
+  const wt = worktreeDir(getProject(it.project_id)!, it.code);
+  if (!fs.existsSync(path.join(wt, ".git"))) return res.status(409).json({ error: `${it.code} has no working copy on this computer (yet, or any more: it's removed once merged).` });
+  if (!openTerminal(wt, { title: `${it.code} worktree` })) return res.status(409).json({ error: `No terminal can be opened on this system. The worktree is ${wt}` });
+  audit(req, "item.terminal", it.code, {});
+  res.json({ ok: true, path: wt });
 });
 
 api.post("/items/:id/start", (req, res) => {

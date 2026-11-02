@@ -75,6 +75,8 @@ export interface Message { id: number; project_id: string; from_agent_id: string
 export interface Activity { id: number; project_id: string | null; agent_id: string | null; run_id: string | null; item_id: string | null; type: string; summary: string; detail: string | null; created_at: string; item_code?: string; project_key?: string }
 export interface TestResult { id: number; item_id: string; kind: string; ac_ref: string; result: "pass" | "fail" | "blocked"; notes: string; iteration: number; agent_id: string; created_at: string; item_code?: string }
 export interface ItemDetail extends Omit<WorkItem, "tests" | "phases"> {
+  /** The story's working copy on this computer; null before it has a branch. */
+  worktree: { path: string; exists: boolean } | null;
   parent: { id: string; code: string; title: string; type: string } | null;
   children: { id: string; code: string; title: string; type: string; state: string; category: string }[];
   phases: Phase[]; tests: TestResult[]; messages: Message[]; activity: Activity[];
