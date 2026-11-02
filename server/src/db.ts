@@ -317,6 +317,9 @@ addColumn("work_items", "branch", "TEXT");
 addColumn("agents", "name_story", "TEXT NOT NULL DEFAULT ''");
 addColumn("work_items", "pr_url", "TEXT");
 addColumn("work_items", "ado_id", "INTEGER");
+addColumn("test_results", "waits_for", "TEXT");
+addColumn("questions", "reasoning", "TEXT");
+addColumn("questions", "also_items", "TEXT NOT NULL DEFAULT '[]'");
 
 type Row = Record<string, unknown>;
 

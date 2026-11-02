@@ -107,3 +107,16 @@ test("API: add, choose and remove accounts; a project can only pick a known one"
   assert.equal(r.active, null, "removing the active account falls back to this computer's login");
   assert.ok(!fs.existsSync(accounts.accountDir(team.id)));
 });
+
+test("plan usage: the fullest window not yet reset, per account", () => {
+  const soon = Math.floor(Date.now() / 1000) + 3600;
+  accounts.recordPlanUsage(undefined, { status: "allowed_warning", rateLimitType: "five_hour", utilization: 0.82, resetsAt: soon });
+  accounts.recordPlanUsage(undefined, { status: "allowed", rateLimitType: "seven_day", utilization: 0.4, resetsAt: soon + 86400 });
+  accounts.recordPlanUsage(undefined, { status: "rejected", rateLimitType: "seven_day_opus", resetsAt: Math.floor(Date.now() / 1000) - 60 });
+  const u = accounts.planUsageFor(null)!;
+  assert.equal(u.window, "five_hour", "the reset Opus window doesn't count any more");
+  assert.equal(u.utilization, 0.82);
+  assert.equal(accounts.usageLevel(u), 0.82);
+  const other = accounts.addAccount("Usage other");
+  assert.equal(accounts.planUsageFor({ settings: { claudeAccount: other.id } } as any), null, "another account has its own usage");
+});

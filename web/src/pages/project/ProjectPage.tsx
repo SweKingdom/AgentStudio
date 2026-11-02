@@ -10,7 +10,7 @@ import { Count } from "../../components/Count";
 import { PageSkeleton } from "../../components/Skeleton";
 import { useLocation } from "react-router-dom";
 import { PathBar, type PathStep } from "../../components/PathBar";
-import { RepoChip } from "../../components/Repo";
+import { RepoChip, isRemoteUrl } from "../../components/Repo";
 import { ProjectSettingsModal } from "./ProjectSettings";
 import { PauseMenu } from "../../components/PauseControls";
 import { Settings2 } from "lucide-react";
@@ -48,7 +48,11 @@ const STAGE_HELP: Record<string, string> = {
   approve_release: "You approve the release once everything is built, tested and documented.",
   release: "The release manager runs the checks on the base branch, smoke-tests and publishes the release with a git tag.",
   open_items: "Items are left after every stage ran: continue with them or finish the project without them.",
+  approve_untested: "QA marked acceptance criteria as untested (⛔): the release waits until you approve them.",
 };
+
+/** How full a plan window is, 0–1: Claude's own figure, else what its status implies. */
+const planLevel = (u: NonNullable<Project["planUsage"]>) => u.utilization ?? (u.status === "rejected" ? 1 : u.status === "allowed_warning" ? 0.8 : 0);
 
 function UndeliveredList({ p, base }: { p: Project; base: string }) {
   return (
@@ -156,6 +160,33 @@ export default function ProjectPage() {
     mutationFn: () => api.patch(`/projects/${p!.id}`, { settings: { budgetUsd: Math.ceil((p!.settings.budgetUsd || 0) * 1.5 + 10) } }),
     onSuccess: () => { qc.invalidateQueries({ queryKey: ["project", key] }); toast("Budget raised"); },
   });
+  const pushOn = useMutation({
+    mutationFn: () => api.patch(`/projects/${p!.id}`, { settings: { repo: { ...p!.settings.repo!, push: true } } }),
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ["project", key] }); toast(t("Push to origin is on")); },
+    onError: (e: Error) => toast(e.message, "bad"),
+  });
+  const lanes = useMutation({
+    mutationFn: () => api.patch(`/projects/${p!.id}`, { settings: { parallelism: 1 } }),
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ["project", key] }); toast(t("One lane from the next story on")); },
+    onError: (e: Error) => toast(e.message, "bad"),
+  });
+  // "Keep it local" is remembered per project in this browser.
+  const localKey = `agentstudio.localOnly.${key}`;
+  const [localOnly, setLocalOnly] = useState(() => {
+    try {
+      return localStorage.getItem(localKey) === "1";
+    } catch {
+      return false;
+    }
+  });
+  const keepLocal = () => {
+    setLocalOnly(true);
+    try {
+      localStorage.setItem(localKey, "1");
+    } catch {
+      /* not remembered */
+    }
+  };
 
   if (error) {
     const missing = /404|not found/i.test((error as Error).message);
@@ -267,7 +298,18 @@ export default function ProjectPage() {
               <b>{t(gate.label)}</b> —{" "}
               {gate.key === "review_backlog" ? "review the backlog the analyst built and answer any open questions, then approve to start technical refinement." :
                gate.key === "approve_plan" ? "check the estimates, priorities and sprint plan, then approve to start building." :
+               gate.key === "approve_untested" ? t("QA couldn't test these acceptance criteria. Verify them yourself (or send the story back), then approve the release.") :
                "every story is built, tested and documented. Approve to deploy, smoke test and publish the release."}
+              {(gate.key === "approve_untested" || gate.key === "approve_release") && p.untested.length > 0 && (
+                <>
+                  {gate.key === "approve_release" && <div className="small" style={{ marginTop: 6 }}><b>⛔ {p.untested.length} {t("acceptance criteria couldn't be tested")}</b> — {t("approving the release approves them too:")}</div>}
+                  <ul className="small" style={{ margin: "6px 0 0", paddingLeft: 18 }}>
+                    {p.untested.map((u, i) => (
+                      <li key={i}><NavLink to={`${base}/backlog?item=${u.itemId}`} style={{ color: "var(--text)", textDecoration: "underline" }}>{u.code}</NavLink> {u.ac} — <span className="muted">{u.notes.slice(0, 220)}</span></li>
+                    ))}
+                  </ul>
+                </>
+              )}
               {p.openQuestions > 0 && <> <NavLink to={`${base}/questions`} style={{ color: "var(--text)", textDecoration: "underline" }}>{p.openQuestions} open question(s)</NavLink>.</>}
             </div>
             {canWrite && <button className="btn primary sm" onClick={() => act.mutate("approve")}>{t("Approve & continue")}</button>}
@@ -278,6 +320,29 @@ export default function ProjectPage() {
             <ShieldAlert size={16} />
             <div style={{ flex: 1 }}>{p.error}</div>
             {p.error.includes("Budget") && <button className="btn sm" onClick={() => raise.mutate()}>Raise budget 50%</button>}
+          </div>
+        )}
+        {p.planUsage && planLevel(p.planUsage) >= 0.75 && p.status !== "completed" && (
+          <div className={`banner ${planLevel(p.planUsage) >= 1 ? "bad" : "warn"}`}>
+            <ShieldAlert size={16} />
+            <div style={{ flex: 1 }}>
+              <b>{t("Claude plan")}: {p.planUsage.window === "five_hour" ? t("5-hour window") : p.planUsage.window.startsWith("seven_day") ? t("weekly window") : p.planUsage.window} {Math.round(planLevel(p.planUsage) * 100)} %</b>
+              {p.planUsage.resetsAt && <> — {t("resets")} {new Date(p.planUsage.resetsAt).toLocaleString(undefined, { weekday: "short", hour: "2-digit", minute: "2-digit" })}</>}
+              . {t("Work may pause before the next stage is done.")}{" "}
+              <NavLink to="/settings/claude" style={{ color: "var(--text)", textDecoration: "underline" }}>{t("Switch Claude account")}</NavLink>
+              {p.settings.parallelism > 1 && <> {t("or lower Parallel lanes (now")} {p.settings.parallelism}).</>}
+            </div>
+            {canWrite && p.settings.parallelism > 1 && <button className="btn sm" onClick={() => lanes.mutate()}>{t("Use 1 lane")}</button>}
+          </div>
+        )}
+        {p.repoInfo && !p.repoInfo.push && isRemoteUrl(p.repoInfo.url) && !localOnly && (
+          <div className="banner warn">
+            <ShieldAlert size={16} />
+            <div style={{ flex: 1 }}>
+              <b>{t("Push to origin is off.")}</b> {t("Nothing this project builds reaches")} <span className="mono">{p.repoInfo.name}</span> — {t("branches, pull requests and releases stay on this computer.")}
+            </div>
+            {canWrite && <button className="btn primary sm" disabled={pushOn.isPending} onClick={() => pushOn.mutate()}>{t("Turn on push")}</button>}
+            <button className="btn ghost sm" onClick={keepLocal}>{t("Keep it local")}</button>
           </div>
         )}
       </div>

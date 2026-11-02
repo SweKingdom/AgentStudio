@@ -1,9 +1,11 @@
-import { accountStatus, addAccount, cancelLogin, listAccounts, loginCommandFor, loginState, logoutAccount, openLoginTerminal, removeAccount, setActiveAccount, startLogin } from "./claudeAccounts.js";
+import { accountStatus, addAccount, cancelLogin, listAccounts, planUsageFor, loginCommandFor, loginState, logoutAccount, openLoginTerminal, removeAccount, setActiveAccount, startLogin } from "./claudeAccounts.js";
+import { cleanAllowedCommands } from "./commands.js";
+import { openTerminal } from "./terminal.js";
 import { Router, type Request, type Response, type NextFunction } from "express";
 import multer from "multer";
 import fs from "node:fs";
 import path from "node:path";
-import { DATA_DIR, all, get, insert, now, parseJson, run, uid } from "./db.js";
+import { DATA_DIR, ROOT_DIR, all, get, insert, now, parseJson, run, uid } from "./db.js";
 import { emit, subscribe } from "./events.js";
 import { DEFAULT_MODELS, models } from "./pricing.js";
 import { setSetting } from "./db.js";
@@ -15,10 +17,10 @@ import { buildSystemPrompt, countPdfTokens } from "./agents/runner.js";
 import { deleteCustomKnowledge, listKnowledge, saveCustomKnowledge } from "./knowledge.js";
 import { estimateProject } from "./estimate.js";
 import { buildPlanFromText, readPdf } from "./agents/simplan.js";
-import { approveGate, buildStages, finishUndelivered, fixBug, humanTransition, isPausing, pauseAll, resumeAll, startItem, startPlan, isRunning, listJobs, pauseProject, pipelineRunning, releaseNow, reportBug, reopenProject, rerunItem, startProject, teamOf, undeliveredItems, type RerunRole } from "./orchestrator.js";
+import { approveGate, buildStages, finishUndelivered, fixBug, humanTransition, isPausing, pauseAll, resumeAll, startItem, startPlan, isRunning, listJobs, pauseProject, pipelineRunning, releaseNow, reportBug, reopenProject, rerunItem, startProject, teamOf, undeliveredItems, untestedAcs, type RerunRole } from "./orchestrator.js";
 import { chat, chatHistory } from "./chat.js";
 import { autoResumeAllowed, globalPause, spendStatus } from "./pause.js";
-import { ensureRepo, gitLog, listBranches, providerOf, repoName, testRemoteUrl, validateRepoUrl, webUrlOf } from "./git.js";
+import { ensureRepo, gitLog, listBranches, providerOf, remoteStatus, repoName, testRemoteUrl, validateRepoUrl, webUrlOf } from "./git.js";
 import { runChecks } from "./doctor.js";
 import { cleanAdoConfig } from "./ado.js";
 import { registerAdo } from "./routes/ado.js";
@@ -39,6 +41,7 @@ import {
   listProjects,
   listWorkspaceFiles,
   logActivity,
+  answerText,
   openQuestionCount,
   patchItem,
   patchProject,
@@ -346,6 +349,8 @@ function projectSummary(p: Project) {
     tokens: cost.t,
     openQuestions,
     undelivered: undeliveredItems(p.id),
+    untested: untestedAcs(p.id),
+    planUsage: claudeBackend() === "subscription" ? planUsageFor(p) : null,
     activeRuns,
   };
 }
@@ -518,6 +523,13 @@ api.patch("/projects/:pid", wrap(async (req, res) => {
       return res.status(400).json({ error: e instanceof Error ? e.message : String(e) });
     }
   }
+  if (body.settings?.commands !== undefined) {
+    try {
+      body.settings.commands = cleanAllowedCommands(body.settings.commands);
+    } catch (e) {
+      return res.status(400).json({ error: e instanceof Error ? e.message : String(e) });
+    }
+  }
   if (body.settings?.claudeAccount !== undefined) {
     const id = body.settings.claudeAccount ? String(body.settings.claudeAccount) : null;
     if (id && !listAccounts().accounts.some((a) => a.id === id)) return res.status(400).json({ error: "Unknown Claude account." });
@@ -538,14 +550,14 @@ api.patch("/projects/:pid", wrap(async (req, res) => {
       const old = p.stages.find((o) => o.key === s.key);
       return old && (old.status === "done" || old.status === "awaiting_approval") ? { ...s, status: old.status } : s;
     });
-    patch.stages.push(...p.stages.filter((s) => s.key === "open_items"));
+    patch.stages.push(...p.stages.filter((s) => s.key === "open_items" || s.key === "approve_untested"));
   } else if (body.settings?.gates !== undefined && !isRunning(p.id)) {
     const fresh = buildStages({ agent_ids: p.agent_ids, settings: patch.settings! });
     patch.stages = fresh.map((s) => {
       const old = p.stages.find((o) => o.key === s.key);
       return old && old.status === "done" ? old : s;
     });
-    patch.stages.push(...p.stages.filter((s) => s.key === "open_items"));
+    patch.stages.push(...p.stages.filter((s) => s.key === "open_items" || s.key === "approve_untested"));
   }
   const saved = patchProject(p.id, patch)!;
   if (body.settings?.repo) await ensureRepo(saved);
@@ -695,8 +707,12 @@ api.get("/items/:id", (req, res) => {
   if (!it) return res.status(404).json({ error: "Item not found" });
   const parent = it.parent_id ? getItem(it.parent_id) : null;
   const children = listItems(it.project_id).filter((c) => c.parent_id === it.id).map((c) => ({ id: c.id, code: c.code, title: c.title, type: c.type, state: c.state, category: c.category }));
+  const project = getProject(it.project_id)!;
+  // The story's working copy on this computer, for a person who has to run something in it by hand.
+  const wt = worktreeDir(project, it.code);
   res.json({
     ...it,
+    worktree: it.branch ? { path: wt, exists: fs.existsSync(path.join(wt, ".git")) } : null,
     parent: parent ? { id: parent.id, code: parent.code, title: parent.title, type: parent.type } : null,
     children,
     phases: phaseRows("item_id = ?", it.id),
@@ -714,7 +730,7 @@ api.get("/items/:id", (req, res) => {
       return [...versioned, ...legacy];
     })(),
     documents: all("SELECT id, kind, title, version, updated_at FROM documents WHERE item_id = ?", it.id),
-    questions: all("SELECT * FROM questions WHERE item_id = ? ORDER BY id", it.id),
+    questions: all("SELECT * FROM questions WHERE item_id = ? OR also_items LIKE ? ORDER BY id", it.id, `%"${it.id}"%`),
     comments: all("SELECT * FROM comments WHERE item_id = ? ORDER BY id", it.id),
     bugs: listItems(it.project_id).filter((b) => b.type === "bug" && b.parent_id === it.id).map((b) => ({ id: b.id, code: b.code, title: b.title, state: b.state })),
     busy: all("SELECT 1 FROM runs WHERE item_id = ? AND status = 'running'", it.id).length > 0 || listJobs(it.project_id).some((j) => j.itemId === it.id),
@@ -810,6 +826,17 @@ api.get("/items/:id/start-plan", (req, res) => {
   } catch (e) {
     res.status(404).json({ error: e instanceof Error ? e.message : String(e) });
   }
+});
+
+/** Open a terminal window in the story's worktree on this computer (for a manual step). */
+api.post("/items/:id/terminal", (req, res) => {
+  const it = getItem(String(req.params.id));
+  if (!it) return res.status(404).json({ error: "Item not found" });
+  const wt = worktreeDir(getProject(it.project_id)!, it.code);
+  if (!fs.existsSync(path.join(wt, ".git"))) return res.status(409).json({ error: `${it.code} has no working copy on this computer (yet, or any more: it's removed once merged).` });
+  if (!openTerminal(wt, { title: `${it.code} worktree` })) return res.status(409).json({ error: `No terminal can be opened on this system. The worktree is ${wt}` });
+  audit(req, "item.terminal", it.code, {});
+  res.json({ ok: true, path: wt });
 });
 
 api.post("/items/:id/start", (req, res) => {
@@ -1301,24 +1328,71 @@ api.get("/projects/:pid/file-version", (req, res) => {
 });
 
 api.get("/projects/:pid/questions", (req, res) => {
-  res.json(all("SELECT q.*, w.code item_code FROM questions q LEFT JOIN work_items w ON w.id = q.item_id WHERE q.project_id = ? ORDER BY q.id", String(req.params.pid)));
+  const codes = new Map(listItems(String(req.params.pid)).map((i) => [i.id, i.code]));
+  const rows = all<{ also_items: string }>("SELECT q.*, w.code item_code FROM questions q LEFT JOIN work_items w ON w.id = q.item_id WHERE q.project_id = ? ORDER BY q.id", String(req.params.pid));
+  // A merged question lists every story that asked it.
+  res.json(rows.map((q) => ({ ...q, also_codes: (JSON.parse(q.also_items || "[]") as string[]).map((id) => codes.get(id)).filter(Boolean) })));
 });
 
 api.post("/questions/:id/answer", (req, res) => {
-  const q = get<{ id: number; project_id: string; item_id: string | null; asked_by: string; question: string }>("SELECT * FROM questions WHERE id = ?", Number(req.params.id));
+  const q = get<{ id: number; project_id: string; item_id: string | null; also_items: string; asked_by: string; question: string }>("SELECT * FROM questions WHERE id = ?", Number(req.params.id));
   if (!q) return res.status(404).json({ error: "Question not found" });
-  const answer = String(req.body?.answer ?? "").trim();
-  run("UPDATE questions SET answer = ?, answered_at = ? WHERE id = ?", answer, now(), q.id);
-  if (answer) {
-    postMessage({ projectId: q.project_id, from: "human", to: q.asked_by ?? "orchestrator", itemId: q.item_id, kind: "answer", content: answer });
-    if (q.item_id) {
-      const it = getItem(q.item_id);
+  // The decision is what agents act on; the reasoning (optional) tells them why. `answer` is the older one-field form.
+  const decision = String(req.body?.decision ?? req.body?.answer ?? "").trim();
+  const reasoning = String(req.body?.reasoning ?? "").trim();
+  if (!decision && reasoning) return res.status(400).json({ error: "Give a decision — the reasoning alone isn't an answer." });
+  run("UPDATE questions SET answer = ?, reasoning = ?, answered_at = ? WHERE id = ?", decision, reasoning || null, now(), q.id);
+  if (decision) {
+    postMessage({ projectId: q.project_id, from: "human", to: q.asked_by ?? "orchestrator", itemId: q.item_id, kind: "answer", content: answerText({ answer: decision, reasoning }) });
+    for (const itemId of [q.item_id, ...(JSON.parse(q.also_items || "[]") as string[])]) {
+      const it = itemId ? getItem(itemId) : undefined;
       if (it?.state === "Requires additional information" && openQuestionCount(it.id) === 0) patchItem(it.id, { state: "Ready for Refinement" });
     }
   }
   emit({ type: "question", projectId: q.project_id });
   res.json({ ok: true });
 });
+
+/** A sample requirements spec with the usual decisions already made (stack, time zone, sign-in, out of scope), so a
+ *  new project starts with fewer open questions. Markdown, from docs/requirements-template.md. */
+api.get("/templates/requirements", (_req, res) => {
+  const file = path.join(ROOT_DIR, "docs", "requirements-template.md");
+  if (!fs.existsSync(file)) return res.status(404).json({ error: "The requirements template is missing." });
+  res.type("text/markdown").send(fs.readFileSync(file, "utf8"));
+});
+
+/** What a person still has to do after the agents' release: deployment steps, ACs nobody could test, what isn't
+ *  delivered, and whether the code and the release tag are on the remote. */
+api.get(
+  "/projects/:pid/next-steps",
+  wrap(async (req, res) => {
+    const p = getProject(String(req.params.pid));
+    if (!p) return res.status(404).json({ error: "Project not found" });
+    const release = get<{ version: string; created_at: string; status: string }>("SELECT version, created_at, status FROM releases WHERE project_id = ? ORDER BY created_at DESC LIMIT 1", p.id) ?? null;
+    const shipped = listItems(p.id).filter((i) => ["story", "task", "bug"].includes(i.type) && ["Deployed (Done)", "Release Ready", "Smoke Testing"].includes(i.state));
+    const steps = shipped
+      .filter((i) => i.manual_steps.trim() || i.tags.some((t) => /deploy|manual step/i.test(t)))
+      .map((i) => ({
+        itemId: i.id,
+        code: i.code,
+        title: i.title,
+        pre: i.tags.some((t) => /pre-deploy/i.test(t)),
+        post: i.tags.some((t) => /post-deploy/i.test(t)),
+        manual: i.tags.some((t) => /manual step/i.test(t)),
+        text: i.manual_steps.trim(),
+      }));
+    const repo = p.settings.repo;
+    const tag = release ? `v${release.version.replace(/^v/, "")}` : null;
+    const remote = repo?.url && repo.push ? await remoteStatus(p, tag) : { reachable: false, basePushed: null, unpushed: null, tagPushed: null };
+    res.json({
+      release,
+      steps,
+      untested: untestedAcs(p.id, ["Release Ready", "Smoke Testing", "Deployed (Done)"]),
+      issues: undeliveredItems(p.id),
+      github: repo?.url ? { url: repo.url, webUrl: webUrlOf(repo.url), branch: repo.branch || "main", push: repo.push === true, tag, ...remote } : null,
+    });
+  }),
+);
 
 api.get("/projects/:pid/releases", (req, res) => {
   res.json(all("SELECT * FROM releases WHERE project_id = ? ORDER BY created_at DESC", String(req.params.pid)));

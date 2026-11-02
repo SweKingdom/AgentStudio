@@ -103,7 +103,7 @@ export function itemCard(it: WorkItem, opts: { fields?: (keyof WorkItem)[] } = {
       return v ? `### ${label}\n${v}` : "";
     })
     .filter(Boolean);
-  const answers = answeredQuestions(it.project_id).filter((q) => q.item_id === it.id);
+  const answers = answeredQuestions(it.project_id).filter((q) => q.items.includes(it.id));
   if (answers.length) fields.push(`### Answers from the product owner\n${answers.map((a) => `- **Q:** ${a.question}\n  **A:** ${a.answer}`).join("\n")}`);
   return [...head, ...fields].join("\n");
 }

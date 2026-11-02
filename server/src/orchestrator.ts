@@ -6,7 +6,8 @@ import { AbortedError, BudgetExceededError, LimitReachedError, PauseRequestedErr
 import type { LimitKind } from "./errors.js";
 import { autoResumeAllowed, globalPause, pauseLabel, setGlobalPause, spendStatus, type JobSpec } from "./pause.js";
 import { ROLES } from "./agents/roles.js";
-import { appSettings, effectiveMode } from "./settings.js";
+import { appSettings, claudeBackend, effectiveMode } from "./settings.js";
+import { planUsageFor, usageLevel } from "./claudeAccounts.js";
 import { failedChecks } from "./agents/context.js";
 import { baseNeedsSetup } from "./checks.js";
 import { fill, teamSettings } from "./team.js";
@@ -14,6 +15,7 @@ import { ensureItemBranch, finishMerge, mergeItemBranch, pushRefs } from "./git.
 import { PrConflictError, commentQaFindings, integrateViaPr, openDraftPr, prRepoFor } from "./pullrequests.js";
 import { needsCodeReview, runCodeReview } from "./review.js";
 import {
+  addQuestion,
   createItem,
   endPhase,
   findDoc,
@@ -228,6 +230,8 @@ export function approveGate(projectId: string) {
   if (!gate) throw new Error("Nothing is waiting for approval");
   if (gate.key === OPEN_ITEMS) return continueUndelivered(projectId);
   setStage(projectId, gate.key, "done");
+  // The release approval was given with the untested ACs on screen: it counts as approving them too.
+  if (gate.key === "approve_release" && untestedAcs(projectId).length) markUntestedApproved(projectId);
   postMessage({ projectId, from: "human", to: "orchestrator", kind: "approval", content: `Approved: ${gate.label}` });
   logActivity({ projectId, agentId: "human", type: "approval", summary: `✅ Approved: ${gate.label}` });
   startProject(projectId);
@@ -247,6 +251,8 @@ async function loop(projectId: string, signal: AbortSignal) {
       patchProject(projectId, { status: "awaiting_approval" });
       return;
     }
+    // ⛔ ACs nobody could test never pass silently: the release waits for your approval of them, even on autopilot.
+    if (next.key === "release" && untestedAcs(projectId).length && p.stages.find((s) => s.key === UNTESTED)?.status !== "done") return openUntestedGate(projectId);
     if (next.gate) {
       setStage(projectId, next.key, "awaiting_approval");
       patchProject(projectId, { status: "awaiting_approval" });
@@ -254,6 +260,7 @@ async function loop(projectId: string, signal: AbortSignal) {
       logActivity({ projectId, agentId: "orchestrator", type: "gate", summary: `⏸ Waiting for approval: ${next.label}` });
       return;
     }
+    planUsageCheck(projectId, next);
     setStage(projectId, next.key, "running");
     await runStage(getProject(projectId)!, next.key, signal);
     setStage(projectId, next.key, "done");
@@ -268,6 +275,52 @@ function finishProject(projectId: string) {
   const delivered = items.filter((i) => DELIVERED_STATES.includes(i.state)).length;
   const cost = projectCost(projectId);
   logActivity({ projectId, agentId: "orchestrator", type: "pipeline", summary: `🏁 Project completed — ${delivered} of ${items.length} items delivered, $${cost.toFixed(2)}` });
+}
+
+// ---------------------------------------------------------------------------------------------------------------------
+// Untested acceptance criteria: QA marked them ⛔ (couldn't test). The release needs your approval of each.
+
+const UNTESTED = "approve_untested";
+
+export interface UntestedAc {
+  itemId: string;
+  code: string;
+  ac: string;
+  notes: string;
+}
+
+/** ⛔ results in the latest QA round of each story about to be released (or, with `states`, in those states). */
+export function untestedAcs(projectId: string, states = ["Release Ready", "Smoke Testing"]): UntestedAc[] {
+  return listItems(projectId)
+    .filter((i) => states.includes(i.state))
+    .flatMap((it) =>
+      all<{ ac_ref: string; notes: string }>(
+        "SELECT ac_ref, notes FROM test_results WHERE item_id = ? AND kind = 'qa' AND result = 'blocked' AND iteration = (SELECT MAX(iteration) FROM test_results WHERE item_id = ? AND kind = 'qa') ORDER BY id",
+        it.id,
+        it.id,
+      ).map((r) => ({ itemId: it.id, code: it.code, ac: r.ac_ref, notes: r.notes })),
+    );
+}
+
+const untestedStage = (status: StageState["status"]): StageState => ({ key: UNTESTED, role: "human", label: "Approve untested ACs", gate: true, status });
+
+/** The untested-ACs approval sits right before the release stage. */
+function withUntestedStage(stages: StageState[], status: StageState["status"]) {
+  const rest = stages.filter((s) => s.key !== UNTESTED);
+  const at = rest.findIndex((s) => s.key === "release");
+  return at < 0 ? [...rest, untestedStage(status)] : [...rest.slice(0, at), untestedStage(status), ...rest.slice(at)];
+}
+
+function openUntestedGate(projectId: string) {
+  const list = untestedAcs(projectId);
+  const p = getProject(projectId)!;
+  patchProject(projectId, { status: "awaiting_approval", stage: UNTESTED, stages: withUntestedStage(p.stages, "awaiting_approval") });
+  postMessage({ projectId, from: "orchestrator", to: "human", kind: "question", content: `${list.length} acceptance criteria couldn't be tested:\n${list.map((u) => `- ${u.code} ${u.ac}: ${u.notes}`.slice(0, 300)).join("\n")}\n\nVerify them yourself, then approve the release — or send the stories back.` });
+  logActivity({ projectId, agentId: "orchestrator", type: "gate", summary: `⏸ ${list.length} untested AC(s) (${[...new Set(list.map((u) => u.code))].join(", ")}) — the release waits for your approval` });
+}
+
+function markUntestedApproved(projectId: string) {
+  patchProject(projectId, { stages: withUntestedStage(getProject(projectId)!.stages, "done") });
 }
 
 // ---------------------------------------------------------------------------------------------------------------------
@@ -337,7 +390,7 @@ function continueUndelivered(projectId: string) {
   const p = getProject(projectId)!;
   patchProject(projectId, {
     stage: null,
-    stages: p.stages.filter((s) => s.key !== OPEN_ITEMS).map((s) => (again.has(s.key) && s.status !== "skipped" ? { ...s, status: "pending" } : s)),
+    stages: p.stages.filter((s) => s.key !== OPEN_ITEMS && s.key !== UNTESTED).map((s) => (again.has(s.key) && s.status !== "skipped" ? { ...s, status: "pending" } : s)),
   });
   postMessage({ projectId, from: "human", to: "orchestrator", kind: "approval", content: `Continue with ${left.length} undelivered item(s)` });
   logActivity({ projectId, agentId: "human", type: "approval", summary: `▶ Continue with ${left.length} undelivered item(s): ${left.map((i) => i.code).join(", ")}` });
@@ -385,6 +438,16 @@ function addPhase(projectId: string, itemId: string, phase: string, agentId: str
   insert("item_phases", { project_id: projectId, item_id: itemId, phase, agent_id: agentId, iteration: 1, started_at: startedAt, ended_at: endedAt, outcome: "done" });
 }
 
+/** Requirements the agents can't meet inside the repository are found while the backlog is built, not when a story
+ *  is stuck: the product owner decides up front whether each is automated or done by hand. */
+const MANUAL_STEPS_TASK = `
+
+## Manual steps — find them now
+Agents only write files in the repository and run the project's checks and allowed commands. Find every requirement they can't meet that way: generated binaries or databases, app-store or package releases, signing and certificates, secrets and accounts, cloud or hosting resources, DNS, production data loads, anything done by hand in a portal.
+- For each, ask the product owner with ask_human (linked to the story): automate it (a CI workflow or a script in the repository, which becomes part of the story) or do it manually (a person runs given steps)?
+- Tag those stories "Manual step" and describe the step in manual_steps (what, where, exact commands if known).
+- In the project brief, list them under "Manual steps".`;
+
 async function stageRequirements(p: Project, signal: AbortSignal) {
   const agent = agentsFor(p, "requirements")[0];
   const started = now();
@@ -399,9 +462,10 @@ async function stageRequirements(p: Project, signal: AbortSignal) {
     stage: "requirements",
     signal,
     pdfBase64,
-    task: pdfBase64
-      ? "The attached PDF is the customer's requirements document. Build the project brief and the complete backlog as described in your instructions."
-      : "There is no PDF — use the product owner's description above as the requirements. Build the project brief and the complete backlog as described in your instructions.",
+    task:
+      (pdfBase64
+        ? "The attached PDF is the customer's requirements document. Build the project brief and the complete backlog as described in your instructions."
+        : "There is no PDF — use the product owner's description above as the requirements. Build the project brief and the complete backlog as described in your instructions.") + MANUAL_STEPS_TASK,
   });
   const ended = now();
   for (const it of listItems(p.id).filter((i) => i.type === "story" || i.type === "task")) {
@@ -507,6 +571,8 @@ async function stageDelivery(p: Project, signal: AbortSignal) {
   const inFlight = new Set<Promise<void>>();
   const parallelism = Math.max(1, getProject(p.id)!.settings.parallelism);
   const held = new Set<string>();
+  /** Stories that stopped to wait (for the product owner, or another story's merge) and resume once that's done. */
+  const parked = new Set<string>();
   let setupNoted = false;
 
   // A story builds on its dependencies' code, which reaches the base branch only once they are delivered (merged).
@@ -544,6 +610,13 @@ async function stageDelivery(p: Project, signal: AbortSignal) {
       pending.push(w);
       logActivity({ projectId: p.id, agentId: "orchestrator", itemId: w.id, type: "pipeline", summary: `▶ ${w.code}'s questions are answered — it joins the delivery` });
     }
+    for (const id of [...parked]) {
+      const it = getItem(id)!;
+      if (waitingForAnswers(it) || !depsReady(it)) continue;
+      parked.delete(id);
+      started.delete(id);
+      logActivity({ projectId: p.id, agentId: "orchestrator", itemId: id, type: "pipeline", summary: `▶ ${it.code} resumes — what it waited for is done` });
+    }
     const fresh = pending.filter((i) => !started.has(i.id)).map((i) => getItem(i.id)!);
     for (const it of fresh) {
       const d = stuckDependency(it);
@@ -576,6 +649,9 @@ async function stageDelivery(p: Project, signal: AbortSignal) {
       const startAt = it.state === "In Peer Testing" ? "qa" : "development";
       const job: Promise<void> = refineIfNeeded(p.id, it.id, signal, "delivery")
         .then(() => deliverItem(p.id, it.id, dev, signal, { startAt }))
+        .then((r) => {
+          if (r === "parked") parked.add(it.id);
+        })
         .catch((e) => {
           // Graceful pause inside a lane: the lane stops at its checkpoint; the scheduler drains the other lanes.
           if (e instanceof PauseRequestedError) return;
@@ -654,8 +730,13 @@ function prDescription(it: WorkItem, summary: string) {
 async function startBranch(projectId: string, itemId: string) {
   const it = getItem(itemId)!;
   const base = getProject(projectId)!.settings.repo?.branch || "main";
-  const { branch, created, conflicts } = await ensureItemBranch(getProject(projectId)!, it);
+  const { branch, created, conflicts, remote } = await ensureItemBranch(getProject(projectId)!, it);
   if (it.branch !== branch) patchItem(itemId, { branch });
+  if (remote.pulled) logActivity({ projectId, agentId: "orchestrator", itemId, type: "file", summary: `↓ ${it.code}: took ${remote.pulled} commit(s) pushed to origin/${branch} before continuing` });
+  if (remote.warning) {
+    logActivity({ projectId, agentId: "orchestrator", itemId, type: "gate", summary: `⚠ ${it.code}: ${remote.warning}` });
+    insert("comments", { project_id: projectId, item_id: itemId, author_id: "orchestrator", content: `⚠ ${remote.warning}`, created_at: now() });
+  }
   if (created) logActivity({ projectId, agentId: "orchestrator", itemId, type: "file", summary: `Created branch ${branch} for ${it.code} from ${base}` });
   if (conflicts.length) logActivity({ projectId, agentId: "orchestrator", itemId, type: "gate", summary: `⚠ ${it.code}: bringing ${base} into ${branch} left conflicts in ${conflicts.join(", ")} — the developer resolves them first` });
   return conflicts;
@@ -759,7 +840,84 @@ async function integrateItem(projectId: string, itemId: string, dev: Agent | und
   }
 }
 
-async function deliverItem(projectId: string, itemId: string, dev: Agent | undefined, signal: AbortSignal, opts: DeliverOptions = {}) {
+/** Which agents' estimated work belongs to each stage. */
+const STAGE_ROLES: Record<string, string[]> = { requirements: ["requirements"], architecture: ["architect"], planning: ["planner"], delivery: ["developer", "qa", "writer"], release: ["release"] };
+
+/** The up-front estimate of what a stage still costs (delivery: the stories not yet delivered), or null. */
+export function stageEstimateUsd(projectId: string, stageKey: string): number | null {
+  const est = getProject(projectId)?.estimate as { storyPoints?: number; agents?: { role: string; costUsd: number }[] } | null;
+  const roles = STAGE_ROLES[stageKey];
+  if (!est?.agents?.length || !roles) return null;
+  const total = est.agents.filter((a) => roles.includes(a.role)).reduce((n, a) => n + a.costUsd, 0);
+  if (stageKey !== "delivery" || !est.storyPoints) return total || null;
+  const left = listItems(projectId).filter((i) => ["story", "task", "bug"].includes(i.type) && !DELIVERED_STATES.includes(i.state)).reduce((n, i) => n + (i.story_points ?? 3), 0);
+  return total ? (total * left) / est.storyPoints : null;
+}
+
+/** Before a stage starts on the Claude plan: if the plan's window is nearly used, say what the stage will need and
+ *  what helps (another account, fewer lanes), instead of finding out from a refused call halfway. */
+function planUsageCheck(projectId: string, stage: StageState) {
+  const p = getProject(projectId)!;
+  if (isSimulated(p) || claudeBackend() !== "subscription") return;
+  const usage = planUsageFor(p);
+  if (!usage || usageLevel(usage) < 0.75) return;
+  const pct = Math.round(usageLevel(usage) * 100);
+  const window = usage.window === "five_hour" ? "5-hour" : usage.window.startsWith("seven_day") ? "weekly" : usage.window;
+  const resets = usage.resetsAt ? `, resets ${new Date(usage.resetsAt).toLocaleString("en-GB", { weekday: "short", hour: "2-digit", minute: "2-digit" })}` : "";
+  const est = stageEstimateUsd(projectId, stage.key);
+  logActivity({
+    projectId,
+    agentId: "orchestrator",
+    type: "gate",
+    summary: `⚠ Claude plan: ${window} window at ${pct} %${resets} before ${stage.label}${est ? ` (estimated ~$${est.toFixed(2)} of work)` : ""} — it may pause midway. Switch account (Settings → Claude account)${p.settings.parallelism > 1 ? ` or lower Parallel lanes (now ${p.settings.parallelism})` : ""}.`,
+  });
+}
+
+/** "AC 2 — negative" and "AC 2" are the same criterion. */
+const acKey = (ref: string) => ref.match(/\bAC\s*(\d+)/i)?.[1] ? `AC ${ref.match(/\bAC\s*(\d+)/i)![1]}` : ref.trim().toLowerCase();
+
+/** ACs QA failed in each of its last two rounds on the story (the story's whole history, across runs). */
+export function repeatedQaFailures(itemId: string): string[] {
+  const rounds = all<{ iteration: number }>("SELECT DISTINCT iteration FROM test_results WHERE item_id = ? AND kind = 'qa' ORDER BY iteration DESC LIMIT 2", itemId);
+  if (rounds.length < 2) return [];
+  const failed = (iteration: number) =>
+    new Set(all<{ ac_ref: string }>("SELECT ac_ref FROM test_results WHERE item_id = ? AND kind = 'qa' AND result = 'fail' AND iteration = ?", itemId, iteration).map((r) => acKey(r.ac_ref)));
+  const [last, before] = [failed(rounds[0].iteration), failed(rounds[1].iteration)];
+  return [...last].filter((ac) => before.has(ac));
+}
+
+/** What a story is estimated to cost: its share (by story points) of the up-front estimate's per-story work. */
+export function storyEstimateUsd(projectId: string, itemId: string): number | null {
+  const est = getProject(projectId)?.estimate as { storyPoints?: number; agents?: { role: string; costUsd: number }[] } | null;
+  const it = getItem(itemId);
+  if (!est?.agents?.length || !est.storyPoints || !it) return null;
+  const perStory = est.agents.filter((a) => ["developer", "qa", "writer"].includes(a.role)).reduce((n, a) => n + a.costUsd, 0);
+  return perStory > 0 ? (perStory * (it.story_points ?? 3)) / est.storyPoints : null;
+}
+
+/** Alert once when a story has cost more than twice its estimate. */
+export function costGuard(projectId: string, itemId: string) {
+  const estimate = storyEstimateUsd(projectId, itemId);
+  if (!estimate) return;
+  const cost = all<{ c: number }>("SELECT COALESCE(SUM(cost_usd), 0) c FROM llm_calls WHERE item_id = ?", itemId)[0].c;
+  if (cost <= 2 * estimate) return;
+  const it = getItem(itemId)!;
+  if (all("SELECT 1 FROM activity WHERE item_id = ? AND type = 'cost'", itemId).length) return;
+  const text = `💸 ${it.code} has cost $${cost.toFixed(2)}, more than twice its estimate ($${estimate.toFixed(2)}).`;
+  logActivity({ projectId, agentId: "orchestrator", itemId, type: "cost", summary: `${text} Check whether it's stuck before more rounds run.` });
+  postMessage({ projectId, from: "orchestrator", to: "human", itemId, kind: "question", content: `${text} Look at its QA findings and activity: pause it, answer what blocks it, or let it continue.` });
+}
+
+/** Questions for the product owner on a story; it doesn't advance until they're answered. */
+function askProductOwner(projectId: string, itemId: string, askedBy: string, questions: string[]) {
+  for (const q of questions) {
+    addQuestion(projectId, q.slice(0, 2000), itemId, askedBy);
+    postMessage({ projectId, from: askedBy, to: "human", itemId, kind: "question", content: q.slice(0, 2000) });
+  }
+}
+
+/** "parked": the story waits (for the product owner, or another story) and resumes where it left off once that's done. */
+async function deliverItem(projectId: string, itemId: string, dev: Agent | undefined, signal: AbortSignal, opts: DeliverOptions = {}): Promise<"parked" | undefined> {
   if (waitingForAnswers({ id: itemId })) {
     const it = getItem(itemId)!;
     patchItem(itemId, { state: "Requires additional information" });
@@ -834,13 +992,14 @@ ${findings}`
                 : `Implement ${item.code} "${item.title}". Read it with get_item first. Finish with complete_development.${commentsBlock(itemId)}${setupBlock(project())}`),
       });
       endPhase(devPhase);
+      costGuard(projectId, itemId);
       devSummary = r.outcome.devCompleted ?? r.summary;
       lastDevSummary = devSummary;
-      // The developer asked the product owner something: wait for the answer instead of guessing in more rounds.
+      // The developer asked the product owner something (a question, or a manual step to run): wait for the answer
+      // instead of guessing in more rounds, then continue development where it stopped.
       if (waitingForAnswers({ id: itemId })) {
-        patchItem(itemId, { state: "Requires additional information" });
-        logActivity({ projectId, agentId: "orchestrator", itemId, type: "gate", summary: `⏸ ${item.code} waits for your answer to the developer's question` });
-        return;
+        logActivity({ projectId, agentId: "orchestrator", itemId, type: "gate", summary: `⏸ ${item.code} waits for your answer to the developer's question or manual step` });
+        return "parked";
       }
       // Not handed over (the checks fail, or complete_development wasn't called): QA can't approve it, so it isn't run.
       if (r.outcome.devCompleted === undefined) {
@@ -857,6 +1016,13 @@ ${r.summary.slice(0, 2000)}`;
         patchItem(itemId, { rework_count: (getItem(itemId)!.rework_count ?? 0) + 1 });
         logActivity({ projectId, agentId: "orchestrator", itemId, type: "note", summary: `↩ ${item.code} wasn't handed over — back to development, QA skipped` });
         continue;
+      }
+      // An AC met differently than written isn't the developer's call: the product owner decides before QA.
+      if (r.outcome.deviations?.length) {
+        askProductOwner(projectId, itemId, dev.id, r.outcome.deviations.map((d) => `${item.code} ${d.ac} is met differently than written: ${d.how} — is that acceptable, or must it be met as written?`));
+        patchItem(itemId, { state: "In Peer Testing" });
+        logActivity({ projectId, agentId: "orchestrator", itemId, type: "gate", summary: `⏸ ${item.code} waits for your decision on ${r.outcome.deviations.length} AC(s) the developer met differently than written` });
+        return "parked";
       }
     }
     item = patchItem(itemId, { state: "In Peer Testing" });
@@ -890,6 +1056,24 @@ ${r.summary.slice(0, 2000)}`;
     qaNotes = q.outcome.review?.findings ?? "";
     endPhase(qaPhase, verdict);
     if (verdict === "approved") {
+      // QA approved an AC by reading it differently, or more weakly met than written: the product owner decides.
+      if (q.outcome.reinterpretations?.length) {
+        askProductOwner(projectId, itemId, tester.id, q.outcome.reinterpretations.map((x) => `QA would approve ${item.code} ${x.ac} only on a reading that differs from its wording: ${x.how} — do you accept that, or must it be met as written?`));
+        logActivity({ projectId, agentId: "orchestrator", itemId, type: "gate", summary: `⏸ ${item.code} waits for your decision on ${q.outcome.reinterpretations.length} AC(s) QA reinterpreted` });
+        return "parked";
+      }
+      // ⛔ ACs that need another story's code: wait for it to be merged and test again, instead of passing untested.
+      const needs = [...new Set((q.outcome.waitsFor ?? []).map((w) => w.code))].filter((code) => {
+        const d = listItems(projectId).find((x) => x.code === code);
+        return d && !DELIVERED_STATES.includes(d.state);
+      });
+      if (needs.length) {
+        const cur = getItem(itemId)!;
+        patchItem(itemId, { depends_on: [...new Set([...cur.depends_on, ...needs])] });
+        const acs = (q.outcome.waitsFor ?? []).filter((w) => needs.includes(w.code)).map((w) => `${w.ac} (needs ${w.code})`);
+        logActivity({ projectId, agentId: "orchestrator", itemId, type: "gate", summary: `⏸ ${item.code} waits for ${needs.join(", ")} to be merged: ${acs.join(", ")} can't be tested before that` });
+        return "parked";
+      }
       if (await reviewPasses(iteration, n)) {
         approved = true;
         patchItem(itemId, { state: "Ready for UAT" });
@@ -905,6 +1089,17 @@ ${r.summary.slice(0, 2000)}`;
     await commentQaFindings(projectId, itemId, { iteration, findings, tester: tester.name });
     const report = findDoc(projectId, "test_report", itemId);
     postMessage({ projectId, from: tester.id, to: dev?.id ?? "human", itemId, kind: "rework", content: `${findings}${report ? `\n\nTest report v${report.version} with screenshots is attached to ${getItem(itemId)!.code}.` : ""}` });
+    costGuard(projectId, itemId);
+    // The same AC failing two QA rounds in a row: another rework round is unlikely to fix it. Ask instead of re-running.
+    const repeated = repeatedQaFailures(itemId);
+    if (repeated.length) {
+      askProductOwner(projectId, itemId, tester.id, [
+        `QA failed ${item.code} ${repeated.join(", ")} in two rounds in a row. Latest findings:\n${findings.slice(0, 1500)}\n\nHow should it go on: rework with your guidance (say what), change or drop the AC, or accept it as it is?`,
+      ]);
+      patchItem(itemId, { state: "In Progress" });
+      logActivity({ projectId, agentId: "orchestrator", itemId, type: "gate", summary: `⏸ ${item.code} paused: ${repeated.join(", ")} failed QA twice in a row — waiting for your decision instead of another round` });
+      return "parked";
+    }
     if (!dev) break;
   }
 
@@ -1096,7 +1291,7 @@ export function startPlan(itemId: string) {
   steps.push({ role: "developer", agent: team("developer")?.name ?? null, what: "Build" });
   steps.push({ role: "qa", agent: team("qa")?.name ?? null, what: "Peer test (rework loop)" });
   steps.push({ role: "writer", agent: team("writer")?.name ?? null, what: "Documentation" });
-  const open = all<{ n: number }>("SELECT COUNT(*) n FROM questions WHERE item_id = ? AND (answer IS NULL OR answer = '')", it.id)[0].n;
+  const open = openQuestionCount(it.id);
   const reasons: string[] = [];
   if (!["story", "task", "bug"].includes(it.type)) reasons.push("Only stories, tasks and bugs can be started.");
   if (STARTED.includes(it.state)) reasons.push(`${it.code} is already past this point (${it.state}).`);

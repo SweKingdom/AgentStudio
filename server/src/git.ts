@@ -196,18 +196,46 @@ export function ensureItemBranch(project: Pick<Project, "key" | "settings">, ite
       const branch = item.branch || branchNameFor(item);
       // A task worked on before (a retry, or re-opened) continues on its branch, brought up to date with the base
       // branch first: work merged since then (shared setup, other stories) must be there to build on.
-      if (fs.existsSync(path.join(wt, ".git"))) return { branch, created: false, conflicts: await updateFromBase(wt, base, item.code) };
+      // It first takes what was pushed to its branch on origin meanwhile (e.g. a file someone committed by hand).
+      const reuse = async () => {
+        const remote = await syncFromOrigin(project, wt, branch, item.code);
+        return { branch, created: false, conflicts: await updateFromBase(wt, base, item.code), remote };
+      };
+      if (fs.existsSync(path.join(wt, ".git"))) return reuse();
       fs.mkdirSync(path.dirname(wt), { recursive: true });
       await tryGit(main, ["worktree", "prune"]);
       const exists = (await git(main, ["branch", "--list", branch])).trim();
       if (exists) {
         await git(main, ["worktree", "add", "-q", wt, branch]);
-        return { branch, created: false, conflicts: await updateFromBase(wt, base, item.code) };
+        return reuse();
       }
       await git(main, ["worktree", "add", "-q", "-b", branch, wt, base]);
-      return { branch, created: true, conflicts: [] as string[] };
+      return { branch, created: true, conflicts: [] as string[], remote: { pulled: 0 } as RemoteSync };
     }),
   );
+}
+
+/** What a task branch took from origin before work on it resumed. `warning`: origin has commits it couldn't take. */
+export interface RemoteSync {
+  pulled: number;
+  warning?: string;
+}
+
+/** Fetch the task branch from origin and fast-forward the worktree to it when origin is ahead. A branch that has
+ *  diverged from origin isn't merged automatically: the story gets a warning instead. No remote, no branch there or
+ *  no network: nothing to do. */
+async function syncFromOrigin(project: Pick<Project, "settings">, wt: string, branch: string, code: string): Promise<RemoteSync> {
+  if (!project.settings.repo?.url) return { pulled: 0 };
+  const f = await remoteGit(wt, ["fetch", "-q", "origin", `refs/heads/${branch}:refs/remotes/origin/${branch}`]);
+  if (!f.ok) return { pulled: 0 };
+  const remote = `origin/${branch}`;
+  if ((await tryGit(wt, ["merge-base", "--is-ancestor", remote, "HEAD"])).ok) return { pulled: 0 };
+  if (await mergeInProgress(wt)) return { pulled: 0, warning: `${remote} has new commits, but a merge is in progress on the local branch — they weren't taken.` };
+  await commitPending(wt, `${code}: work in progress`);
+  const count = Number((await git(wt, ["rev-list", "--count", `HEAD..${remote}`])).trim()) || 0;
+  const ff = await tryGit(wt, ["merge", "-q", "--ff-only", remote]);
+  if (ff.ok) return { pulled: count };
+  return { pulled: 0, warning: `${remote} has ${count} commit(s) the local branch doesn't, and the two have diverged, so they couldn't be fast-forwarded. Merge ${remote} into ${branch} by hand (worktree ${wt}) or the story keeps working without them.` };
 }
 
 const mergeInProgress = async (wt: string) => (await tryGit(wt, ["rev-parse", "-q", "--verify", "MERGE_HEAD"])).ok;
@@ -432,6 +460,54 @@ export async function testRemoteUrl(url: string) {
 }
 
 /** The files a task changed on its branch (committed or not), relative to where it left the base branch. */
+/** The worktree's uncommitted files after a command: changed or new, and those .gitignore keeps out. */
+export function worktreeStatus(project: Pick<Project, "key" | "settings">, code: string) {
+  return serial(project.key, async () => {
+    const wt = worktreeDir(project, code);
+    const lines = (await git(wt, ["status", "--porcelain", "--untracked-files=all", "--ignored"])).split("\n").filter(Boolean);
+    const file = (l: string) => l.slice(3).replace(/^"|"$/g, "");
+    return {
+      changed: lines.filter((l) => !l.startsWith("!!")).map(file),
+      ignored: lines.filter((l) => l.startsWith("!!")).map(file).filter((f) => !/(^|\/)node_modules\//.test(f)),
+    };
+  });
+}
+
+/** Stage files .gitignore would keep out (e.g. a generated database), so the run's commit includes them. Paths stay
+ *  inside the worktree. */
+export function keepFiles(project: Pick<Project, "key" | "settings">, code: string, paths: string[]) {
+  return serial(project.key, async () => {
+    const wt = worktreeDir(project, code);
+    const inside = paths.map((p) => p.replace(/\\/g, "/").trim()).filter((p) => p && !path.isAbsolute(p) && !p.split("/").includes("..") && fs.existsSync(path.join(wt, p)));
+    if (inside.length) await git(wt, [...ARM_IDENTITY, "add", "-f", "--", ...inside]);
+    return inside;
+  });
+}
+
+/** Is the work on GitHub? Whether origin has the local base branch's commits and the release tag. Asks origin (one
+ *  fetch and one ls-remote); null fields when it can't be reached. */
+export function remoteStatus(project: Pick<Project, "key" | "settings">, tag?: string | null) {
+  return serial(project.key, async () => {
+    const repo = project.settings.repo;
+    const base = repo?.branch || "main";
+    if (!repo?.url) return { reachable: false, basePushed: null as boolean | null, unpushed: null as number | null, tagPushed: null as boolean | null };
+    const dir = workspaceDir(project);
+    const refs = await remoteGit(dir, ["ls-remote", "origin", `refs/heads/${base}`, ...(tag ? [`refs/tags/${tag}`] : [])], 30_000);
+    if (!refs.ok) return { reachable: false, basePushed: null, unpushed: null, tagPushed: null };
+    const tagPushed = tag ? refs.out.includes(`refs/tags/${tag}`) : null;
+    // No base branch on the remote yet (e.g. an empty repository): every local commit is unpushed.
+    let range = base;
+    if (refs.out.includes(`refs/heads/${base}`)) {
+      const f = await remoteGit(dir, ["fetch", "-q", "origin", `refs/heads/${base}:refs/remotes/origin/${base}`], 30_000);
+      if (!f.ok) return { reachable: false, basePushed: null, unpushed: null, tagPushed };
+      range = `origin/${base}..${base}`;
+    }
+    const ahead = await tryGit(dir, ["rev-list", "--count", range]);
+    const unpushed = ahead.ok ? Number(ahead.out.trim()) || 0 : null;
+    return { reachable: true, basePushed: unpushed === null ? null : unpushed === 0, unpushed, tagPushed };
+  });
+}
+
 export function changedOnBranch(project: Pick<Project, "key" | "settings">, code: string) {
   return serial(project.key, async () => {
     const wt = worktreeDir(project, code);

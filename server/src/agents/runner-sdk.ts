@@ -3,7 +3,7 @@
 import { createSdkMcpServer, query as sdkQuery, type Options, type SDKMessage, type SDKRateLimitInfo, type SDKUserMessage } from "@anthropic-ai/claude-agent-sdk";
 import { z } from "zod";
 import { logActivity } from "../store.js";
-import { claudeEnv } from "../claudeAccounts.js";
+import { claudeEnv, recordPlanUsage } from "../claudeAccounts.js";
 import { AbortedError, BudgetExceededError, LimitReachedError } from "../errors.js";
 import type { Usage } from "../pricing.js";
 import { executeTool, toolDefs, type ToolContext } from "./tools.js";
@@ -117,6 +117,7 @@ export async function sdkRun(o: {
       // calls keep going. Only a refused call (below) pauses the work.
       if (m.type === "rate_limit_event") {
         limit = m.rate_limit_info;
+        recordPlanUsage(o.configDir, limit);
         if (limit.status !== "allowed") o.onRateLimit?.(limit);
         continue;
       }

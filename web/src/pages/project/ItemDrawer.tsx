@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { Link } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { FileCode2, FileText, Pencil, RotateCcw, Save, X, ChevronRight, Bug, Scissors, Wrench, MessageSquare, Send, Loader2, Printer, Download, Play, PauseCircle, Ban, Undo2, GitBranch, GitPullRequest } from "lucide-react";
+import { FileCode2, FileText, Pencil, RotateCcw, Save, X, ChevronRight, Bug, Scissors, Wrench, MessageSquare, Send, Loader2, Printer, Download, Play, PauseCircle, Ban, Undo2, GitBranch, GitPullRequest, FolderOpen, Copy, SquareTerminal } from "lucide-react";
 import { BugModal, RerunModal, SplitModal, StartWorkModal, openChat } from "../../components/Modals";
 import { Field, Hint } from "../../components/Hint";
 import { api, storyAssetBase, type Doc, type ItemDetail, type Project } from "../../lib/api";
@@ -15,6 +15,7 @@ import { toast } from "../../lib/toast";
 import { PageSkeleton } from "../../components/Skeleton";
 import { AdoChip } from "../../components/AdoSettings";
 import { ChangeCount, FileCode, FileDiff } from "../../components/CodeBlock";
+import { t } from "../../lib/i18n";
 
 type Tab = "story" | "tests" | "timeline" | "conversation" | "files" | "cost";
 
@@ -53,6 +54,16 @@ export default function ItemDrawer({ id, project, onClose }: { id: string; proje
     onSuccess: () => { setComment(""); qc.invalidateQueries({ queryKey: ["item", id] }); },
     onError: (e: Error) => toast(e.message, "bad"),
   });
+  const terminal = useMutation({
+    mutationFn: () => api.post(`/items/${id}/terminal`),
+    onSuccess: () => toast(t("A terminal window opened in the worktree")),
+    onError: (e: Error) => toast(e.message, "bad"),
+  });
+  const copyPath = (p: string) =>
+    navigator.clipboard?.writeText(p).then(
+      () => toast(t("Path copied")),
+      () => toast(p),
+    );
   const fix = useMutation({
     mutationFn: () => api.post(`/items/${id}/fix`, { release: true }),
     onSuccess: () => { toast("Fix started — the release manager publishes a patch when it passes"); qc.invalidateQueries(); },
@@ -142,6 +153,14 @@ export default function ItemDrawer({ id, project, onClose }: { id: string; proje
           {it.rework_count > 0 && <span className="chip" style={{ background: "rgba(242,85,90,.12)", color: "var(--bad)" }}><RotateCcw size={11} /> {it.rework_count} rework</span>}
           {it.branch && <span className="chip mono" title="This task's own git branch: every agent run on it is a commit there; it's merged into the default branch when the task is done." style={{ background: "var(--panel-3)" }}><GitBranch size={11} /> {it.branch}</span>}
           {it.pr_url && <a className="chip mono" href={it.pr_url} target="_blank" rel="noopener noreferrer" title="This story's pull request on GitHub: QA's verdict is posted there and it's merged when the story is documented." style={{ background: "var(--panel-3)", color: "var(--brand-blue)", textDecoration: "none" }}><GitPullRequest size={11} /> PR #{it.pr_url.match(/\/pull\/(\d+)/)?.[1] ?? "?"}</a>}
+          {it.worktree && (
+            <span className="chip mono" title={it.worktree.exists ? t("This story's working copy on this computer — where a manual step for it is run.") : t("The working copy is removed once the story is merged; its branch stays.")} style={{ background: "var(--panel-3)", gap: 4, maxWidth: "100%" }}>
+              <FolderOpen size={11} />
+              <span className="ellipsis" style={{ maxWidth: 260, opacity: it.worktree.exists ? 1 : 0.55 }}>{it.worktree.path}</span>
+              <button type="button" className="btn icon ghost" style={{ height: 18, width: 18 }} aria-label={t("Copy path")} title={t("Copy path")} onClick={() => copyPath(it.worktree!.path)}><Copy size={11} /></button>
+              {it.worktree.exists && <button type="button" className="btn icon ghost" style={{ height: 18, width: 18 }} aria-label={t("Open terminal here")} title={t("Open terminal here")} disabled={terminal.isPending} onClick={() => terminal.mutate()}><SquareTerminal size={11} /></button>}
+            </span>
+          )}
           <AdoChip project={project} adoId={it.ado_id} />
           {it.depends_on.length > 0 && <span className="chip" style={{ background: "var(--panel-3)" }}>depends on {it.depends_on.join(", ")}</span>}
           {it.tags.map((t) => <span key={t} className="chip" style={{ border: "1px solid var(--line-2)" }}>{t}</span>)}

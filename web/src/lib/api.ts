@@ -22,7 +22,7 @@ export interface AgentDetail extends Agent { systemPrompt: string; recentRuns: R
 export interface Run { id: string; project_id: string; agent_id: string; stage: string; item_id: string | null; status: string; turns: number; agent_version?: number; kind?: string; summary: string | null; error: string | null; started_at: string; ended_at: string | null; project_key?: string; item_code?: string }
 export interface Knowledge { id: string; title: string; summary: string; content: string; tokens: number; custom: boolean }
 export interface StageState { key: string; role: string; label: string; status: "pending" | "running" | "done" | "skipped" | "awaiting_approval" | "failed"; gate?: boolean }
-export interface ProjectSettings { gates: boolean; parallelism: number; budgetUsd: number; maxRework: number; repo?: { url: string; branch: string; push?: boolean } | null; codeReview?: "off" | "complex" | "all"; checks?: Partial<ChecksSettings>; ado?: AdoConfig | null; claudeAccount?: string | null }
+export interface ProjectSettings { gates: boolean; parallelism: number; budgetUsd: number; maxRework: number; repo?: { url: string; branch: string; push?: boolean } | null; codeReview?: "off" | "complex" | "all"; checks?: Partial<ChecksSettings>; ado?: AdoConfig | null; claudeAccount?: string | null; commands?: string[] }
 /** Azure DevOps project the backlog syncs to. The token lives only in .env (AZURE_DEVOPS_PAT). */
 export interface AdoConfig { orgUrl: string; project: string; areaPath?: string; iterationRoot?: string; stateMode: "same" | "agile" }
 export interface RepoInfo { url: string; branch: string; push?: boolean; provider: "github" | "azure" | "gitlab" | "bitbucket" | "other"; name: string; webUrl: string | null }
@@ -40,7 +40,7 @@ export interface Project {
   settings: ProjectSettings; estimate: Estimate | null; mode: "live" | "simulation"; error: string | null; created_at: string;
   started_at: string | null; finished_at: string | null; running: boolean;
   counts: { epics: number; features: number; stories: number; done: number; releaseReady: number; inProgress: number; blocked: number; points: number };
-  costUsd: number; tokens: number; openQuestions: number; install: string | null; undelivered: { id: string; code: string; title: string; state: string; reason: string }[]; activeRuns: { agent_id: string; item_id: string | null; stage: string }[];
+  costUsd: number; tokens: number; openQuestions: number; install: string | null; undelivered: { id: string; code: string; title: string; state: string; reason: string }[]; untested: { itemId: string; code: string; ac: string; notes: string }[]; planUsage: { window: string; status: string; utilization: number | null; resetsAt: string | null; at: string } | null; activeRuns: { agent_id: string; item_id: string | null; stage: string }[];
   pipelineRunning: boolean; pausing: boolean; jobs: { key: string; label: string; itemId: string | null }[]; checks: CheckCommand[]; repoInfo: RepoInfo | null;
   liveEstimate?: Estimate | null;
 }
@@ -75,6 +75,8 @@ export interface Message { id: number; project_id: string; from_agent_id: string
 export interface Activity { id: number; project_id: string | null; agent_id: string | null; run_id: string | null; item_id: string | null; type: string; summary: string; detail: string | null; created_at: string; item_code?: string; project_key?: string }
 export interface TestResult { id: number; item_id: string; kind: string; ac_ref: string; result: "pass" | "fail" | "blocked"; notes: string; iteration: number; agent_id: string; created_at: string; item_code?: string }
 export interface ItemDetail extends Omit<WorkItem, "tests" | "phases"> {
+  /** The story's working copy on this computer; null before it has a branch. */
+  worktree: { path: string; exists: boolean } | null;
   parent: { id: string; code: string; title: string; type: string } | null;
   children: { id: string; code: string; title: string; type: string; state: string; category: string }[];
   phases: Phase[]; tests: TestResult[]; messages: Message[]; activity: Activity[];
@@ -84,7 +86,7 @@ export interface ItemDetail extends Omit<WorkItem, "tests" | "phases"> {
   comments: Comment[]; bugs: { id: string; code: string; title: string; state: string }[]; busy: boolean;
   costByAgent: { agent_id: string; costUsd: number; calls: number }[];
 }
-export interface Question { id: number; project_id: string; item_id: string | null; question: string; answer: string | null; asked_by: string; created_at: string; answered_at: string | null; item_code?: string }
+export interface Question { id: number; project_id: string; item_id: string | null; question: string; answer: string | null; asked_by: string; created_at: string; answered_at: string | null; item_code?: string; reasoning?: string | null; also_codes?: string[] }
 export interface DocMeta { id: string; kind: string; title: string; version: number; agent_id: string | null; item_id: string | null; updated_at: string; item_code?: string }
 export interface Doc extends DocMeta { content: string; created_at: string }
 

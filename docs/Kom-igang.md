@@ -89,7 +89,7 @@ Projekt behåller det läge de skapades i. Ett simulerat projekt blir alltså in
 
 Klicka på **New project** och fyll i:
 
-1. **Krav:** ladda upp en PDF eller beskriv kraven i textfältet. Utan PDF används texten som krav.
+1. **Krav:** ladda upp en PDF eller beskriv kraven i textfältet. Utan PDF används texten som krav. Med **Start from the requirements template** får du en färdig mall (`docs/requirements-template.md`) där vanliga beslut redan är ifyllda: stack, tidszon, inloggning, seed-data, CI och vad som ligger utanför. Varje standardval du behåller är en fråga mindre från agenterna.
 2. **Projektnamn.**
 3. **Git-repo:** en `https://`-, `git@`- eller `file:///`-adress. Agenterna arbetar i en lokal klon. Med **Push to origin** pushas story-grenar, `main` och release-taggar till repot med datorns egen git-inloggning. Annars stannar allt lokalt.
 4. **Team:** vilka agenter som ska vara med. En mall (**template**) väljer roller och inställningar åt dig.

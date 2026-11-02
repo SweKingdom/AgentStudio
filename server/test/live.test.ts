@@ -211,6 +211,7 @@ test("live pipeline: PDF → backlog → build with a failing check fixed → QA
   assert.ok(analyst.tools.every((t: any) => t.eager_input_streaming === true));
   assert.match(analyst.system[0].text, /Knowledge/, "knowledge packs in the system prompt");
   assert.match(analyst.system[0].text, /title="Story template/, "packs are named by their title");
+  assert.match(firstText(analyst), /Manual steps — find them now/, "the analyst flags manual steps while building the backlog");
   const dev = requests.find((r) => r.tools.some((t: any) => t.name === "complete_development"));
   // Efficient context: the developer starts with its story card (no get_item round trip), not the whole brief; the
   // project block carries its own cache breakpoint; agents are told which checks gate the work.

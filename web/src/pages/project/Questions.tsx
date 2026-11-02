@@ -9,17 +9,21 @@ import { toast } from "../../lib/toast";
 import { useOpenItem } from "./hooks";
 import { Field } from "../../components/Hint";
 import { useFresh } from "../../lib/motion";
+import { t } from "../../lib/i18n";
 
 function QuestionCard({ q, isNew }: { q: Question; isNew?: boolean }) {
   const agent = useAgentLookup();
   const qc = useQueryClient();
   const open = useOpenItem();
-  const [answer, setAnswer] = useState(q.answer ?? "");
+  const [decision, setDecision] = useState(q.answer ?? "");
+  const [reasoning, setReasoning] = useState(q.reasoning ?? "");
   const save = useMutation({
-    mutationFn: () => api.post(`/questions/${q.id}/answer`, { answer }),
-    onSuccess: () => { qc.invalidateQueries({ queryKey: ["questions"] }); qc.invalidateQueries({ queryKey: ["project"] }); toast("Answer shared with the team"); },
+    mutationFn: () => api.post(`/questions/${q.id}/answer`, { decision, reasoning }),
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ["questions"] }); qc.invalidateQueries({ queryKey: ["project"] }); toast(t("Answer shared with the team")); },
+    onError: (e: Error) => toast(e.message, "bad"),
   });
   const answered = !!q.answer;
+  const changed = decision.trim() !== (q.answer ?? "") || reasoning.trim() !== (q.reasoning ?? "");
   return (
     <div className={`card card-pad col ${isNew ? "flash" : ""}`} style={{ gap: 10, borderColor: answered ? undefined : "color-mix(in srgb, var(--warn) 45%, transparent)" }}>
       <div className="row">
@@ -30,11 +34,17 @@ function QuestionCard({ q, isNew }: { q: Question; isNew?: boolean }) {
         {q.item_code && <button className="code-tag" style={{ cursor: "pointer" }} onClick={() => q.item_id && open(q.item_id)}>{q.item_code}</button>}
       </div>
       <div style={{ fontSize: 14.5, fontWeight: 500 }}>{q.question}</div>
-      <div className="row" style={{ alignItems: "flex-end" }}>
-        <Field help="Your decision on this question. It's added to the context of every agent that works on the project afterwards, and the linked story moves back to Ready for Refinement." style={{ flex: 1 }}>
-          <textarea className="textarea" style={{ minHeight: 44 }} placeholder="Your answer — it's shared with every agent that works on this project afterwards" value={answer} onChange={(e) => setAnswer(e.target.value)} />
+      {q.also_codes?.length ? <div className="tiny muted">{t("Also asked for")} {q.also_codes.join(", ")}</div> : null}
+      <div className="col" style={{ gap: 8 }}>
+        <Field label={t("Decision")} required help={t("What the agents should do — short and unambiguous, e.g. \"Europe/Stockholm\" or \"Seed it as written\". Every agent that works on the project afterwards gets it, and the stories waiting for it continue.")}>
+          <input className="input" placeholder={t("Your decision")} value={decision} onChange={(e) => setDecision(e.target.value)} />
         </Field>
-        <button className="btn primary" disabled={!answer.trim() || answer === q.answer} onClick={() => save.mutate()}><Send size={14} /> {answered ? "Update" : "Answer"}</button>
+        <Field label={t("Reasoning (optional)")} help={t("Why — helps agents apply the decision to cases the question didn't name.")}>
+          <textarea className="textarea" style={{ minHeight: 40 }} placeholder={t("Why, if it helps")} value={reasoning} onChange={(e) => setReasoning(e.target.value)} />
+        </Field>
+        <div className="row" style={{ justifyContent: "flex-end" }}>
+          <button className="btn primary" disabled={!decision.trim() || !changed || save.isPending} onClick={() => save.mutate()}><Send size={14} /> {answered ? t("Update") : t("Answer")}</button>
+        </div>
       </div>
     </div>
   );
