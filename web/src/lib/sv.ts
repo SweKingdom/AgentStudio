@@ -215,6 +215,21 @@ export const SV: Record<string, string> = {
   "Item reopened": "Itemet återöppnat",
   "Design critique": "Designkritik",
   Off: "Av",
+  "Lessons learned": "Lärdomar",
+  "Add lesson": "Lägg till lärdom",
+  "Lessons saved": "Lärdomarna sparade",
+  "No lessons yet": "Inga lärdomar än",
+  "They are added when a story is approved after rework, or you can add one.": "De läggs till när en story godkänns efter omtag, eller så lägger du till en själv.",
+  "What earlier stories were sent back for. The developer, QA and architect follow these on every later story.":
+    "Det som tidigare stories skickades tillbaka för. Utvecklaren, QA och arkitekten följer dem i varje senare story.",
+  "One lesson per line, at most 20 lines of 200 characters. The tag at the end says where it came from; lines you write get (product owner) and are never removed automatically.":
+    "En lärdom per rad, högst 20 rader på 200 tecken. Taggen i slutet visar var den kom ifrån; rader du skriver får (product owner) och tas aldrig bort automatiskt.",
+  "A rule later stories should follow, e.g. Validation errors return 400, never 500.": "En regel som senare stories ska följa, t.ex. Valideringsfel returnerar 400, aldrig 500.",
+  "Lessons learned are turned off in this project's settings: agents don't see them and no new ones are written.":
+    "Lärdomar är avstängda i projektets inställningar: agenterna ser dem inte och inga nya skrivs.",
+  "After a story needs rework, write down what later stories should do differently.": "När en story behöver omtag, skriv ner vad senare stories ska göra annorlunda.",
+  updated: "uppdaterad",
+  version: "version",
   "The plan review found": "Plangranskningen hittade",
   "thing(s) the agents couldn't fix — look at them before approving:": "sak(er) som agenterna inte kunde rätta — titta på dem innan du godkänner:",
   "A sample spec with the usual decisions already made — stack, time zone, sign-in, seed data, CI, what's out of scope. Keep the defaults you agree with: the agents won't ask about them.":
