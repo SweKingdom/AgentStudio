@@ -10,9 +10,10 @@ import { appSettings, claudeBackend, effectiveMode } from "./settings.js";
 import { planUsageFor, usageLevel } from "./claudeAccounts.js";
 import { failedChecks } from "./agents/context.js";
 import { baseNeedsSetup } from "./checks.js";
-import { verify } from "./attest.js";
+import { attest, lastAttestation, verify } from "./attest.js";
+import { formatFindings, scanBranch } from "./scan.js";
 import { fill, teamSettings } from "./team.js";
-import { ensureItemBranch, finishMerge, mergeItemBranch, pushRefs } from "./git.js";
+import { branchChanges, currentTree, ensureItemBranch, finishMerge, mergeItemBranch, pushRefs, treeDiff } from "./git.js";
 import { PrConflictError, commentQaFindings, integrateViaPr, openDraftPr, prRepoFor } from "./pullrequests.js";
 import { needsCodeReview, runCodeReview } from "./review.js";
 import {
@@ -737,12 +738,12 @@ const MAX_FIX_ATTEMPTS = 2;
 async function verifiedForMerge(projectId: string, itemId: string, dev: Agent | undefined, signal: AbortSignal, after: string): Promise<boolean> {
   const code = getItem(itemId)!.code;
   for (let attempt = 0; ; attempt++) {
-    const v = await verify(getProject(projectId)!, code, `Final checks on ${code} after ${after}`);
-    if (v.ok) return true;
+    const problem = await mergeProblem(projectId, itemId, signal, after, attempt);
+    if (!problem) return true;
     if (!dev || attempt >= MAX_FIX_ATTEMPTS) {
       patchItem(itemId, { state: "Blocked" });
-      postMessage({ projectId, from: "orchestrator", to: "human", itemId, kind: "question", content: `${code}'s final checks still fail after ${attempt} automatic fix(es), so it isn't merged:\n${v.failure.slice(0, 2000)}` });
-      logActivity({ projectId, agentId: "orchestrator", itemId, type: "blocked", summary: `⛔ ${code} not merged: the final checks fail after ${attempt} fix attempt(s)` });
+      postMessage({ projectId, from: "orchestrator", to: "human", itemId, kind: "question", content: `${code} isn't merged — ${problem.what} after ${attempt} automatic fix(es):\n${problem.detail.slice(0, 2000)}` });
+      logActivity({ projectId, agentId: "orchestrator", itemId, type: "blocked", summary: `⛔ ${code} not merged: ${problem.what} after ${attempt} fix attempt(s)` });
       return false;
     }
     checkpoint(projectId);
@@ -754,11 +755,50 @@ async function verifiedForMerge(projectId: string, itemId: string, dev: Agent | 
       item: getItem(itemId)!,
       signal,
       kind: "fix",
-      task: `${code} was approved, but the project's checks now fail on its branch (after ${after}). Fix only what makes them fail — nothing else — run run_checks until it passes, then call complete_development.\n\n## Failing check\n${v.failure.slice(0, 4000)}`,
+      task: `${code} was approved, but before it can be merged (after ${after}) ${problem.what}. Fix only that — nothing else — run run_checks until it passes, then call complete_development.\n\n## What to fix\n${problem.detail.slice(0, 4000)}`,
     });
     endPhase(phase, "fix");
     costGuard(projectId, itemId);
   }
+}
+
+/** Only these change after a review without needing another one: documentation. */
+const docsOnly = (paths: string[]) => paths.every((p) => p.startsWith("docs/") || /\.(md|mdx|txt)$/i.test(p));
+
+/**
+ * The merge gate (build plan step 4). On the exact tree that would be merged: the checks pass, the security scan finds
+ * nothing (it can't be waived), and — when the project reviews this story — the architect approved this code (only
+ * documentation may have changed since). Each is attested for the tree; null means the story may be merged.
+ */
+async function mergeProblem(projectId: string, itemId: string, signal: AbortSignal, after: string, attempt: number): Promise<{ what: string; detail: string } | null> {
+  const p = getProject(projectId)!;
+  const it = getItem(itemId)!;
+  const v = await verify(p, it.code, `Final checks on ${it.code} after ${after}`);
+  if (!v.ok) return { what: "the project's checks fail", detail: v.failure };
+
+  const findings = await scanBranch(p, it.code);
+  await attest(p, it.code, "scan", !findings.length, formatFindings(findings));
+  logActivity({ projectId, agentId: "orchestrator", itemId, type: "validation", summary: findings.length ? `🛡 Security scan on ${it.code}: ${findings.length} finding(s) — not merged` : `🛡 Security scan on ${it.code}: clean`, detail: formatFindings(findings) || undefined });
+  if (findings.length) return { what: "the security scan found something it can't let through", detail: formatFindings(findings) };
+
+  const architect = agentsFor(p, "architect")[0];
+  if (architect && needsCodeReview(p, it)) {
+    const last = lastAttestation(projectId, it.code, "review");
+    const tree = await currentTree(p, it.code);
+    // Still current if nothing the story itself changes has changed since, apart from documentation: files that only
+    // came in with the base branch (other stories' merged work) aren't this story's code.
+    const own = new Set((await branchChanges(p, it.code)).files.map((f) => f.path));
+    const current = last && tree && (last.tree === tree || docsOnly((await treeDiff(p, last.tree, tree)).filter((f) => own.has(f))));
+    if (!current || !last.ok) {
+      // The approval isn't for this code (or there is none): review exactly what will be merged.
+      const lastIt = lastIteration(itemId, "development");
+      const rv = await runCodeReview({ projectId, itemId, architect, iteration: lastIt, attempt: attempt + 1, signal, kind: "merge" });
+      if (rv.verdict !== "approved") return { what: "the code review requests changes", detail: rv.findings };
+    }
+  }
+  const tree = await currentTree(p, it.code);
+  logActivity({ projectId, agentId: "orchestrator", itemId, type: "validation", summary: `✅ ${it.code}: checks, security scan${architect && needsCodeReview(p, it) ? " and review" : ""} attest the same code (${tree?.slice(0, 10)})` });
+  return null;
 }
 
 /** The task gets its own git branch and working copy before anyone works on it; an existing branch is brought up to
@@ -988,9 +1028,12 @@ async function deliverItem(projectId: string, itemId: string, dev: Agent | undef
     if (rv.verdict === "approved") return true;
     findings = rv.findings;
     findingsFrom = "review";
+    reviewRejections++;
     patchItem(itemId, { rework_count: (getItem(itemId)!.rework_count ?? 0) + 1 });
     return false;
   };
+  /** Code-review rejections in this delivery: a merge needs APPROVE, with at most two automatic fixes for it. */
+  let reviewRejections = 0;
 
   for (let n = 1; !approved && n <= maxRework + 1; n++) {
     const iteration = base + n;
@@ -1080,7 +1123,7 @@ ${r.summary.slice(0, 2000)}`;
         approved = true;
         break;
       }
-      if (!dev) break;
+      if (!dev || reviewRejections > MAX_FIX_ATTEMPTS) break;
       continue;
     }
     checkpoint(projectId);
@@ -1128,7 +1171,7 @@ ${r.summary.slice(0, 2000)}`;
         patchItem(itemId, { state: "Ready for UAT" });
         break;
       }
-      if (!dev) break;
+      if (!dev || reviewRejections > MAX_FIX_ATTEMPTS) break;
       continue;
     }
     findings = q.outcome.review?.findings || q.summary;

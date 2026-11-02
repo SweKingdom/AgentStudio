@@ -51,13 +51,25 @@ AgentStudio är en kopia av SiroccoARM (2026-10-27) som blir ett generellt verkt
   - Kod som ändras efter gröna kontroller går tillbaka utan QA-anrop.
   - En röd `main` rättas före release, eller stoppar releasen utan release-anrop.
 
-## Kvar
-
 ### Steg 4: Granskning och säkerhet
-- Granskningen gäller den faktiska git-diffen. Merge sker bara vid `APPROVE`, med högst två automatiska åtgärdsförsök.
-- Skanning av skyddade sökvägar, hemligheter, beroendekällor och symboliska länkar som pekar ut ur repot. Den kan inte undantas.
-- Hemligheter maskeras i aktivitetsloggen och i dokument innan något sparas.
-- Verifiering, säkerhet och granskning måste bekräfta samma git-träd innan merge.
+- **Kodgranskningen** gäller storyns faktiska git-diff, och utslaget sparas som en attestering för det träd som granskades.
+  - När projektet granskar (Complex eller All) sker merge bara vid `APPROVE`, med högst två automatiska rättningar efter granskningen.
+  - Nya projekt får Complex som standard. Off finns kvar som val.
+- **Säkerhetsskanning** (`server/src/scan.ts`) före varje merge. Den kan inte stängas av. Den hittar:
+  - hemligheter i tillagda rader (nycklar, tokens, privata nycklar, hårdkodade lösenord)
+  - skyddade sökvägar: `.env` (men inte `.env.example`), nycklar och certifikat, `.npmrc` och andra filer med inloggningsuppgifter, plus projektets egen lista `protectedPaths`
+  - beroenden från något annat än paketregistret (git, URL:er, lokala sökvägar, andra index)
+  - symboliska länkar som pekar ut ur repot
+
+  Ett fynd ger ett avgränsat rättningsanrop med fynden, högst två. Därefter blir storyn Blocked. Ett fynd upprepar aldrig själva hemligheten.
+- **Maskering** (`server/src/secrets.ts`): hemligheter ersätts med `[redacted: …]` i databaslagret innan något sparas. Det gäller aktivitet, meddelanden, kommentarer, dokument, testresultat, frågor och svar, körningar, release notes och storyernas fält.
+- **Samma träd:** merge-grinden kräver att kontrollerna, skanningen och (när den gäller) granskningen är attesterade för exakt det träd som mergas. Ändringar i bara dokumentation efter granskningen kräver ingen ny granskning. Annan ny kod granskas om innan merge.
+- Tester: `server/test/security.test.ts`.
+  - Hemlighetsmönster, platshållare och maskering vid lagring.
+  - Skanningens fyra slags fynd.
+  - En hemlighet i en story: en rättning och sedan merge, eller två misslyckade rättningar och Blocked.
+
+## Kvar
 
 ### Steg 5: Starkare design och plan
 - Kravsammanställning (requirements-crystallizer).

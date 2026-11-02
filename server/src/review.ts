@@ -1,9 +1,10 @@
 /**
  * Optional architect code review: after QA approves a story (and before documentation and the merge), the architect
  * reviews the task branch's diff against the team's review checklist and the solution design. Per project:
- * `settings.codeReview` = "off" (default) | "complex" (integration, development and data migration stories) | "all".
+ * `settings.codeReview` = "off" | "complex" (the default for new projects) (integration, development and data migration stories) | "all".
  * A "changes requested" verdict sends the story back to the developer through the same rework loop as QA.
  */
+import { attest } from "./attest.js";
 import { insert, now } from "./db.js";
 import { runAgent } from "./agents/runner.js";
 import type { Agent } from "./agents/store.js";
@@ -73,6 +74,8 @@ export async function runCodeReview(o: { projectId: string; itemId: string; arch
   const verdict = r.outcome.codeReview?.verdict ?? "approved";
   const findings = r.outcome.codeReview?.findings || (verdict === "approved" ? "No findings." : r.summary);
   endPhase(phase, verdict);
+  // The verdict is about exactly this code: the merge gate checks it still is (build plan step 4).
+  await attest(project, item.code, "review", verdict === "approved", findings);
   const label = verdict === "approved" ? "✅ approved" : "❌ changes requested";
   insert("comments", { project_id: o.projectId, item_id: o.itemId, author_id: o.architect.id, content: `Code review (iteration ${o.iteration}): ${label}\n${findings}`, created_at: now() });
   logActivity({ projectId: o.projectId, agentId: o.architect.id, itemId: o.itemId, type: "review", summary: `${o.architect.name} code review of ${item.code}: ${label}` });

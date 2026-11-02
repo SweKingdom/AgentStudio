@@ -148,7 +148,7 @@ export default function NewProject() {
   const [parallelism, setParallelism] = useState(2);
   const [budget, setBudget] = useState(50);
   const [maxRework, setMaxRework] = useState(2);
-  const [codeReview, setCodeReview] = useState<CodeReviewMode>("off");
+  const [codeReview, setCodeReview] = useState<CodeReviewMode>("complex"); // build plan step 4: reviewed before merge by default
   const [repo, setRepo] = useState({ url: "", branch: "main", push: false });
   const [est, setEst] = useState<EstimateResponse | null>(null);
   const [loading, setLoading] = useState(false);

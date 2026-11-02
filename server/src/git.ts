@@ -552,6 +552,39 @@ export function branchDiff(project: Pick<Project, "key" | "settings">, code: str
   });
 }
 
+/** What a story's branch changes against where it left the base branch, as it is on disk: each changed path, the
+ *  lines it adds, and the symbolic links it adds with their targets. For the security scan. */
+export function branchChanges(project: Pick<Project, "key" | "settings">, code: string) {
+  return serial(project.key, async () => {
+    const wt = worktreeDir(project, code);
+    if (!fs.existsSync(path.join(wt, ".git"))) return { files: [] as { status: string; path: string }[], added: new Map<string, string[]>(), symlinks: [] as { path: string; target: string }[] };
+    const base = project.settings.repo?.branch || "main";
+    await git(wt, [...ARM_IDENTITY, "add", "-A"]);
+    const mb = (await git(wt, ["merge-base", base, "HEAD"])).trim();
+    const files = (await git(wt, ["diff", "--cached", "--name-status", "--no-renames", mb]))
+      .split("\n")
+      .filter(Boolean)
+      .map((l) => {
+        const [status, ...rest] = l.split("\t");
+        return { status: status.trim(), path: rest.join("\t") };
+      });
+    const added = new Map<string, string[]>();
+    let current = "";
+    for (const line of (await git(wt, ["diff", "--cached", "--no-color", "--no-renames", "-U0", mb])).split("\n")) {
+      if (line.startsWith("+++ ")) current = line.slice(4).replace(/^b\//, "");
+      else if (line.startsWith("+") && current && current !== "/dev/null") added.set(current, [...(added.get(current) ?? []), line.slice(1)]);
+    }
+    const changed = new Set(files.filter((f) => f.status !== "D").map((f) => f.path));
+    const symlinks = (await git(wt, ["ls-files", "-s"]))
+      .split("\n")
+      .filter((l) => l.startsWith("120000 "))
+      .map((l) => l.split("\t")[1])
+      .filter((p) => changed.has(p))
+      .map((p) => ({ path: p, target: fs.readlinkSync(path.join(wt, p)) }));
+    return { files, added, symlinks };
+  });
+}
+
 export interface BranchInfo {
   name: string;
   head: string;

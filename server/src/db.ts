@@ -1,3 +1,4 @@
+import { redact } from "./secrets.js";
 import { DatabaseSync, type SQLInputValue } from "node:sqlite";
 import fs from "node:fs";
 import path from "node:path";
@@ -357,7 +358,30 @@ export function uid(prefix: string) {
 }
 
 /** Insert a row from a plain object. Arrays/objects are JSON-encoded. */
-export function insert(table: string, row: Row) {
+/** Durable text people and agents read later: secrets are masked before it's stored (build plan step 4). */
+const REDACTED: Record<string, string[]> = {
+  activity: ["summary", "detail"],
+  messages: ["content"],
+  comments: ["content"],
+  documents: ["content", "title"],
+  test_results: ["notes"],
+  questions: ["question", "answer", "reasoning"],
+  runs: ["summary", "error"],
+  releases: ["notes", "validation"],
+  chats: ["content"],
+  work_items: ["user_story", "background", "business_rules", "dependencies", "out_of_scope", "acceptance_criteria", "tech_spec", "how_to_test", "manual_steps", "solution_components"],
+};
+
+function masked(table: string, row: Row): Row {
+  const fields = REDACTED[table];
+  if (!fields) return row;
+  const out = { ...row };
+  for (const f of fields) if (typeof out[f] === "string") out[f] = redact(out[f] as string);
+  return out;
+}
+
+export function insert(table: string, input: Row) {
+  const row = masked(table, input);
   const keys = Object.keys(row);
   const values = keys.map((k) => encode(row[k]));
   return run(
@@ -366,7 +390,8 @@ export function insert(table: string, row: Row) {
   );
 }
 
-export function update(table: string, id: string, patch: Row, idColumn = "id") {
+export function update(table: string, id: string, input: Row, idColumn = "id") {
+  const patch = masked(table, input);
   const keys = Object.keys(patch);
   if (!keys.length) return;
   run(

@@ -1,6 +1,7 @@
 import { accountStatus, addAccount, cancelLogin, listAccounts, planUsageFor, loginCommandFor, loginState, logoutAccount, openLoginTerminal, removeAccount, setActiveAccount, startLogin } from "./claudeAccounts.js";
 import { cleanAllowedCommands } from "./commands.js";
 import { openTerminal } from "./terminal.js";
+import { redact } from "./secrets.js";
 import { Router, type Request, type Response, type NextFunction } from "express";
 import multer from "multer";
 import fs from "node:fs";
@@ -522,6 +523,11 @@ api.patch("/projects/:pid", wrap(async (req, res) => {
     } catch (e) {
       return res.status(400).json({ error: e instanceof Error ? e.message : String(e) });
     }
+  }
+  if (body.settings?.protectedPaths !== undefined) {
+    const list = Array.isArray(body.settings.protectedPaths) ? [...new Set(body.settings.protectedPaths.map((x: unknown) => String(x ?? "").trim()).filter(Boolean))] : null;
+    if (!list || list.length > 30 || list.some((g) => (g as string).length > 200)) return res.status(400).json({ error: "Protected paths: at most 30 globs of at most 200 characters." });
+    body.settings.protectedPaths = list;
   }
   if (body.settings?.commands !== undefined) {
     try {
@@ -1341,7 +1347,7 @@ api.post("/questions/:id/answer", (req, res) => {
   const decision = String(req.body?.decision ?? req.body?.answer ?? "").trim();
   const reasoning = String(req.body?.reasoning ?? "").trim();
   if (!decision && reasoning) return res.status(400).json({ error: "Give a decision — the reasoning alone isn't an answer." });
-  run("UPDATE questions SET answer = ?, reasoning = ?, answered_at = ? WHERE id = ?", decision, reasoning || null, now(), q.id);
+  run("UPDATE questions SET answer = ?, reasoning = ?, answered_at = ? WHERE id = ?", redact(decision), reasoning ? redact(reasoning) : null, now(), q.id);
   if (decision) {
     postMessage({ projectId: q.project_id, from: "human", to: q.asked_by ?? "orchestrator", itemId: q.item_id, kind: "answer", content: answerText({ answer: decision, reasoning }) });
     for (const itemId of [q.item_id, ...(JSON.parse(q.also_items || "[]") as string[])]) {

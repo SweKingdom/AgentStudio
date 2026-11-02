@@ -32,6 +32,8 @@ export interface ProjectSettings {
   claudeAccount?: string | null;
   /** Commands a developer agent may run in its story's worktree (each a prefix, word for word). */
   commands?: string[];
+  /** Paths (globs) no story may add or change, on top of the built-in ones (env files, keys, credentials). */
+  protectedPaths?: string[];
 }
 
 export interface Project {
