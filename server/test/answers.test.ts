@@ -9,7 +9,7 @@ import path from "node:path";
 const { executeTool } = await import("../src/agents/tools.ts");
 const { defaultAgentFor } = await import("../src/agents/store.ts");
 const { itemCard } = await import("../src/agents/context.ts");
-const { acceptedAnswers, acceptsDeviation, priorAcDecision } = await import("../src/questions.ts");
+const { acceptedAnswers, priorAcDecision, rejectsDeviation } = await import("../src/questions.ts");
 const { addQuestion, createItem, findDoc, upsertDoc } = await import("../src/store.ts");
 const { get, insert, now, run } = await import("../src/db.ts");
 
@@ -55,8 +55,36 @@ test("a deviation the product owner accepted is found for the same AC only — a
   answer(q3, "No — it must be seeded.", "2026-10-03T09:00:00.000Z");
   assert.deepEqual([priorAcDecision(p.id, s.id, s.code, "AC 1")?.id, priorAcDecision(p.id, s.id, s.code, "AC 1")?.accepted], [q3, false]);
 
-  for (const yes of ["Accepted", "accept", "Yes, fine", "OK for now", "Approved as built", "That's accepted for this release"]) assert.ok(acceptsDeviation(yes), yes);
-  for (const no of ["Must be met as written", "No", "Not accepted", "It isn't accepted", "okay-ish? no"]) assert.ok(!acceptsDeviation(no), no);
+  // Only a clear "no" is asked again; a short decision without the word "accept" is a decision (real answers).
+  const decided = [
+    "Accepted",
+    "Yes, fine",
+    "deferred to the first real docker compose up.",
+    "the config checks are enough until that first run",
+    "belongs to US-130.",
+    "Move AC 5 out of US-127 and into US-130, the story that adds the seed data.",
+    "render-realms.mjs with .sh and .ps1 wrappers, not added to scripts/check.",
+    "No problem, keep it like that.",
+  ];
+  for (const a of decided) assert.ok(!rejectsDeviation(a), a);
+  for (const a of ["Must be met as written", "Meet it as written.", "Not accepted — fix it", "It isn't acceptable", "Rejected.", "No", "No, seed it."]) assert.ok(rejectsDeviation(a), a);
+});
+
+test("a deviation answered with a short decision isn't asked again; one answered with a clear no is", () => {
+  const p = project("DEC");
+  const s = createItem(p.id, { type: "story", title: "Compose up", state: "To Do" });
+  const ask = (ac: string, a: string) => {
+    const id = addQuestion(p.id, `${s.code} ${ac} is met differently than written: x — is that acceptable, or must it be met as written?`, s.id, "dev");
+    answer(id, a, now());
+    return id;
+  };
+  const deferred = ask("AC 1", "deferred to the first real docker compose up.");
+  ask("AC 2", "Not accepted — fix it");
+  const moved = ask("AC 5", "belongs to US-130.");
+  assert.equal(priorAcDecision(p.id, s.id, s.code, "AC 1")?.accepted, true);
+  assert.equal(priorAcDecision(p.id, s.id, s.code, "AC 2")?.accepted, false);
+  assert.equal(priorAcDecision(p.id, s.id, s.code, "AC5")?.accepted, true);
+  assert.deepEqual(acceptedAnswers(p.id, s.id, s.code).map((q) => q.id).sort(), [deferred, moved].sort(), "QA is told not to fail AC 1 and AC 5");
 });
 
 test("a changelog write that drops an existing entry is refused, naming it; one that adds a line is saved", async () => {
