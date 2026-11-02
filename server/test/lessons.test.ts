@@ -47,7 +47,7 @@ test("lessons are on unless the project turns them off", () => {
 
 const { contextFor } = await import("../src/agents/context.ts");
 const { defaultAgentFor } = await import("../src/agents/store.ts");
-const { getProject, upsertDoc } = await import("../src/store.ts");
+const { findDoc, getProject, upsertDoc } = await import("../src/store.ts");
 const { insert, now } = await import("../src/db.ts");
 
 function project(key: string, settings: Record<string, unknown> = {}) {
@@ -72,4 +72,27 @@ test("contextFor puts the lessons in front of the developer, QA and architect on
   const off = project("OFF", { lessons: false });
   upsertDoc({ projectId: off.id, kind: "project_lessons", itemId: null, title: "Lessons learned", content: "- Rule (product owner)", agentId: null });
   assert.doesNotMatch(contextFor(off, defaultAgentFor("developer")).shared, /Lessons from earlier stories/, "turned off: no block");
+});
+
+test("PUT /projects/:id/lessons saves a valid edit with an audit row, and rejects a line over 200 characters", async () => {
+  const { createApp } = await import("../src/app.ts");
+  const { all } = await import("../src/db.ts");
+  const server = createApp().listen(0);
+  const base = `http://127.0.0.1:${(server.address() as import("node:net").AddressInfo).port}/api`;
+  const put = (pid: string, content: string) => fetch(`${base}/projects/${pid}/lessons`, { method: "PUT", headers: { "content-type": "application/json" }, body: JSON.stringify({ content }) });
+  try {
+    const p = project("PUT");
+    const ok = await put(p.key, "- Use ISO dates (US-1, qa)\nValidation errors return 400 (product owner)");
+    assert.equal(ok.status, 200);
+    const doc = await ok.json();
+    assert.equal(doc.kind, "project_lessons");
+    assert.equal(doc.content, "- Use ISO dates (US-1, qa)\n- Validation errors return 400 (product owner)");
+    assert.equal(all("SELECT 1 FROM audit WHERE action = 'project.lessons' AND target = ?", p.id).length, 1);
+    const long = await put(p.id, `- ${"x".repeat(201)} (product owner)`);
+    assert.equal(long.status, 400);
+    assert.match((await long.json()).error, /at most 200 characters/);
+    assert.equal(findDoc(p.id, "project_lessons", null)!.version, 1, "the rejected edit wasn't saved");
+  } finally {
+    server.close();
+  }
 });

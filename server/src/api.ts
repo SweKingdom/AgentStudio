@@ -31,6 +31,7 @@ import { codeReviewMode } from "./review.js";
 import { CUSTOM_AGENTS_ENABLED } from "./team.js";
 import { registerTemplates } from "./routes/templates.js";
 import { audit } from "./auth.js";
+import { LESSONS_KIND, LESSONS_TITLE, lessonsProblem, parseLessons, renderLessons } from "./lessons.js";
 import { DEFAULT_TEAM, applyImport, cleanChecksOverride, exportTeam, planImport, saveTeamSettings, teamSettings } from "./team.js";
 import { checksFor, installFor } from "./checks.js";
 import { adoImportCsv, backlogCsv, workspaceZip } from "./exports.js";
@@ -43,6 +44,8 @@ import {
   listWorkspaceFiles,
   logActivity,
   answerText,
+  findDoc,
+  upsertDoc,
   openQuestionCount,
   patchItem,
   patchProject,
@@ -571,6 +574,18 @@ api.patch("/projects/:pid", wrap(async (req, res) => {
   res.json(projectSummary(saved));
 }));
 
+/** The product owner edits the project's lessons by hand. Over the limits is rejected, never truncated silently. */
+api.put("/projects/:pid/lessons", (req, res) => {
+  const p = getProject(String(req.params.pid))!;
+  const lessons = parseLessons(String(req.body?.content ?? ""));
+  const problem = lessonsProblem(lessons);
+  if (problem) return res.status(400).json({ error: problem });
+  const before = findDoc(p.id, LESSONS_KIND, null);
+  const doc = upsertDoc({ projectId: p.id, kind: LESSONS_KIND, itemId: null, title: LESSONS_TITLE, content: renderLessons(lessons), agentId: null });
+  audit(req, "project.lessons", p.id, { lessons: lessons.length, before: before ? parseLessons(before.content).length : 0 });
+  res.json(doc);
+});
+
 api.delete("/projects/:pid", (req, res) => {
   const p = getProject(String(req.params.pid));
   if (!p) return res.status(404).json({ error: "Project not found" });
@@ -1081,7 +1096,7 @@ api.get(
       "SELECT q.question, q.answer, w.code item_code, q.created_at, q.answered_at FROM questions q LEFT JOIN work_items w ON w.id = q.item_id WHERE q.project_id = ? ORDER BY q.id",
       p.id,
     );
-    const docOrder = ["project_brief", "solution_design", "delivery_plan", "user_manual", "technical_overview", "release_notes", "changelog"];
+    const docOrder = ["project_brief", "solution_design", "delivery_plan", "project_lessons", "user_manual", "technical_overview", "release_notes", "changelog"];
     const documents = all<{ id: string; kind: string; title: string; content: string; version: number; updated_at: string; item_id: string | null; item_code: string | null }>(
       "SELECT d.id, d.kind, d.title, d.content, d.version, d.updated_at, d.item_id, w.code item_code FROM documents d LEFT JOIN work_items w ON w.id = d.item_id WHERE d.project_id = ?",
       p.id,
