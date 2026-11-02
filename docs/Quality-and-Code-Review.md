@@ -42,3 +42,13 @@ In live mode the pipeline enforces, with the project's checks (`run_checks`):
 | All stories | Every story. |
 
 Basajaun reviews the task branch's diff against the team's review checklist and the solution design, after QA approves and before documentation and the merge. *Changes requested* sends the story back to the developer; QA re-tests and Basajaun reviews again, which counts toward the rework limit. Each review costs one extra architect run, which the estimate includes. A *Code review* phase appears in Timing, and on GitHub the review is posted on the pull request.
+
+## Lessons learned
+
+When a story is approved after at least one rework round (QA, code review or the checks sent it back), AgentStudio writes down what later stories should do differently in the project's **Lessons learned** document (Documents tab). The developer, QA and architect read the lessons on every later story, and QA also checks that the story follows them.
+
+- In live mode the lessons come from one extra call with no tools, at low effort, as the QA agent. It shows in the Costs view under the stage *lessons*. At most two lessons are kept per story; a lesson that repeats an existing one, or is only about that story, is dropped. If the call fails, the story is still approved and the activity feed says so.
+- In simulation the first finding becomes the lesson, without a model call.
+- Each lesson ends with where it came from, such as `(US-121, qa)`. The document holds at most 20 lessons of up to 200 characters; when it is full, the oldest automatic lesson goes.
+- You can edit the document or **Add lesson** yourself. Your lines get `(product owner)` and are never removed automatically.
+- A story with no rework costs nothing extra. Turn the feature off with **Lessons learned** in Project settings.

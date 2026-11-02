@@ -150,6 +150,7 @@ Ett avslutat projekt med stories kvar visar knappen **Reopen**, som tar tillbaka
 - **Ingen QA på ofärdigt arbete.** Om utvecklaren inte lämnar över storyn, till exempel för att checkarna fortfarande faller, hoppar AgentStudio över QA och skickar storyn direkt tillbaka till utvecklaren.
 - **Tidigt stopp.** Faller samma check på samma sätt två gånger i rad blir storyn *Blocked* direkt, med ett meddelande till dig. Den behöver då troligen något den inte kan skapa själv: kod från en annan story, ett installationssteg eller ett beslut.
 - **Ställer utvecklaren en fråga** väntar storyn på ditt svar i stället för att gissa i fler rundor.
+- **Lärdomar.** När en story godkänns efter omtag skrivs det den skickades tillbaka för ner som en kort regel i dokumentet **Lessons learned** (fliken Documents). Utvecklaren, QA och arkitekten följer reglerna i varje senare story, så att samma misstag inte kostar ett nytt omtag. Live kostar det ett litet anrop per story med omtag, en story utan omtag kostar inget extra. Du kan redigera listan och lägga till egna regler med **Add lesson**; dina rader tas aldrig bort automatiskt. Stäng av med **Lessons learned** i projektinställningarna.
 - **Installerade paket syns inte.** `node_modules` och liknande mappar visas aldrig för agenterna eller under **Code**, och de kommer inte med i ZIP-exporten. Långa fillistor kortas till 300 filer.
 
 **Pausa och stoppa:** **Pause** låter pågående steg bli klara. **Pause all** högst upp pausar allt arbete.
