@@ -8,7 +8,7 @@ import { autoResumeAllowed, globalPause, pauseLabel, setGlobalPause, spendStatus
 import { ROLES } from "./agents/roles.js";
 import { appSettings, claudeBackend, effectiveMode } from "./settings.js";
 import { planUsageFor, usageLevel } from "./claudeAccounts.js";
-import { failedChecks } from "./agents/context.js";
+import { failedChecks, lessonsBlock } from "./agents/context.js";
 import { baseNeedsSetup } from "./checks.js";
 import { attest, lastAttestation, verify } from "./attest.js";
 import { formatFindings, scanBranch } from "./scan.js";
@@ -1287,7 +1287,7 @@ ${r.summary.slice(0, 2000)}`;
       signal,
       kind: opts.kind,
       feedback: n === 1 ? opts.feedback : undefined,
-      task: `Peer-test ${item.code} "${item.title}" (iteration ${iteration}) with the Rudolf method and submit your verdict with submit_review.${devSummary ? `\n\n## Developer's hand-over\n${devSummary.slice(0, 2000)}` : ""}${n > 1 && findings ? (findingsFrom === "review" ? `\n\n## Code review findings the developer fixed (re-test the checks they touch)\n${findings.slice(0, 3000)}` : `\n\n## Your findings from the previous iteration (check each one is fixed)\n${findings.slice(0, 3000)}`) : ""}${opts.feedback && n === 1 ? `\n\nAlso verify the product owner's feedback was applied: ${opts.feedback}` : ""}`,
+      task: `Peer-test ${item.code} "${item.title}" (iteration ${iteration}) with the Rudolf method and submit your verdict with submit_review.${devSummary ? `\n\n## Developer's hand-over\n${devSummary.slice(0, 2000)}` : ""}${n > 1 && findings ? (findingsFrom === "review" ? `\n\n## Code review findings the developer fixed (re-test the checks they touch)\n${findings.slice(0, 3000)}` : `\n\n## Your findings from the previous iteration (check each one is fixed)\n${findings.slice(0, 3000)}`) : ""}${opts.feedback && n === 1 ? `\n\nAlso verify the product owner's feedback was applied: ${opts.feedback}` : ""}${lessonsBlock(project()) ? "\n\nAlso check the story follows the project's lessons." : ""}`,
     });
     const verdict = q.outcome.review?.verdict ?? "approved";
     qaNotes = q.outcome.review?.findings ?? "";

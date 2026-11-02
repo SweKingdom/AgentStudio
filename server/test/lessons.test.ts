@@ -44,3 +44,32 @@ test("lessons are on unless the project turns them off", () => {
   assert.equal(lessonsEnabled({ settings: {} as any }), true);
   assert.equal(lessonsEnabled({ settings: { lessons: false } as any }), false);
 });
+
+const { contextFor } = await import("../src/agents/context.ts");
+const { defaultAgentFor } = await import("../src/agents/store.ts");
+const { getProject, upsertDoc } = await import("../src/store.ts");
+const { insert, now } = await import("../src/db.ts");
+
+function project(key: string, settings: Record<string, unknown> = {}) {
+  const ts = now();
+  insert("projects", { id: `prj_${key}`, key, name: key, status: "ready", mode: "simulation", created_at: ts, updated_at: ts, settings: { gates: false, parallelism: 1, budgetUsd: 0, maxRework: 1, ...settings } });
+  return getProject(`prj_${key}`)!;
+}
+
+test("contextFor puts the lessons in front of the developer, QA and architect only", () => {
+  const p = project("CTX");
+  const roles = ["developer", "qa", "architect", "planner", "writer", "release", "requirements"] as const;
+  const shared = (role: (typeof roles)[number]) => contextFor(getProject(p.id)!, defaultAgentFor(role)).shared;
+  assert.ok(roles.every((r) => !shared(r).includes("Lessons from earlier stories")), "no lessons yet, no block");
+  upsertDoc({ projectId: p.id, kind: "project_lessons", itemId: null, title: "Lessons learned", content: "- Seed data must be idempotent. (US-140, checks)", agentId: null });
+  for (const role of roles) {
+    const s = shared(role);
+    if (["developer", "qa", "architect"].includes(role)) {
+      assert.match(s, /## Lessons from earlier stories in this project \(follow them\)\n- Seed data must be idempotent\.$/m, role);
+      assert.doesNotMatch(s, /US-140/, "agents get the rule, not its history");
+    } else assert.doesNotMatch(s, /Lessons from earlier stories/, role);
+  }
+  const off = project("OFF", { lessons: false });
+  upsertDoc({ projectId: off.id, kind: "project_lessons", itemId: null, title: "Lessons learned", content: "- Rule (product owner)", agentId: null });
+  assert.doesNotMatch(contextFor(off, defaultAgentFor("developer")).shared, /Lessons from earlier stories/, "turned off: no block");
+});
