@@ -52,3 +52,25 @@ test("a stage's estimate: its agents' share; delivery counts only the stories no
   assert.equal(stageEstimateUsd(pid, "delivery"), 5, "half the points are left: half of $10");
   assert.equal(stageEstimateUsd(pid, "approve_plan"), null);
 });
+
+test("plan review: unknown and circular dependencies, wrong order, oversized stories, missing ACs and specs", async () => {
+  const { planFindings } = await import("../src/orchestrator.ts");
+  const pid = project("PLR", null);
+  const spec = { tech_spec: "Module X.", acceptance_criteria: "### AC 1: Works\nIt works." };
+  const a = createItem(pid, { type: "story", title: "A", sprint: 2, rank: 1, story_points: 3, ...spec });
+  const b = createItem(pid, { type: "story", title: "B", sprint: 1, rank: 1, story_points: 13, ...spec, depends_on: [a.code] });
+  const c = createItem(pid, { type: "story", title: "C", sprint: 1, rank: 2, story_points: 3, tech_spec: "", acceptance_criteria: "It works somehow.", depends_on: ["US-999"] });
+  const d = createItem(pid, { type: "story", title: "D", sprint: 3, rank: 1, story_points: 3, ...spec });
+  const e = createItem(pid, { type: "story", title: "E", sprint: 3, rank: 2, story_points: 3, ...spec, depends_on: [d.code] });
+  const { run } = await import("../src/db.ts");
+  run("UPDATE work_items SET depends_on = ? WHERE id = ?", JSON.stringify([e.code]), d.id);
+  const f = planFindings(pid);
+  const has = (code: string, kind: string, re: RegExp) => f.some((x) => x.code === code && x.kind === kind && re.test(x.detail));
+  assert.ok(has(b.code, "order", /planned before/), "B needs A, which comes later");
+  assert.ok(has(b.code, "size", /13 points/));
+  assert.ok(has(c.code, "dependency", /US-999.*isn't in the backlog/));
+  assert.ok(has(c.code, "acceptance", /no numbered acceptance criteria/));
+  assert.ok(has(c.code, "design", /no technical specification/));
+  assert.ok(f.some((x) => x.kind === "dependency" && /cycle/.test(x.detail) && x.detail.includes(d.code) && x.detail.includes(e.code)));
+  assert.ok(!f.some((x) => x.code === a.code), "A is fine");
+});

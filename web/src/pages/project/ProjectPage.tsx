@@ -300,6 +300,14 @@ export default function ProjectPage() {
                gate.key === "approve_plan" ? "check the estimates, priorities and sprint plan, then approve to start building." :
                gate.key === "approve_untested" ? t("QA couldn't test these acceptance criteria. Verify them yourself (or send the story back), then approve the release.") :
                "every story is built, tested and documented. Approve to deploy, smoke test and publish the release."}
+              {gate.key === "approve_plan" && p.planFindings.length > 0 && (
+                <>
+                  <div className="small" style={{ marginTop: 6 }}><b>⚠ {t("The plan review found")} {p.planFindings.length}</b> {t("thing(s) the agents couldn't fix — look at them before approving:")}</div>
+                  <ul className="small" style={{ margin: "6px 0 0", paddingLeft: 18 }}>
+                    {p.planFindings.map((f, i) => <li key={i}>{f.code && <b>{f.code} </b>}{f.detail}</li>)}
+                  </ul>
+                </>
+              )}
               {(gate.key === "approve_untested" || gate.key === "approve_release") && p.untested.length > 0 && (
                 <>
                   {gate.key === "approve_release" && <div className="small" style={{ marginTop: 6 }}><b>⛔ {p.untested.length} {t("acceptance criteria couldn't be tested")}</b> — {t("approving the release approves them too:")}</div>}

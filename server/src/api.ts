@@ -1,6 +1,7 @@
 import { accountStatus, addAccount, cancelLogin, listAccounts, planUsageFor, loginCommandFor, loginState, logoutAccount, openLoginTerminal, removeAccount, setActiveAccount, startLogin } from "./claudeAccounts.js";
 import { cleanAllowedCommands } from "./commands.js";
 import { openTerminal } from "./terminal.js";
+import { redact } from "./secrets.js";
 import { Router, type Request, type Response, type NextFunction } from "express";
 import multer from "multer";
 import fs from "node:fs";
@@ -17,7 +18,7 @@ import { buildSystemPrompt, countPdfTokens } from "./agents/runner.js";
 import { deleteCustomKnowledge, listKnowledge, saveCustomKnowledge } from "./knowledge.js";
 import { estimateProject } from "./estimate.js";
 import { buildPlanFromText, readPdf } from "./agents/simplan.js";
-import { approveGate, buildStages, finishUndelivered, fixBug, humanTransition, isPausing, pauseAll, resumeAll, startItem, startPlan, isRunning, listJobs, pauseProject, pipelineRunning, releaseNow, reportBug, reopenProject, rerunItem, startProject, teamOf, undeliveredItems, untestedAcs, type RerunRole } from "./orchestrator.js";
+import { approveGate, buildStages, finishUndelivered, fixBug, humanTransition, isPausing, pauseAll, resumeAll, startItem, startPlan, isRunning, listJobs, pauseProject, pipelineRunning, releaseNow, reportBug, reopenProject, planFindings, rerunItem, startProject, teamOf, undeliveredItems, untestedAcs, type RerunRole } from "./orchestrator.js";
 import { chat, chatHistory } from "./chat.js";
 import { autoResumeAllowed, globalPause, spendStatus } from "./pause.js";
 import { ensureRepo, gitLog, listBranches, providerOf, remoteStatus, repoName, testRemoteUrl, validateRepoUrl, webUrlOf } from "./git.js";
@@ -350,6 +351,7 @@ function projectSummary(p: Project) {
     openQuestions,
     undelivered: undeliveredItems(p.id),
     untested: untestedAcs(p.id),
+    planFindings: p.stage === "approve_plan" || p.stage === "planning" ? planFindings(p.id) : [],
     planUsage: claudeBackend() === "subscription" ? planUsageFor(p) : null,
     activeRuns,
   };
@@ -522,6 +524,11 @@ api.patch("/projects/:pid", wrap(async (req, res) => {
     } catch (e) {
       return res.status(400).json({ error: e instanceof Error ? e.message : String(e) });
     }
+  }
+  if (body.settings?.protectedPaths !== undefined) {
+    const list = Array.isArray(body.settings.protectedPaths) ? [...new Set(body.settings.protectedPaths.map((x: unknown) => String(x ?? "").trim()).filter(Boolean))] : null;
+    if (!list || list.length > 30 || list.some((g) => (g as string).length > 200)) return res.status(400).json({ error: "Protected paths: at most 30 globs of at most 200 characters." });
+    body.settings.protectedPaths = list;
   }
   if (body.settings?.commands !== undefined) {
     try {
@@ -1341,7 +1348,7 @@ api.post("/questions/:id/answer", (req, res) => {
   const decision = String(req.body?.decision ?? req.body?.answer ?? "").trim();
   const reasoning = String(req.body?.reasoning ?? "").trim();
   if (!decision && reasoning) return res.status(400).json({ error: "Give a decision — the reasoning alone isn't an answer." });
-  run("UPDATE questions SET answer = ?, reasoning = ?, answered_at = ? WHERE id = ?", decision, reasoning || null, now(), q.id);
+  run("UPDATE questions SET answer = ?, reasoning = ?, answered_at = ? WHERE id = ?", redact(decision), reasoning ? redact(reasoning) : null, now(), q.id);
   if (decision) {
     postMessage({ projectId: q.project_id, from: "human", to: q.asked_by ?? "orchestrator", itemId: q.item_id, kind: "answer", content: answerText({ answer: decision, reasoning }) });
     for (const itemId of [q.item_id, ...(JSON.parse(q.also_items || "[]") as string[])]) {
@@ -1355,6 +1362,13 @@ api.post("/questions/:id/answer", (req, res) => {
 
 /** A sample requirements spec with the usual decisions already made (stack, time zone, sign-in, out of scope), so a
  *  new project starts with fewer open questions. Markdown, from docs/requirements-template.md. */
+/** The Swedish guide (docs/Kom-igang.md), shown in the app's Guide when the interface is in Swedish. */
+api.get("/guide/sv", (_req, res) => {
+  const file = path.join(ROOT_DIR, "docs", "Kom-igang.md");
+  if (!fs.existsSync(file)) return res.status(404).json({ error: "The Swedish guide is missing." });
+  res.type("text/markdown").send(fs.readFileSync(file, "utf8"));
+});
+
 api.get("/templates/requirements", (_req, res) => {
   const file = path.join(ROOT_DIR, "docs", "requirements-template.md");
   if (!fs.existsSync(file)) return res.status(404).json({ error: "The requirements template is missing." });

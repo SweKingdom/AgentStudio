@@ -17,11 +17,9 @@ Every project runs through the same pipeline. Agents hand work to each other thr
 
 Gates can be switched off per project (autopilot).
 
-![A running project](.attachments/project-running.png)
 
 The **path bar** at the top of a project shows each stage in the colours of the agents that own it: ✓ done, a spinner while running, a hand while it waits for you, hatched when skipped.
 
-![Backlog review gate](.attachments/gate-backlog.png)
 
 ## Questions hold stories
 
@@ -34,7 +32,6 @@ When the analyst finds something ambiguous ("to be decided", "approx."), it rais
 - **`ask_human`:** an agent asks you when a business decision is needed.
 - Every message is recorded. The **Network** tab draws who talked to whom: dashed edges are rework, animated ones are in flight.
 
-![Agent network](.attachments/network.png)
 
 ## Simulation and live
 

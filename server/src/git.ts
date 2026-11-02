@@ -484,6 +484,22 @@ export function keepFiles(project: Pick<Project, "key" | "settings">, code: stri
   });
 }
 
+/** The git tree of a story's working copy (or the base workspace) as it is on disk, committed or not: what checks,
+ *  scans and reviews attest to. Null when there is no working copy. */
+export function currentTree(project: Pick<Project, "key" | "settings">, code: string | null) {
+  return serial(project.key, async () => {
+    const dir = code ? worktreeDir(project, code) : workspaceDir(project);
+    if (!fs.existsSync(path.join(dir, ".git"))) return null;
+    await git(dir, [...ARM_IDENTITY, "add", "-A"]);
+    return (await git(dir, ["write-tree"])).trim();
+  });
+}
+
+/** Paths that differ between two trees. */
+export function treeDiff(project: Pick<Project, "key" | "settings">, from: string, to: string) {
+  return serial(project.key, async () => (await git(workspaceDir(project), ["diff-tree", "-r", "--name-only", from, to])).split("\n").filter(Boolean));
+}
+
 /** Is the work on GitHub? Whether origin has the local base branch's commits and the release tag. Asks origin (one
  *  fetch and one ls-remote); null fields when it can't be reached. */
 export function remoteStatus(project: Pick<Project, "key" | "settings">, tag?: string | null) {
@@ -533,6 +549,39 @@ export function branchDiff(project: Pick<Project, "key" | "settings">, code: str
     const full = await git(wt, ["diff", "--cached", "--no-color", "-U3", mb, ...scope]);
     const truncated = full.length > maxChars;
     return { files, patch: truncated ? `${full.slice(0, maxChars).replace(/\n[^\n]*$/, "")}\n…[diff truncated at ${maxChars} characters — review what is shown and say which files you could not see]` : full, truncated };
+  });
+}
+
+/** What a story's branch changes against where it left the base branch, as it is on disk: each changed path, the
+ *  lines it adds, and the symbolic links it adds with their targets. For the security scan. */
+export function branchChanges(project: Pick<Project, "key" | "settings">, code: string) {
+  return serial(project.key, async () => {
+    const wt = worktreeDir(project, code);
+    if (!fs.existsSync(path.join(wt, ".git"))) return { files: [] as { status: string; path: string }[], added: new Map<string, string[]>(), symlinks: [] as { path: string; target: string }[] };
+    const base = project.settings.repo?.branch || "main";
+    await git(wt, [...ARM_IDENTITY, "add", "-A"]);
+    const mb = (await git(wt, ["merge-base", base, "HEAD"])).trim();
+    const files = (await git(wt, ["diff", "--cached", "--name-status", "--no-renames", mb]))
+      .split("\n")
+      .filter(Boolean)
+      .map((l) => {
+        const [status, ...rest] = l.split("\t");
+        return { status: status.trim(), path: rest.join("\t") };
+      });
+    const added = new Map<string, string[]>();
+    let current = "";
+    for (const line of (await git(wt, ["diff", "--cached", "--no-color", "--no-renames", "-U0", mb])).split("\n")) {
+      if (line.startsWith("+++ ")) current = line.slice(4).replace(/^b\//, "");
+      else if (line.startsWith("+") && current && current !== "/dev/null") added.set(current, [...(added.get(current) ?? []), line.slice(1)]);
+    }
+    const changed = new Set(files.filter((f) => f.status !== "D").map((f) => f.path));
+    const symlinks = (await git(wt, ["ls-files", "-s"]))
+      .split("\n")
+      .filter((l) => l.startsWith("120000 "))
+      .map((l) => l.split("\t")[1])
+      .filter((p) => changed.has(p))
+      .map((p) => ({ path: p, target: fs.readlinkSync(path.join(wt, p)) }));
+    return { files, added, symlinks };
   });
 }
 

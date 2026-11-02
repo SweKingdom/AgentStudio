@@ -101,6 +101,10 @@ function respond(params: any) {
     }
     return reply([text(`${code} implemented.`)]);
   }
+  if (tools.includes("submit_design_critique")) {
+    if (turn === 0) return reply([toolUse("submit_design_critique", { verdict: "approved", findings: "No blocking issues." })]);
+    return reply([text("Critique done.")]);
+  }
   if (tools.includes("submit_review")) {
     const code = codes(task, "US")[0];
     if (turn === 0) return reply([toolUse("submit_review", { code, verdict: "approved", findings: "Too early." }), toolUse("run_checks", {})]);
@@ -221,7 +225,12 @@ test("live pipeline: PDF → backlog → build with a failing check fixed → QA
   assert.doesNotMatch(devText, /## Project brief/, "no full brief for the developer");
   assert.match(JSON.stringify(dev.messages[0].content), /`node --test`/, "agents are told the project's checks");
   assert.equal(dev.messages[0].content.filter((b: any) => b.cache_control).length, 1, "project block is cached");
-  const qa = requests.find((r) => r.tools.some((t: any) => t.name === "submit_review"));
+  const qa = requests.find((r) => r.tools.some((t: any) => t.name === "submit_review") && /Peer-test/.test(firstText(r)));
+  // The design is critiqued from three perspectives before planning, by QA (not the architect who wrote it).
+  const critique = requests.find((r) => r.tools.some((t: any) => t.name === "submit_design_critique"));
+  assert.ok(critique, "a design critique ran");
+  assert.match(firstText(critique), /Architecture[\s\S]*Security and data[\s\S]*Delivery and testability/);
+  assert.match(firstText(analyst), /First: crystallize the requirements/, "the analyst writes a requirements brief first");
   assert.match(firstText(qa), /## Developer's hand-over/);
   assert.match(firstText(qa), /## Files US-\d+ changed on its branch[\s\S]*src\/us-\d+\.mjs/);
   const names = (r: any) => r.tools.map((t: any) => t.name);
@@ -238,10 +247,12 @@ test("live pipeline: PDF → backlog → build with a failing check fixed → QA
     assert.match(s.branch ?? "", new RegExp(`^feature/${s.code}-`));
   }
 
-  // Gates: no hand-over, approval or release before a passing run of the checks.
+  // Gates: no hand-over before a passing run of the checks on the code as it is.
   assert.ok(events.some((e) => e.startsWith("error:Run the project's checks with run_checks first")), "hand-over refused");
-  assert.ok(events.some((e) => e.startsWith("error:Run the project's checks with run_checks before approving")), "approval refused");
-  assert.ok(events.some((e) => e.startsWith("error:Run the project's checks on the base branch")), "release refused");
+  // Deterministic first: QA's approval and the release rest on checks already proven green on exactly that code (the
+  // developer's run, the orchestrator's run on the base branch), so they aren't refused for not re-running them.
+  assert.ok(!events.some((e) => e.startsWith("error:Run the project's checks with run_checks before approving")), "approval on attested green code");
+  assert.ok(!events.some((e) => e.startsWith("error:Run the project's checks on the base branch")), "release on attested green code");
   // Fix loop: the real `node --test` failed on the wrong first attempt, then passed after the fix.
   for (const s of stories) {
     assert.ok(events.includes(`dev-saw:${s.code}:failure`), `${s.code} saw the failing test`);

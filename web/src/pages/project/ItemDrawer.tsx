@@ -220,7 +220,7 @@ export default function ItemDrawer({ id, project, onClose }: { id: string; proje
               <b>On hold — {it.questions.filter((q) => !q.answer).length} open question(s).</b> This item won't be refined, planned or built until they're answered.
               <ul style={{ margin: "4px 0 0", paddingLeft: 18 }}>{it.questions.filter((q) => !q.answer).map((q) => <li key={q.id}>{q.question}</li>)}</ul>
             </div>
-            <Link to={`/p/${project.key}/questions`} className="btn sm">Answer</Link>
+            <Link to={`/p/${project.key}/questions`} className="btn sm">{t("Answer")}</Link>
           </div>
         )}
         {it.bugs.length > 0 && (
@@ -231,18 +231,18 @@ export default function ItemDrawer({ id, project, onClose }: { id: string; proje
         )}
         <div className="row" style={{ justifyContent: "space-between", borderBottom: "1px solid var(--line)", paddingBottom: 10 }}>
           <Seg value={tab} onChange={setTab} options={[
-            { value: "story", label: "Story" },
-            ...(isDeliverable ? [{ value: "tests" as Tab, label: `Tests${it.tests.length ? ` (${it.tests.length})` : ""}` }, { value: "timeline" as Tab, label: "Timing" }] : []),
-            { value: "conversation", label: `Conversation${it.messages.length ? ` (${it.messages.length})` : ""}` },
-            ...(isDeliverable ? [{ value: "files" as Tab, label: `Files & docs${it.files.length ? ` (${it.files.length})` : ""}` }, { value: "cost" as Tab, label: "Cost" }] : []),
+            { value: "story", label: t("Story") },
+            ...(isDeliverable ? [{ value: "tests" as Tab, label: `${t("Tests")}${it.tests.length ? ` (${it.tests.length})` : ""}` }, { value: "timeline" as Tab, label: t("Timing") }] : []),
+            { value: "conversation", label: `${t("Conversation")}${it.messages.length ? ` (${it.messages.length})` : ""}` },
+            ...(isDeliverable ? [{ value: "files" as Tab, label: `${t("Files & docs")}${it.files.length ? ` (${it.files.length})` : ""}` }, { value: "cost" as Tab, label: t("Cost") }] : []),
           ]} />
           {tab === "story" && (edit ? (
             <div className="row">
-              <button className="btn sm ghost" onClick={() => setEdit(null)}>Cancel</button>
-              <button className="btn sm primary" onClick={() => save.mutate(edit)}><Save size={13} /> Save</button>
+              <button className="btn sm ghost" onClick={() => setEdit(null)}>{t("Cancel")}</button>
+              <button className="btn sm primary" onClick={() => save.mutate(edit)}><Save size={13} /> {t("Save")}</button>
             </div>
           ) : (
-            <button className="btn sm" onClick={() => setEdit(Object.fromEntries([["title", it.title], ["category", it.category], ...SECTIONS.map((s) => [s.key, String(it[s.key] ?? "")])]))}><Pencil size={13} /> Edit</button>
+            <button className="btn sm" onClick={() => setEdit(Object.fromEntries([["title", it.title], ["category", it.category], ...SECTIONS.map((s) => [s.key, String(it[s.key] ?? "")])]))}><Pencil size={13} /> {t("Edit")}</button>
           ))}
         </div>
       </div>
@@ -252,7 +252,7 @@ export default function ItemDrawer({ id, project, onClose }: { id: string; proje
           <>
             {it.children.length > 0 && (
               <div className="section">
-                <div className="section-title">Children</div>
+                <div className="section-title">{t("Children")}</div>
                 <div className="col" style={{ gap: 4 }}>
                   {it.children.map((c) => (
                     <Link key={c.id} to={`?item=${c.id}`} className="row small" style={{ padding: "4px 0" }}>
@@ -267,7 +267,7 @@ export default function ItemDrawer({ id, project, onClose }: { id: string; proje
               if (!edit && !value.trim()) return null;
               return (
                 <div className="section" key={s.key}>
-                  <div className="section-title">{s.label}<span className="tiny mono faint" style={{ textTransform: "none", letterSpacing: 0, fontWeight: 400 }}>{s.ado}</span></div>
+                  <div className="section-title">{t(s.label)}<span className="tiny mono faint" style={{ textTransform: "none", letterSpacing: 0, fontWeight: 400 }}>{s.ado}</span></div>
                   {edit ? (
                     <Field help={s.help}>
                       <textarea className="textarea code" style={{ minHeight: s.key === "user_story" ? 60 : 120 }} value={edit[s.key]} onChange={(e) => setEdit({ ...edit, [s.key]: e.target.value })} />
@@ -317,10 +317,10 @@ export default function ItemDrawer({ id, project, onClose }: { id: string; proje
           it.phases.length ? (
             <>
               <div className="grid g4" style={{ marginBottom: 18 }}>
-                <div className="card kpi"><div className="kpi-label">Development</div><div className="kpi-value" style={{ fontSize: 19 }}>{duration(sum("development"))}</div></div>
-                <div className="card kpi"><div className="kpi-label">Testing</div><div className="kpi-value" style={{ fontSize: 19 }}>{duration(sum("qa"))}</div></div>
-                <div className="card kpi"><div className="kpi-label">Lead time</div><div className="kpi-value" style={{ fontSize: 19 }}>{duration(span)}</div><div className="kpi-foot">first phase → last</div></div>
-                <div className="card kpi"><div className="kpi-label">Human estimate</div><div className="kpi-value" style={{ fontSize: 19 }}>{hours(it.human_hours)}</div><div className="kpi-foot">{it.story_points ?? "?"} pts</div></div>
+                <div className="card kpi"><div className="kpi-label">{t("Development")}</div><div className="kpi-value" style={{ fontSize: 19 }}>{duration(sum("development"))}</div></div>
+                <div className="card kpi"><div className="kpi-label">{t("Testing")}</div><div className="kpi-value" style={{ fontSize: 19 }}>{duration(sum("qa"))}</div></div>
+                <div className="card kpi"><div className="kpi-label">{t("Lead time")}</div><div className="kpi-value" style={{ fontSize: 19 }}>{duration(span)}</div><div className="kpi-foot">first phase → last</div></div>
+                <div className="card kpi"><div className="kpi-label">{t("Human estimate")}</div><div className="kpi-value" style={{ fontSize: 19 }}>{hours(it.human_hours)}</div><div className="kpi-foot">{it.story_points ?? "?"} pts</div></div>
               </div>
               <div className="col" style={{ gap: 8 }}>
                 {it.phases.map((ph, i) => {
@@ -350,7 +350,7 @@ export default function ItemDrawer({ id, project, onClose }: { id: string; proje
         {tab === "conversation" && (
           <>
             <div className="section">
-              <div className="section-title">Comments</div>
+              <div className="section-title">{t("Comments")}</div>
               <div className="col" style={{ gap: 8 }}>
                 {it.comments.map((c) => {
                   const a = agent(c.author_id);
@@ -364,7 +364,7 @@ export default function ItemDrawer({ id, project, onClose }: { id: string; proje
                     </div>
                   );
                 })}
-                {!it.comments.length && <div className="small muted">No comments yet. Agents read your comments the next time they work on this item.</div>}
+                {!it.comments.length && <div className="small muted">{t("No comments yet. Agents read your comments the next time they work on this item.")}</div>}
                 <Field help="Add a note for the agents. Every agent that works on this item afterwards reads your comments and takes them into account. Ctrl/⌘+Enter to post.">
                   <div className="row" style={{ alignItems: "flex-end" }}>
                     <textarea className="textarea" style={{ minHeight: 44 }} placeholder="Write a comment for the team…" value={comment} onChange={(e) => setComment(e.target.value)}
@@ -374,8 +374,8 @@ export default function ItemDrawer({ id, project, onClose }: { id: string; proje
                 </Field>
               </div>
             </div>
-            <div className="section"><div className="section-title">Messages between agents</div><div className="card"><MessageList messages={it.messages} empty="No messages about this item yet." /></div></div>
-            <div className="section"><div className="section-title">Activity</div><div className="card"><ActivityFeed items={it.activity} /></div></div>
+            <div className="section"><div className="section-title">{t("Messages between agents")}</div><div className="card"><MessageList messages={it.messages} empty="No messages about this item yet." /></div></div>
+            <div className="section"><div className="section-title">{t("Activity")}</div><div className="card"><ActivityFeed items={it.activity} /></div></div>
           </>
         )}
 
@@ -396,7 +396,7 @@ export default function ItemDrawer({ id, project, onClose }: { id: string; proje
                     </div>
                   ))}
                 </div>
-              ) : <div className="small muted">No files yet.</div>}
+              ) : <div className="small muted">{t("No files yet.")}</div>}
               {file && fileContent && (
                 <div className="card" style={{ marginTop: 10, overflow: "hidden" }}>
                   {fileRow?.first_version && fileBefore ? (
@@ -413,9 +413,9 @@ export default function ItemDrawer({ id, project, onClose }: { id: string; proje
         {tab === "cost" && (
           <>
             <div className="grid g3" style={{ marginBottom: 16 }}>
-              <div className="card kpi"><div className="kpi-label">Direct cost</div><div className="kpi-value accent" style={{ fontSize: 20 }}>{money(it.cost.costUsd)}</div></div>
-              <div className="card kpi"><div className="kpi-label">Model calls</div><div className="kpi-value" style={{ fontSize: 20 }}>{it.cost.calls}</div></div>
-              <div className="card kpi"><div className="kpi-label">Per story point</div><div className="kpi-value" style={{ fontSize: 20 }}>{it.story_points ? money(it.cost.costUsd / it.story_points) : "—"}</div></div>
+              <div className="card kpi"><div className="kpi-label">{t("Direct cost")}</div><div className="kpi-value accent" style={{ fontSize: 20 }}>{money(it.cost.costUsd)}</div></div>
+              <div className="card kpi"><div className="kpi-label">{t("Model calls")}</div><div className="kpi-value" style={{ fontSize: 20 }}>{it.cost.calls}</div></div>
+              <div className="card kpi"><div className="kpi-label">{t("Per story point")}</div><div className="kpi-value" style={{ fontSize: 20 }}>{it.story_points ? money(it.cost.costUsd / it.story_points) : "—"}</div></div>
             </div>
             <div className="col" style={{ gap: 8 }}>
               {it.costByAgent.map((c) => {
@@ -430,7 +430,7 @@ export default function ItemDrawer({ id, project, onClose }: { id: string; proje
                 );
               })}
             </div>
-            <div className="hint" style={{ marginTop: 12 }}>Direct cost covers development, testing and documentation of this item. Project-wide work (analysis, planning, release) is reported per agent on the Costs tab.</div>
+            <div className="hint" style={{ marginTop: 12 }}>{t("Direct cost covers development, testing and documentation of this item. Project-wide work (analysis, planning, release) is reported per agent on the Costs tab.")}</div>
           </>
         )}
       </div>

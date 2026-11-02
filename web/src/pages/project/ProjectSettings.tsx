@@ -9,7 +9,7 @@ import { RepoFields, repoUrlError } from "../../components/Repo";
 import { ChecksFields, useTeam } from "../../components/TeamSettings";
 import { AdoSettings, adoConfigError, adoFormValue, adoSettingsOf } from "../../components/AdoSettings";
 import { BookmarkPlus } from "lucide-react";
-import { CodeReviewField } from "../../components/CodeReviewField";
+import { CodeReviewField, DESIGN_CRITIQUE_HELP } from "../../components/CodeReviewField";
 import { useClaudeAccounts } from "../../components/ClaudeAccounts";
 
 /** Edit a project after creation: identity, repository, run settings and checks. */
@@ -18,16 +18,17 @@ export function ProjectSettingsModal({ p, onClose }: { p: Project; onClose: () =
   const [name, setName] = useState(p.name);
   const [description, setDescription] = useState(p.description);
   const [repo, setRepo] = useState({ url: p.settings.repo?.url ?? "", branch: p.settings.repo?.branch ?? "main", push: p.settings.repo?.push ?? false });
-  const [s, setS] = useState({ gates: p.settings.gates, parallelism: p.settings.parallelism, budgetUsd: p.settings.budgetUsd, maxRework: p.settings.maxRework, codeReview: p.settings.codeReview ?? "off", claudeAccount: p.settings.claudeAccount ?? null });
+  const [s, setS] = useState({ gates: p.settings.gates, parallelism: p.settings.parallelism, budgetUsd: p.settings.budgetUsd, maxRework: p.settings.maxRework, codeReview: p.settings.codeReview ?? "off", designCritique: p.settings.designCritique !== false, claudeAccount: p.settings.claudeAccount ?? null });
   const { data: claude } = useClaudeAccounts();
   const { data: team } = useTeam();
   // Only what differs from the team defaults is stored on the project; an empty list follows the team.
   const [checks, setChecks] = useState<Partial<ChecksSettings>>(p.settings.checks ?? {});
   const [ado, setAdo] = useState(adoFormValue(p.settings.ado));
   const [commands, setCommands] = useState((p.settings.commands ?? []).join("\n"));
+  const [protectedPaths, setProtectedPaths] = useState((p.settings.protectedPaths ?? []).join("\n"));
   const err = repoUrlError(repo.url);
   const save = useMutation({
-    mutationFn: () => api.patch(`/projects/${p.id}`, { name, description, settings: { ...s, repo: { url: repo.url.trim(), branch: repo.branch.trim() || "main", push: repo.push }, checks: { commands: (checks.commands ?? []).filter((c) => c.command.trim()), ...(checks.timeoutMinutes ? { timeoutMinutes: checks.timeoutMinutes } : {}), ...(checks.install?.trim() ? { install: checks.install.trim() } : {}) }, ado: adoSettingsOf(ado), commands: commands.split("\n").map((c) => c.trim()).filter(Boolean) } }),
+    mutationFn: () => api.patch(`/projects/${p.id}`, { name, description, settings: { ...s, repo: { url: repo.url.trim(), branch: repo.branch.trim() || "main", push: repo.push }, checks: { commands: (checks.commands ?? []).filter((c) => c.command.trim()), ...(checks.timeoutMinutes ? { timeoutMinutes: checks.timeoutMinutes } : {}), ...(checks.install?.trim() ? { install: checks.install.trim() } : {}) }, ado: adoSettingsOf(ado), commands: commands.split("\n").map((c) => c.trim()).filter(Boolean), protectedPaths: protectedPaths.split("\n").map((c) => c.trim()).filter(Boolean) } }),
     onSuccess: () => { qc.invalidateQueries(); toast("Project settings saved"); onClose(); },
     onError: (e: Error) => toast(e.message, "bad"),
   });
@@ -60,6 +61,9 @@ export function ProjectSettingsModal({ p, onClose }: { p: Project; onClose: () =
             <input className="input" type="number" min={0} max={5} value={s.maxRework} onChange={(e) => setS({ ...s, maxRework: Number(e.target.value) })} />
           </Field>
           <CodeReviewField value={s.codeReview} onChange={(v) => setS({ ...s, codeReview: v })} />
+          <Field label="Design critique" help={DESIGN_CRITIQUE_HELP}>
+            <div className="row" style={{ height: 34 }}><Switch on={s.designCritique} onChange={(v) => setS({ ...s, designCritique: v })} label="Design critique" /><span className="small muted">{s.designCritique ? "On" : "Off"}</span></div>
+          </Field>
           <Field label="Claude account" help="Which Claude login this project's live agents use on the plan backend (Settings → Claude account). Takes effect from the next agent run.">
             <select className="input" value={s.claudeAccount ?? ""} onChange={(e) => setS({ ...s, claudeAccount: e.target.value || null })}>
               <option value="">{`Default (${claude?.accounts.find((a) => a.id === claude.active)?.label ?? "this computer's login"})`}</option>
@@ -84,6 +88,12 @@ export function ProjectSettingsModal({ p, onClose }: { p: Project; onClose: () =
           help="Commands the developer agent may run itself in a story's worktree, one per line — e.g. dotnet ef migrations add, or dotnet run -- --seed-only. A command must start with one of these, word for word; ; & | < > ` and $ are never allowed. It runs with this computer's rights and without AgentStudio's keys. Generated files are committed with the story. Empty: the agent asks you for a manual step instead."
         >
           <textarea className="textarea mono" style={{ minHeight: 64 }} value={commands} placeholder={"dotnet ef migrations add\ndotnet run -- --seed-only"} onChange={(e) => setCommands(e.target.value)} />
+        </Field>
+        <Field
+          label="Protected paths"
+          help="Files no story may add or change, one glob per line (* within a folder, ** across folders) — e.g. infra/prod/** or migrations/legacy/*. Added to the built-in ones: .env files (not .env.example), keys and certificates, .npmrc and other credential files. The security scan before every merge checks them, together with secrets, dependency sources and links out of the repository; it can't be turned off."
+        >
+          <textarea className="textarea mono" style={{ minHeight: 48 }} value={protectedPaths} placeholder={"infra/prod/**"} onChange={(e) => setProtectedPaths(e.target.value)} />
         </Field>
         <AdoSettings projectId={p.id} value={ado} onChange={setAdo} />
       </div>

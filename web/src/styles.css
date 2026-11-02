@@ -935,7 +935,7 @@ html:has(.rp) body { background: #e9e4dc; }
 .guide-toc-list a:hover { background: var(--panel-2); color: var(--text); }
 .guide-toc-list a.on { background: var(--accent-soft); color: var(--text); box-shadow: inset 2px 0 0 var(--accent); }
 .guide-toc-list a.on svg { color: var(--accent); }
-.guide-toc-list a:focus-visible, .guide-shot-btn:focus-visible, .guide-applink:focus-visible, .guide-faq summary:focus-visible, .guide-refs a:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.guide-toc-list a:focus-visible, .guide-applink:focus-visible, .guide-faq summary:focus-visible, .guide-refs a:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 
 .guide-body { min-width: 0; max-width: 900px; display: flex; flex-direction: column; gap: 22px; }
 .guide-sec { scroll-margin-top: 16px; padding: 22px 26px 24px; border: 1px solid var(--line); border-radius: var(--radius); background: var(--panel); color: var(--text-2); line-height: 1.6; }
@@ -965,19 +965,7 @@ html:has(.rp) body { background: #e9e4dc; }
 .guide-table td { vertical-align: top; line-height: 1.45; }
 .guide-table tbody tr:hover td { background: transparent; }
 
-.guide-shot { margin: 16px 0 12px; }
-.guide-shot-btn { position: relative; display: block; width: 100%; padding: 0; border: 1px solid var(--line-2); border-radius: var(--radius-sm); overflow: hidden; background: var(--bg); cursor: zoom-in; box-shadow: var(--shadow); transition: border-color .2s, transform .25s var(--ease-out); }
-.guide-shot-btn img { display: block; width: 100%; height: auto; }
-.guide-shot-btn:hover { border-color: var(--accent); transform: translateY(-1px); }
-.guide-shot-zoom { position: absolute; right: 10px; bottom: 10px; display: inline-flex; align-items: center; gap: 5px; padding: 4px 9px; border-radius: 99px; font-size: 11.5px; color: var(--accent-ink); background: var(--accent); opacity: 0; transform: translateY(4px); transition: opacity .2s, transform .2s var(--ease-out); }
-.guide-shot-btn:hover .guide-shot-zoom, .guide-shot-btn:focus-visible .guide-shot-zoom { opacity: 1; transform: none; }
-.guide-shot figcaption { margin-top: 7px; font-size: 12.5px; color: var(--muted); }
 
-.guide-lightbox { position: fixed; inset: 0; z-index: 300; display: grid; place-items: center; padding: 24px; background: rgba(12, 13, 17, 0.82); backdrop-filter: blur(3px); animation: guide-fade .18s ease-out both; cursor: zoom-out; }
-.guide-lightbox-inner { max-width: min(1500px, 100%); max-height: 100%; display: flex; flex-direction: column; gap: 8px; cursor: default; }
-.guide-lightbox-bar { display: flex; align-items: center; justify-content: space-between; gap: 12px; color: #f5f0ea; }
-.guide-lightbox-bar .btn { color: #f5f0ea; }
-.guide-lightbox img { display: block; max-width: 100%; max-height: calc(100vh - 100px); object-fit: contain; border-radius: var(--radius-sm); border: 1px solid rgba(255, 255, 255, 0.12); box-shadow: 0 20px 60px rgba(0, 0, 0, 0.5); }
 @keyframes guide-fade { from { opacity: 0; } to { opacity: 1; } }
 
 .guide-callout { display: flex; gap: 10px; align-items: flex-start; margin: 12px 0; padding: 10px 14px; border-radius: var(--radius-sm); border: 1px solid; font-size: 13px; line-height: 1.5; }
@@ -1029,14 +1017,12 @@ html:has(.rp) body { background: #e9e4dc; }
   .guide-refs { grid-template-columns: minmax(0, 1fr); }
   .guide-glossary { grid-template-columns: minmax(0, 1fr); }
   .guide-glossary dt { border-bottom: 0; padding-bottom: 2px; }
-  .guide-lightbox { padding: 10px; }
 }
 @media (prefers-reduced-motion: reduce) {
-  .guide-lightbox { animation: none; }
-  .guide-shot-btn, .guide-shot-btn:hover, .guide-shot-zoom, .guide-toc-list a, .guide-applink, .guide-refs a { transition: none; transform: none; }
+  .guide-toc-list a, .guide-applink, .guide-refs a { transition: none; transform: none; }
 }
 @media print {
-  .guide-toc, .guide-links, .guide-shot-zoom { display: none; }
+  .guide-toc, .guide-links { display: none; }
   .guide-layout { grid-template-columns: 1fr; }
   .guide-sec { break-inside: avoid-page; border: 0; }
 }

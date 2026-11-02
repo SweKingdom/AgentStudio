@@ -30,8 +30,12 @@ export interface ProjectSettings {
   ado?: import("./ado.js").AdoConfig | null;
   /** The Claude account this project's live agents use on the plan backend; unset = the active account. */
   claudeAccount?: string | null;
+  /** Critique the solution design from three perspectives before planning (build plan step 5). Unset = on. */
+  designCritique?: boolean;
   /** Commands a developer agent may run in its story's worktree (each a prefix, word for word). */
   commands?: string[];
+  /** Paths (globs) no story may add or change, on top of the built-in ones (env files, keys, credentials). */
+  protectedPaths?: string[];
 }
 
 export interface Project {

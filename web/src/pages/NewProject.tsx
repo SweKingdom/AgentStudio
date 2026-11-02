@@ -12,7 +12,7 @@ import { PathBar } from "../components/PathBar";
 import { RepoFields, isRemoteUrl, repoUrlError } from "../components/Repo";
 import { toast } from "../lib/toast";
 import { Field, Hint, Req } from "../components/Hint";
-import { CodeReviewField, type CodeReviewMode } from "../components/CodeReviewField";
+import { CodeReviewField, DESIGN_CRITIQUE_HELP, type CodeReviewMode } from "../components/CodeReviewField";
 import { t } from "../lib/i18n";
 
 const STAGES: { role: string; label: string }[] = [
@@ -148,7 +148,8 @@ export default function NewProject() {
   const [parallelism, setParallelism] = useState(2);
   const [budget, setBudget] = useState(50);
   const [maxRework, setMaxRework] = useState(2);
-  const [codeReview, setCodeReview] = useState<CodeReviewMode>("off");
+  const [codeReview, setCodeReview] = useState<CodeReviewMode>("complex"); // build plan step 4: reviewed before merge by default
+  const [designCritique, setDesignCritique] = useState(true);
   const [repo, setRepo] = useState({ url: "", branch: "main", push: false });
   const [est, setEst] = useState<EstimateResponse | null>(null);
   const [loading, setLoading] = useState(false);
@@ -220,7 +221,7 @@ export default function NewProject() {
         pdfPages: est?.pdfPages,
         pdfTokens: est?.pdfTokens,
         estimate: est?.estimate ?? undefined,
-        settings: { gates, parallelism, budgetUsd: budget, maxRework, codeReview, repo: { url: repo.url.trim(), branch: repo.branch.trim() || "main", push: repo.push } },
+        settings: { gates, parallelism, budgetUsd: budget, maxRework, codeReview, designCritique, repo: { url: repo.url.trim(), branch: repo.branch.trim() || "main", push: repo.push } },
         start,
       }),
     onSuccess: (p) => {
@@ -367,6 +368,7 @@ export default function NewProject() {
               <Field label={t("Budget cap (USD)")} help="The pipeline pauses when the project's AI cost reaches this amount; you can raise it and resume. 0 = no limit."><input className="input" type="number" min={0} value={budget} onChange={(e) => setBudget(Number(e.target.value))} /></Field>
               <Field label={t("Max QA rework")} help="How many times QA can send a story back to the developer before it's marked Blocked for you to review."><input className="input" type="number" min={0} max={5} value={maxRework} onChange={(e) => setMaxRework(Number(e.target.value))} /></Field>
               {roles.has("architect") && <CodeReviewField value={codeReview} onChange={setCodeReview} />}
+              {roles.has("architect") && <Field label={t("Design critique")} help={DESIGN_CRITIQUE_HELP}><div className="row" style={{ height: 34 }}><Switch on={designCritique} onChange={setDesignCritique} label={t("Design critique")} /><span className="small muted">{designCritique ? t("On") : t("Off")}</span></div></Field>}
             </div>
           </div>
         </div>

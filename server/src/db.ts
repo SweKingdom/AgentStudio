@@ -1,3 +1,4 @@
+import { redact } from "./secrets.js";
 import { DatabaseSync, type SQLInputValue } from "node:sqlite";
 import fs from "node:fs";
 import path from "node:path";
@@ -321,6 +322,19 @@ addColumn("test_results", "waits_for", "TEXT");
 addColumn("questions", "reasoning", "TEXT");
 addColumn("questions", "also_items", "TEXT NOT NULL DEFAULT '[]'");
 
+// What a check, scan or review proved, and for which exact git tree (a story's working copy, or the base: item_code '').
+db.exec(`CREATE TABLE IF NOT EXISTS attestations (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+  item_code TEXT NOT NULL DEFAULT '',
+  kind TEXT NOT NULL,
+  tree TEXT NOT NULL,
+  ok INTEGER NOT NULL,
+  detail TEXT NOT NULL DEFAULT '',
+  created_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_attest ON attestations(project_id, item_code, kind, id);`);
+
 type Row = Record<string, unknown>;
 
 export function all<T = Row>(sql: string, ...params: SQLInputValue[]): T[] {
@@ -344,7 +358,30 @@ export function uid(prefix: string) {
 }
 
 /** Insert a row from a plain object. Arrays/objects are JSON-encoded. */
-export function insert(table: string, row: Row) {
+/** Durable text people and agents read later: secrets are masked before it's stored (build plan step 4). */
+const REDACTED: Record<string, string[]> = {
+  activity: ["summary", "detail"],
+  messages: ["content"],
+  comments: ["content"],
+  documents: ["content", "title"],
+  test_results: ["notes"],
+  questions: ["question", "answer", "reasoning"],
+  runs: ["summary", "error"],
+  releases: ["notes", "validation"],
+  chats: ["content"],
+  work_items: ["user_story", "background", "business_rules", "dependencies", "out_of_scope", "acceptance_criteria", "tech_spec", "how_to_test", "manual_steps", "solution_components"],
+};
+
+function masked(table: string, row: Row): Row {
+  const fields = REDACTED[table];
+  if (!fields) return row;
+  const out = { ...row };
+  for (const f of fields) if (typeof out[f] === "string") out[f] = redact(out[f] as string);
+  return out;
+}
+
+export function insert(table: string, input: Row) {
+  const row = masked(table, input);
   const keys = Object.keys(row);
   const values = keys.map((k) => encode(row[k]));
   return run(
@@ -353,7 +390,8 @@ export function insert(table: string, row: Row) {
   );
 }
 
-export function update(table: string, id: string, patch: Row, idColumn = "id") {
+export function update(table: string, id: string, input: Row, idColumn = "id") {
+  const patch = masked(table, input);
   const keys = Object.keys(patch);
   if (!keys.length) return;
   run(

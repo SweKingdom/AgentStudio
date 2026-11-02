@@ -26,7 +26,6 @@ Columns follow the pipeline: *Backlog* (New, Requires additional information, Re
 - Drag within a column to re-prioritise. Drop a card on **In Progress** to start it: the right agents run each missing step in order.
 - Filter by category. A held card shows its open questions.
 
-![Board](.attachments/board.png)
 
 The **Backlog** tab shows the hierarchy with category, state, points, MoSCoW, sprint, rank, test results and AI cost per item.
 
@@ -43,7 +42,6 @@ Click any card or row.
   - *Start work*, *Put on hold*, *Cancel* and *Reopen* change the lifecycle. The state itself is moved by the agents.
   - *Chat* with the agent that built the item.
 
-![Item drawer](.attachments/item-drawer.png)
 
 ## Bugs and patch releases
 

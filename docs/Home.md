@@ -4,7 +4,6 @@ AgentStudio is a web application that runs on your own computer. In it, a team o
 
 > A CRM manages your customers. An ARM manages the team of agents that delivers for them.
 
-![Overview of AgentStudio](.attachments/overview.png)
 
 ## What it does
 

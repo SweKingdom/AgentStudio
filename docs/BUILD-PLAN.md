@@ -1,6 +1,6 @@
 # AgentStudio: byggplan
 
-Status: påbörjad 2026-10-30.
+Status: påbörjad 2026-10-30. Alla steg (1–6) klara 2026-11-02.
 
 AgentStudio är en kopia av SiroccoARM (2026-10-27) som blir ett generellt verktyg för valfritt kodrepo. Det behåller SiroccoARM:s gränssnitt och leveranspipeline och lägger till kvalitetsgrindarna från Claude-Pipeline. Agenterna kan köras på din egen Claude-plan i stället för med en API-nyckel.
 
@@ -39,29 +39,65 @@ AgentStudio är en kopia av SiroccoARM (2026-10-27) som blir ett generellt verkt
   - kontroller sparades inte när ett projekt skapades
   - `node --test` som kontroll rapporterade inget när AgentStudio självt kördes under `node --test`
 
-## Kvar
-
 ### Steg 3: Grindar som bygger på riktiga resultat (från Claude-Pipeline)
-- Klart i steg 2: utvecklarens och testarens godkännande kräver att `run_checks` returnerar exitkod 0.
-- Om allt är grönt görs inget modellanrop för att beskriva resultatet.
-- Deterministiska kontroller körs före dyra agentsteg. Rena resultat kostar inga anrop. Ett objektivt fynd ger ett avgränsat anrop för att rätta det.
-- En sista kontrollmatris körs efter bygget och efter varje automatisk åtgärd.
+- **Attesteringar** (`server/src/attest.ts`, tabellen `attestations`): varje kontrollkörning sparas med exakt det git-träd den kördes på, oavsett om det var en agents `run_checks` eller orkestratorns egen körning. `verify()` kör kontrollerna utan modell och återanvänder ett resultat för samma träd. En ändrad fil gör resultatet ogiltigt.
+- **Grön kod kostar inga extra anrop:** överlämning, QA:s godkännande och `publish_release` godtar kontroller som redan gått igenom på exakt samma kod. Ingen agent behöver köra om dem eller beskriva ett grönt resultat. Release-agenten får resultatet i sin uppgift och lägger in det i release notes.
+- **Deterministiskt före dyra steg:**
+  - Kontrollerna körs före QA. Är de röda går storyn tillbaka till utvecklaren utan något QA-anrop.
+  - Kontrollerna körs på `main` före release. Är de röda får utvecklaren ett avgränsat rättningsanrop, högst två, och release-agenten anropas inte förrän de är gröna.
+- **Slutlig kontrollmatris:** körs på exakt det som mergas, efter dokumentationen och efter att GitHubs `main` tagits in. Varje rättning följs av en ny körning. Är det fortfarande rött efter två rättningar blir storyn Blocked.
+- Tester: `server/test/deterministic.test.ts`.
+  - Återanvändning per träd.
+  - Kod som ändras efter gröna kontroller går tillbaka utan QA-anrop.
+  - En röd `main` rättas före release, eller stoppar releasen utan release-anrop.
 
 ### Steg 4: Granskning och säkerhet
-- Granskningen gäller den faktiska git-diffen. Merge sker bara vid `APPROVE`, med högst två automatiska åtgärdsförsök.
-- Skanning av skyddade sökvägar, hemligheter, beroendekällor och symboliska länkar som pekar ut ur repot. Den kan inte undantas.
-- Hemligheter maskeras i aktivitetsloggen och i dokument innan något sparas.
-- Verifiering, säkerhet och granskning måste bekräfta samma git-träd innan merge.
+- **Kodgranskningen** gäller storyns faktiska git-diff, och utslaget sparas som en attestering för det träd som granskades.
+  - När projektet granskar (Complex eller All) sker merge bara vid `APPROVE`, med högst två automatiska rättningar efter granskningen.
+  - Nya projekt får Complex som standard. Off finns kvar som val.
+- **Säkerhetsskanning** (`server/src/scan.ts`) före varje merge. Den kan inte stängas av. Den hittar:
+  - hemligheter i tillagda rader (nycklar, tokens, privata nycklar, hårdkodade lösenord)
+  - skyddade sökvägar: `.env` (men inte `.env.example`), nycklar och certifikat, `.npmrc` och andra filer med inloggningsuppgifter, plus projektets egen lista `protectedPaths`
+  - beroenden från något annat än paketregistret (git, URL:er, lokala sökvägar, andra index)
+  - symboliska länkar som pekar ut ur repot
+
+  Ett fynd ger ett avgränsat rättningsanrop med fynden, högst två. Därefter blir storyn Blocked. Ett fynd upprepar aldrig själva hemligheten.
+- **Maskering** (`server/src/secrets.ts`): hemligheter ersätts med `[redacted: …]` i databaslagret innan något sparas. Det gäller aktivitet, meddelanden, kommentarer, dokument, testresultat, frågor och svar, körningar, release notes och storyernas fält.
+- **Samma träd:** merge-grinden kräver att kontrollerna, skanningen och (när den gäller) granskningen är attesterade för exakt det träd som mergas. Ändringar i bara dokumentation efter granskningen kräver ingen ny granskning. Annan ny kod granskas om innan merge.
+- Tester: `server/test/security.test.ts`.
+  - Hemlighetsmönster, platshållare och maskering vid lagring.
+  - Skanningens fyra slags fynd.
+  - En hemlighet i en story: en rättning och sedan merge, eller två misslyckade rättningar och Blocked.
 
 ### Steg 5: Starkare design och plan
-- Kravsammanställning (requirements-crystallizer).
-- Adversariell designkritik ur tre perspektiv innan designen godkänns.
-- Plangranskning och kontroll av avvikelser mellan plan och design före bygget.
+- **Kravsammanställning:** analytikern skriver först dokumentet `requirements_brief`. Där står mål, vad som ingår och inte ingår, aktörer och behörigheter, beteenden med kantfall, begränsningar, beroenden, antaganden (markerade som antaganden) och öppna frågor grupperade per tema. Bara det som ändrar vad som byggs frågas med `ask_human`. Backloggen byggs sedan från dokumentet: varje beteende som ingår täcks av en story, och inget som ligger utanför kommer med.
+- **Adversariell designkritik** efter den tekniska förfiningen, före planeringen. Kritikern är QA när den finns i teamet, så att det inte är arkitekten som granskar sitt eget arbete.
+  - Kritiken görs i ett anrop ur tre perspektiv: arkitektur; säkerhet och data; leverans och testbarhet.
+  - Kritikern skriver dokumentet `design_critique` och anropar `submit_design_critique` med `approved` eller `revise`. Vid `revise` reviderar arkitekten designen och berörda storyer en gång.
+  - Det är en projektinställning, **Design critique**, som är på som standard.
+- **Plangranskning och avvikelsekontroll** efter planeringen, deterministiskt (`planFindings`). Den hittar:
+  - beroenden som inte finns eller går i cirkel
+  - stories som planeras före ett beroende
+  - stories över 8 poäng
+  - stories utan numrerade AC eller utan teknisk specifikation
+  - en saknad lösningsdesign
+
+  Bara fynd kostar anrop: planeraren rättar ordning, storlek och beroenden, och arkitekten rättar luckor i designen, en runda var. Det som återstår sparas i dokumentet `plan_review` och visas vid godkännandet av planen.
+- Tester:
+  - `live.test.ts`: kravsammanställningen och kritiken med tre perspektiv körs, av QA.
+  - `guards.test.ts`: plangranskningens fynd.
 
 ### Steg 6: Översättning och skärmdumpar
-- Översätt resten av gränssnittet: guiden, item-lådan, agentsidorna, kostnadsvyerna och toasts.
-- Ta om skärmdumparna i guiden (`web/public/guide/`) och i `docs/.attachments/`. De visar fortfarande det gamla Salesforce-utseendet.
+- **Guiden:** när gränssnittet är på svenska visar Guide den svenska guiden `docs/Kom-igang.md` (via `GET /api/guide/sv`), med en knapp för att läsa den engelska. Den engelska guiden är oförändrad.
+- **Översatt:** story-lådan (flikar, avsnittsrubriker, knappar och texter), agentsidan, agent-editorn och kostnadsvyerna har `t()` och svenska texter.
+- **Toasts:** `toast()` översätter fasta meddelanden centralt. Meddelanden med variabler och fel från servern visas på engelska.
+- **Skärmdumparna:** de visade Salesforce-utseendet och är borttagna, enligt beslut 2026-11-02, i stället för att tas om. Det gäller filerna i `web/public/guide/` och `docs/.attachments/`, guidens komponenter för bild och förstoring och bildlänkarna i `docs/`. `docs/Development.md` beskriver hur nya tas om de behövs.
+
+## Kvar
+
+Inget kvar av byggplanen.
 
 ## Kända saker
+- Delar av gränssnittet är fortfarande bara på engelska: inställningssidorna, flera hjälptexter (`help=`) och dynamiska meddelanden.
 - Planen är för personligt bruk. Om flera personer ska använda appen, eller om den ska köra oövervakad hela tiden, behövs API-motorn enligt Anthropics villkor.
 - En hel live-körning med alla sju agenter på planen mot ett riktigt repo är inte gjord än. Gör en generalrepetition med demorepot före en live-demo.

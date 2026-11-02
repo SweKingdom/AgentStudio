@@ -32,7 +32,6 @@ npm run doctor
 
 The system check is read-only and free. It reports Node.js, the data folder, git and its login, the Claude login or API key and the Azure DevOps token.
 
-![System check](.attachments/settings-system.png)
 
 ## Your first project
 
@@ -43,7 +42,6 @@ The system check is read-only and free. It reports Node.js, the data folder, git
 5. **Run settings:** keep the approval gates on.
 6. Read the **estimate** on the right (cost range, time, human-team comparison), then **Create & start**.
 
-![New project](.attachments/new-project.png)
 
 The project opens in its own tab. Meiga builds the backlog, then the pipeline stops at the first gate, **Backlog review**. Approve it to continue. Follow the work on the **Board**, **Network**, **Timing** and **Costs** tabs.
 
