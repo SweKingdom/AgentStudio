@@ -34,6 +34,7 @@ import { detectObject } from "./simplan.js";
 import { sections, toc } from "./context.js";
 import { changedOnBranch, commitWork, keepFiles, tagRelease, worktreeStatus } from "../git.js";
 import { allowedCommands, commandRefusal, runCommand } from "../commands.js";
+import { askOnce } from "../questions.js";
 import { formatChecks, runChecks } from "../checks.js";
 import { effectiveMode } from "../settings.js";
 import { agentEmail, listAgents } from "./store.js";
@@ -760,7 +761,15 @@ const TOOLS: Record<string, ToolSpec> = {
     handler: (i, ctx) => {
       req(i, "question");
       const it = i.item_code ? getItemByCode(ctx.project.id, i.item_code) : undefined;
-      addQuestion(ctx.project.id, i.question, it?.id ?? null, ctx.agent.id);
+      const asked = askOnce(ctx.project.id, String(i.question), it?.id ?? null, ctx.agent.id);
+      if (asked.kind === "answered") {
+        logActivity({ projectId: ctx.project.id, agentId: ctx.agent.id, runId: ctx.runId, itemId: it?.id, type: "note", summary: `↺ Reused the product owner's answer to question #${asked.id} instead of asking again` });
+        return `The product owner already answered this (question #${asked.id}: "${asked.question}"):\n${asked.answer}\nUse that answer; no new question was created.`;
+      }
+      if (asked.kind === "open") {
+        logActivity({ projectId: ctx.project.id, agentId: ctx.agent.id, runId: ctx.runId, itemId: it?.id, type: "note", summary: `↺ Same as open question #${asked.id}${it ? ` — ${it.code} now waits for that answer too` : ""}` });
+        return `This was already asked and waits for the product owner (question #${asked.id}: "${asked.question}").${it ? ` ${it.code} waits for that answer too.` : ""} No new question was created.`;
+      }
       postMessage({ projectId: ctx.project.id, from: ctx.agent.id, to: "human", itemId: it?.id, kind: "question", content: i.question });
       return "Question recorded for the product owner.";
     },

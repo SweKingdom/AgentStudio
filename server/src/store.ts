@@ -498,16 +498,23 @@ export function addQuestion(projectId: string, question: string, itemId: string 
   return Number(r.lastInsertRowid);
 }
 
+/** A question asked once for several stories (a merged duplicate) concerns each of them. */
+const concerns = "(item_id = ? OR also_items LIKE ?)";
+const alsoLike = (itemId: string) => `%"${itemId}"%`;
+
 /** Unanswered questions on an item. An item with open questions never advances in the pipeline. */
 export function openQuestionCount(itemId: string) {
-  return get<{ n: number }>("SELECT COUNT(*) n FROM questions WHERE item_id = ? AND (answer IS NULL OR answer = '')", itemId)?.n ?? 0;
+  return get<{ n: number }>(`SELECT COUNT(*) n FROM questions WHERE ${concerns} AND (answer IS NULL OR answer = '')`, itemId, alsoLike(itemId))?.n ?? 0;
 }
 
+/** The product owner's decision, with their reasoning when they gave one — as agents and exports read it. */
+export const answerText = (q: { answer: string; reasoning?: string | null }) => (q.reasoning?.trim() ? `${q.answer} — Reasoning: ${q.reasoning.trim()}` : q.answer);
+
 export function answeredQuestions(projectId: string) {
-  return all<{ question: string; answer: string; item_id: string | null }>(
-    "SELECT question, answer, item_id FROM questions WHERE project_id = ? AND answer IS NOT NULL AND answer != ''",
+  return all<{ question: string; answer: string; reasoning: string | null; item_id: string | null; also_items: string }>(
+    "SELECT question, answer, reasoning, item_id, also_items FROM questions WHERE project_id = ? AND answer IS NOT NULL AND answer != ''",
     projectId,
-  );
+  ).map((q) => ({ question: q.question, answer: answerText(q), item_id: q.item_id, items: [q.item_id, ...(JSON.parse(q.also_items || "[]") as string[])].filter(Boolean) as string[] }));
 }
 
 export function addTestResult(t: {

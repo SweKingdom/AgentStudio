@@ -723,7 +723,7 @@ api.get("/items/:id", (req, res) => {
       return [...versioned, ...legacy];
     })(),
     documents: all("SELECT id, kind, title, version, updated_at FROM documents WHERE item_id = ?", it.id),
-    questions: all("SELECT * FROM questions WHERE item_id = ? ORDER BY id", it.id),
+    questions: all("SELECT * FROM questions WHERE item_id = ? OR also_items LIKE ? ORDER BY id", it.id, `%"${it.id}"%`),
     comments: all("SELECT * FROM comments WHERE item_id = ? ORDER BY id", it.id),
     bugs: listItems(it.project_id).filter((b) => b.type === "bug" && b.parent_id === it.id).map((b) => ({ id: b.id, code: b.code, title: b.title, state: b.state })),
     busy: all("SELECT 1 FROM runs WHERE item_id = ? AND status = 'running'", it.id).length > 0 || listJobs(it.project_id).some((j) => j.itemId === it.id),

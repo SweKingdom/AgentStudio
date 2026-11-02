@@ -1209,7 +1209,7 @@ export function startPlan(itemId: string) {
   steps.push({ role: "developer", agent: team("developer")?.name ?? null, what: "Build" });
   steps.push({ role: "qa", agent: team("qa")?.name ?? null, what: "Peer test (rework loop)" });
   steps.push({ role: "writer", agent: team("writer")?.name ?? null, what: "Documentation" });
-  const open = all<{ n: number }>("SELECT COUNT(*) n FROM questions WHERE item_id = ? AND (answer IS NULL OR answer = '')", it.id)[0].n;
+  const open = openQuestionCount(it.id);
   const reasons: string[] = [];
   if (!["story", "task", "bug"].includes(it.type)) reasons.push("Only stories, tasks and bugs can be started.");
   if (STARTED.includes(it.state)) reasons.push(`${it.code} is already past this point (${it.state}).`);
