@@ -14,7 +14,7 @@ process.env.ANTHROPIC_API_KEY = "test-key-never-sent";
 const { createApp } = await import("../src/app.ts");
 const { setAnthropicClientForTests } = await import("../src/agents/runner.ts");
 const { createItem, getItem, getProject, workspaceDir } = await import("../src/store.ts");
-const { all, now, run } = await import("../src/db.ts");
+const { all, insert, now, run } = await import("../src/db.ts");
 
 let n = 0;
 const reply = (content: any[]) => ({
@@ -34,8 +34,12 @@ const firstText = (params: any) => {
 
 /** What each story's agents do, by story title. Each QA / dev run takes the next script entry (the last one repeats). */
 type QaStep = { blocked?: { ac: string; waitsFor?: string }; reinterpret?: string; fail?: string };
-const scripts: Record<string, { dev?: { deviation?: string }[]; qa?: QaStep[] }> = {};
+const scripts: Record<string, { dev?: { deviation?: string; ac?: string }[]; qa?: QaStep[] }> = {};
 const runs: string[] = [];
+/** Each QA run's task, by story title. */
+const qaTasks: Record<string, string> = {};
+/** While set, every model call waits for it: a run that stays running. */
+let hold: Promise<void> | null = null;
 const count = new Map<string, number>();
 const next = <T,>(list: T[] | undefined, key: string): T | undefined => {
   if (!list?.length) return undefined;
@@ -58,14 +62,15 @@ function respond(params: any) {
     }
     if (turn === 1) return reply([use("run_checks", {})]);
     if (turn === 2) {
-      const d = (globalThis as any).__dev as { deviation?: string } | undefined;
-      return reply([use("complete_development", { code, summary: `${code} built.`, ...(d?.deviation ? { deviations: [{ ac: "AC 1", how: d.deviation }] } : {}) })]);
+      const d = (globalThis as any).__dev as { deviation?: string; ac?: string } | undefined;
+      return reply([use("complete_development", { code, summary: `${code} built.`, ...(d?.deviation ? { deviations: [{ ac: d.ac ?? "AC 1", how: d.deviation }] } : {}) })]);
     }
     return reply([{ type: "text", text: "Handed over." }]);
   }
   if (tools.includes("submit_review")) {
     if (turn === 0) {
       runs.push(`qa:${title}`);
+      qaTasks[title] = text;
       (globalThis as any).__qa = next(scripts[title]?.qa, `qa:${title}`) ?? {};
       return reply([use("run_checks", {})]);
     }
@@ -127,7 +132,7 @@ const story = (pid: string, title: string, rank: number) => createItem(pid, { ty
 
 before(async () => {
   setAnthropicClientForTests({
-    beta: { messages: { stream: (params: any) => ({ finalMessage: async () => respond(params) }) } },
+    beta: { messages: { stream: (params: any) => ({ finalMessage: async () => (await hold, respond(params)) }) } },
     messages: { create: async () => reply([{ type: "text", text: "ok" }]), countTokens: async () => ({ input_tokens: 10 }) },
   });
   server = createApp().listen(0);
@@ -214,4 +219,60 @@ test("the same AC failing QA twice in a row pauses the story with a question ins
   assert.equal(q.length, 1);
   assert.match(q[0].question, /failed .* AC 1 in two rounds in a row/);
   assert.notEqual(getItem(s.id)!.state, "Blocked", "paused for a decision, not blocked");
+});
+
+/** An answered deviation question, as an earlier run of the story left it. */
+function answeredDeviation(s: { id: string; code: string; project_id: string }, ac: string, answer: string) {
+  const id = Number(insert("questions", { project_id: s.project_id, item_id: s.id, question: `${s.code} ${ac} is met differently than written: the export is deferred — is that acceptable, or must it be met as written?`, asked_by: "dev", created_at: now() }).lastInsertRowid);
+  run("UPDATE questions SET answer = ?, answered_at = ? WHERE id = ?", answer, now(), id);
+  return id;
+}
+const openOn = (itemId: string) => all<{ question: string }>("SELECT question FROM questions WHERE item_id = ? AND (answer IS NULL OR answer = '')", itemId);
+
+test("re-running a story whose deviation the product owner accepted asks nothing and goes on to QA, which is told not to fail it", async () => {
+  const p = await newProject("ACC", ["developer", "qa"]);
+  const s = story(p.id, "Export bookings", 1);
+  const accepted = answeredDeviation(s, "AC1", "Accepted — deferred to the next release.");
+  scripts["Export bookings"] = { dev: [{ deviation: "The export is deferred to the next release.", ac: "AC 1" }] };
+
+  await api("POST", `/projects/${p.id}/start`);
+  await waitFor(async () => !(await api("GET", `/projects/${p.id}`)).running, "the run to finish");
+  assert.deepEqual(openOn(s.id), [], "no new question");
+  assert.equal(getItem(s.id)!.state, "Release Ready", "not parked");
+  assert.ok(all("SELECT 1 FROM activity WHERE item_id = ? AND summary = ?", s.id, `✓ ${s.code} AC 1: already accepted by the product owner (question #${accepted})`).length);
+  assert.match(qaTasks["Export bookings"], /## ACs the product owner accepted as met differently or deferred — do not fail these; record them as accepted, citing the question number\n- AC 1 — question #\d+: Accepted/);
+});
+
+test("a deviation on another AC, or one the product owner wanted met as written, is still asked", async () => {
+  const p = await newProject("ASK", ["developer", "qa"]);
+  await api("PATCH", `/projects/${p.id}`, { settings: { parallelism: 1 } }); // one developer script at a time
+  const other = story(p.id, "Cancel bookings", 1);
+  const written = story(p.id, "Remind bookings", 2);
+  answeredDeviation(other, "AC 1", "Accepted.");
+  answeredDeviation(written, "AC 1", "Must be met as written.");
+  scripts["Cancel bookings"] = { dev: [{ deviation: "Cancelling is by e-mail.", ac: "AC 2" }] };
+  scripts["Remind bookings"] = { dev: [{ deviation: "Reminders are manual.", ac: "AC 1" }] };
+
+  await api("POST", `/projects/${p.id}/start`);
+  await waitFor(async () => !(await api("GET", `/projects/${p.id}`)).running, "the run to stop and wait");
+  assert.match(openOn(other.id).map((q) => q.question).join("\n"), new RegExp(`^${other.code} AC 2 is met differently than written`));
+  assert.match(openOn(written.id).map((q) => q.question).join("\n"), new RegExp(`^${written.code} AC 1 is met differently than written`));
+  assert.ok(!runs.includes("qa:Cancel bookings") && !runs.includes("qa:Remind bookings"), "both wait for the product owner before QA");
+});
+
+test("a second re-run click while the first runs is refused, and the feedback is stored once", async () => {
+  const p = await newProject("RRN", ["developer", "qa"]);
+  const s = story(p.id, "Rerun once", 1);
+  let release!: () => void;
+  hold = new Promise((r) => (release = r));
+  try {
+    await api("POST", `/items/${s.id}/rerun`, { role: "developer", feedback: "Use the new colours." });
+    await assert.rejects(api("POST", `/items/${s.id}/rerun`, { role: "developer", feedback: "Use the new colours." }), /409.*already running/);
+    assert.equal(all("SELECT 1 FROM comments WHERE item_id = ? AND content LIKE 'Feedback for %'", s.id).length, 1);
+    assert.equal(all("SELECT 1 FROM messages WHERE item_id = ? AND kind = 'rework' AND from_agent_id = 'human'", s.id).length, 1);
+  } finally {
+    hold = null;
+    release();
+  }
+  await waitFor(async () => !(await api("GET", `/projects/${p.id}`)).running, "the re-run to finish");
 });

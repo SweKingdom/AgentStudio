@@ -74,6 +74,11 @@ const FIELD_LABELS: [keyof WorkItem, string][] = [
   ["manual_steps", "Manual steps"],
 ];
 
+const ANSWERS_TITLE = "Answers from the product owner (newest first — a newer answer on the same topic replaces older ones; follow the newest)";
+/** One answer with its date and question number, so agents can tell which is the latest. */
+const answerLine = (a: { id: number; question: string; answer: string; answered_at: string | null }) =>
+  `- **#${a.id}${a.answered_at ? `, answered ${a.answered_at.slice(0, 16).replace("T", " ")}` : ""} — Q:** ${a.question}\n  **A:** ${a.answer}`;
+
 /** The full story card — so nobody has to call get_item for the story they were given. */
 export function itemCard(it: WorkItem, opts: { fields?: (keyof WorkItem)[] } = {}) {
   const items = listItems(it.project_id);
@@ -105,7 +110,7 @@ export function itemCard(it: WorkItem, opts: { fields?: (keyof WorkItem)[] } = {
     })
     .filter(Boolean);
   const answers = answeredQuestions(it.project_id).filter((q) => q.items.includes(it.id));
-  if (answers.length) fields.push(`### Answers from the product owner\n${answers.map((a) => `- **Q:** ${a.question}\n  **A:** ${a.answer}`).join("\n")}`);
+  if (answers.length) fields.push(`### ${ANSWERS_TITLE}\n${answers.map(answerLine).join("\n")}`);
   return [...head, ...fields].join("\n");
 }
 
@@ -150,7 +155,7 @@ export interface RunContext {
 /** Answers to project-level questions (item-level answers travel on the story card). */
 function projectAnswers(projectId: string) {
   const a = answeredQuestions(projectId).filter((q) => !q.item_id);
-  return a.length ? `## Answers from the product owner\n${a.map((x) => `- **Q:** ${x.question}\n  **A:** ${x.answer}`).join("\n")}` : "";
+  return a.length ? `## ${ANSWERS_TITLE}\n${a.map(answerLine).join("\n")}` : "";
 }
 
 /** What earlier stories in this project were sent back for, so later ones get it right first time. */
