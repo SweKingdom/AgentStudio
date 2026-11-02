@@ -96,3 +96,96 @@ test("PUT /projects/:id/lessons saves a valid edit with an audit row, and reject
     server.close();
   }
 });
+
+// ---------------------------------------------------------------- captureLessons, live, with a scripted model
+
+process.env.ANTHROPIC_API_KEY ??= "test-key-never-sent";
+const { captureLessons } = await import("../src/lessons.ts");
+const { setAnthropicClientForTests } = await import("../src/agents/runner.ts");
+const { saveAppSettings } = await import("../src/settings.ts");
+const { createItem } = await import("../src/store.ts");
+const { all } = await import("../src/db.ts");
+
+/** The scripted model: each call takes the next answer (a string, or an Error to throw). */
+const answers: (string | Error)[] = [];
+const prompts: string[] = [];
+setAnthropicClientForTests({
+  messages: {
+    create: async (params: any) => {
+      prompts.push(params.messages[0].content);
+      const a = answers.shift() ?? '{"lessons": []}';
+      if (a instanceof Error) throw a;
+      return { model: "claude-opus-5-5", content: [{ type: "text", text: a }], stop_reason: "end_turn", usage: { input_tokens: 900, output_tokens: 80, cache_read_input_tokens: 0, cache_creation_input_tokens: 0 } };
+    },
+  },
+});
+
+function liveStory(key: string, settings: Record<string, unknown> = {}) {
+  saveAppSettings({ mode: "live", backend: "api" });
+  const ts = now();
+  insert("projects", { id: `prj_${key}`, key, name: key, status: "ready", mode: "live", created_at: ts, updated_at: ts, settings: { gates: false, parallelism: 1, budgetUsd: 0, maxRework: 1, ...settings } });
+  const p = getProject(`prj_${key}`)!;
+  return { p, item: createItem(p.id, { type: "story", title: "Create a task" }) };
+}
+const qaAgent = defaultAgentFor("qa");
+const qaRejection = [{ from: "qa" as const, findings: "❌ POST /tasks returns 500 on a missing title instead of 400." }];
+const calls = (pid: string) => all<{ stage: string }>("SELECT stage FROM llm_calls WHERE project_id = ?", pid);
+
+test("no rework: no distilling call and no lessons document", async () => {
+  const { p, item } = liveStory("NOREW");
+  assert.deepEqual(await captureLessons({ project: p, item, reworkLog: [], fix: "", agent: qaAgent }), []);
+  assert.equal(calls(p.id).length, 0);
+  assert.equal(findDoc(p.id, "project_lessons", null), undefined);
+});
+
+test("live: one call recorded under stage lessons; both lessons saved, tagged, and commented on the story", async () => {
+  const { p, item } = liveStory("LIVE");
+  answers.push('Sure.\n{"lessons": ["Validation errors return 400 with { error, field }, never 500.", "Cover each required field with a test for its missing case."]}');
+  const added = await captureLessons({ project: p, item, reworkLog: qaRejection, fix: "Added validation.", agent: qaAgent });
+  assert.equal(added.length, 2);
+  assert.deepEqual(calls(p.id).map((c) => c.stage), ["lessons"]);
+  assert.match(prompts.at(-1)!, /needed 1 rework round\(s\)[\s\S]*### From qa\n❌ POST \/tasks[\s\S]*Added validation\.[\s\S]*\(none\)/);
+  const lessons = parseLessons(findDoc(p.id, "project_lessons", null)!.content);
+  assert.deepEqual(lessons.map((l) => l.source), [`${item.code}, qa`, `${item.code}, qa`]);
+  const comments = all<{ content: string }>("SELECT content FROM comments WHERE item_id = ?", item.id);
+  assert.equal(comments.filter((c) => c.content.startsWith("📝 Lesson added: ")).length, 2);
+});
+
+test("live: a lesson that repeats an existing one in other words, or names this story, is dropped", async () => {
+  const { p, item } = liveStory("DUP");
+  upsertDoc({ projectId: p.id, kind: "project_lessons", itemId: null, title: "Lessons learned", content: "- Validation errors return 400 with { error, field }, never 500. (product owner)", agentId: null });
+  answers.push(`{"lessons": ["Validation errors must return 400 with { error, field } and never 500.", "Fix ${item.code} first."]}`);
+  assert.deepEqual(await captureLessons({ project: p, item, reworkLog: qaRejection, fix: "", agent: qaAgent }), []);
+  assert.equal(findDoc(p.id, "project_lessons", null)!.version, 1, "nothing new, nothing saved");
+});
+
+test("live: an answer that isn't JSON, or a call that throws, leaves the document unchanged", async () => {
+  const { p, item } = liveStory("BAD");
+  upsertDoc({ projectId: p.id, kind: "project_lessons", itemId: null, title: "Lessons learned", content: "- Rule (product owner)", agentId: null });
+  answers.push("I think the developer should be more careful.");
+  await assert.rejects(captureLessons({ project: p, item, reworkLog: qaRejection, fix: "", agent: qaAgent }), /wasn't \{"lessons"/);
+  answers.push(new Error("overloaded"));
+  await assert.rejects(captureLessons({ project: p, item, reworkLog: qaRejection, fix: "", agent: qaAgent }), /overloaded/);
+  assert.equal(findDoc(p.id, "project_lessons", null)!.version, 1);
+  assert.equal(all("SELECT 1 FROM comments WHERE item_id = ?", item.id).length, 0);
+});
+
+test("live: a secret in a lesson is masked when the document is saved", async () => {
+  const { p, item } = liveStory("SECRET");
+  const key = `sk-ant-${"a1B2c3D4e5".repeat(3)}`;
+  answers.push(JSON.stringify({ lessons: [`Read the API key from the environment, never hard-code it like ${key}.`] }));
+  await captureLessons({ project: p, item, reworkLog: [{ from: "review", findings: `Hard-coded ${key} in src/client.ts` }], fix: "", agent: qaAgent });
+  const content = findDoc(p.id, "project_lessons", null)!.content;
+  assert.ok(!content.includes(key));
+  assert.match(content, /\[redacted: Anthropic API key\]/);
+});
+
+test("live: turned off, no call and no document", async () => {
+  const { p, item } = liveStory("LOFF", { lessons: false });
+  answers.push('{"lessons": ["Something."]}');
+  assert.deepEqual(await captureLessons({ project: p, item, reworkLog: qaRejection, fix: "", agent: qaAgent }), []);
+  assert.equal(calls(p.id).length, 0);
+  assert.equal(findDoc(p.id, "project_lessons", null), undefined);
+  answers.length = 0;
+  saveAppSettings({ mode: "simulation", backend: "auto" });
+});

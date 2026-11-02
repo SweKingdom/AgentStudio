@@ -7,6 +7,7 @@
  */
 import { insert, now } from "./db.js";
 import type { Agent } from "./agents/store.js";
+import { askOnce } from "./agents/runner.js";
 import { similarity } from "./questions.js";
 import { effectiveMode } from "./settings.js";
 import { findDoc, logActivity, upsertDoc, type Project, type WorkItem } from "./store.js";
@@ -92,9 +93,39 @@ function mainSource(log: ReworkEntry[]): ReworkSource {
   return [...log].reverse().map((e) => e.from).sort((a, b) => count(b) - count(a))[0];
 }
 
+const clip = (s: string, n = 1500) => (s.length > n ? `${s.slice(0, n)}…` : s);
+
+/** The one distilling call: what this story was sent back for, and what the team already knows. */
+export function lessonsPrompt(item: Pick<WorkItem, "code" | "title">, reworkLog: ReworkEntry[], fix: string, current: Lesson[]) {
+  return `Story ${item.code} "${item.title}" needed ${reworkLog.length} rework round(s) before it was approved.
+
+## Why it was sent back
+${reworkLog.map((e) => `### From ${e.from}\n${clip(e.findings)}`).join("\n\n")}
+
+## How the developer finally fixed it
+${clip(fix) || "(no hand-over)"}
+
+## Lessons the team already has
+${current.length ? current.map((l) => `- ${l.text}`).join("\n") : "(none)"}
+
+Write 0–2 lessons that would stop a DIFFERENT story in this project from making the same mistake.
+Each is one imperative sentence under ${MAX_LESSON_CHARS} characters, about this codebase's conventions,
+not about this story. Skip anything already covered above. If nothing generalises, return none.
+Answer only with JSON: {"lessons": ["..."]}`;
+}
+
+/** The lessons in the model's answer; throws when it isn't the JSON asked for, so the caller can say so. */
+export function parseLessonsAnswer(answer: string): string[] {
+  const json = answer.match(/\{[\s\S]*\}/)?.[0];
+  const parsed = json ? (JSON.parse(json) as { lessons?: unknown }) : null;
+  if (!parsed || !Array.isArray(parsed.lessons)) throw new Error(`the answer wasn't {"lessons": [...]}: ${answer.slice(0, 120)}`);
+  return parsed.lessons.filter((l): l is string => typeof l === "string");
+}
+
 /**
  * After a story is approved following rework: distil what it was sent back for into at most two lessons for later
  * stories, and save them. Simulation makes no model call — the first line of the first finding becomes the lesson.
+ * Live: one call with no tools at low effort, as the QA agent, recorded under stage `lessons`.
  */
 export async function captureLessons(o: { project: Project; item: WorkItem; reworkLog: ReworkEntry[]; fix: string; agent?: Agent; signal?: AbortSignal }) {
   const { project, item, reworkLog } = o;
@@ -102,9 +133,21 @@ export async function captureLessons(o: { project: Project; item: WorkItem; rewo
   const doc = findDoc(project.id, LESSONS_KIND, null);
   const current = doc ? parseLessons(doc.content) : [];
   const simulated = project.mode === "simulation" || effectiveMode() === "simulation";
-  const candidates = simulated
-    ? [firstLine(reworkLog[0].findings).replaceAll(item.code, "this story").slice(0, MAX_LESSON_CHARS)]
-    : [];
+  let candidates: string[];
+  if (simulated) candidates = [firstLine(reworkLog[0].findings).replaceAll(item.code, "this story").slice(0, MAX_LESSON_CHARS)];
+  else if (!o.agent) return [];
+  else {
+    const answer = await askOnce({
+      agent: o.agent,
+      project,
+      itemId: item.id,
+      stage: "lessons",
+      system: `You are ${o.agent.name}, ${o.agent.title} on this project. You turn why a story was sent back into short, general rules for later stories.`,
+      prompt: lessonsPrompt(item, reworkLog, o.fix, current),
+      signal: o.signal,
+    });
+    candidates = parseLessonsAnswer(answer);
+  }
   const added = freshLessons(candidates, current, item.code).slice(0, 2);
   if (!added.length) return [];
   const source = `${item.code}, ${mainSource(reworkLog)}`;

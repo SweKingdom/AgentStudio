@@ -527,3 +527,35 @@ export async function liveChat(agent: Agent, project: Project | null, history: {
   if (response.stop_reason === "refusal") return "(I can't help with that request.)";
   return response.content.filter((b) => b.type === "text").map((b) => (b as { text: string }).text).join("\n").trim();
 }
+
+/** One answer to one prompt with no tools, on the API or the plan, recorded in llm_calls under `stage`. */
+export async function askOnce(o: { agent: Agent; project: Project; itemId?: string; stage: string; system: string; prompt: string; signal?: AbortSignal }): Promise<string> {
+  checkBudget(o.project.id);
+  const call = { runId: null, projectId: o.project.id, agentId: o.agent.id, itemId: o.itemId, stage: o.stage };
+  if (claudeBackend() === "subscription") {
+    const r = await withSdkCalls(
+      sdkRun({ agent: o.agent, system: o.system, content: [{ type: "text", text: o.prompt }], maxTurns: 1, effort: "low", signal: o.signal, configDir: claudeConfigDir(o.project) }),
+      call,
+    );
+    return r.text;
+  }
+  const started = Date.now();
+  const response = await anthropic()
+    .messages.create({ model: o.agent.model, max_tokens: 2000, system: o.system, output_config: { effort: "low" }, messages: [{ role: "user", content: o.prompt }] }, { signal: o.signal })
+    .catch((e) => {
+      throw limitFromApiError(e) ?? e;
+    });
+  recordCall({
+    ...call,
+    model: response.model || o.agent.model,
+    usage: {
+      input_tokens: response.usage.input_tokens,
+      output_tokens: response.usage.output_tokens,
+      cache_read_tokens: response.usage.cache_read_input_tokens ?? 0,
+      cache_write_tokens: response.usage.cache_creation_input_tokens ?? 0,
+    },
+    durationMs: Date.now() - started,
+    simulated: false,
+  });
+  return response.stop_reason === "refusal" ? "" : response.content.filter((b) => b.type === "text").map((b) => (b as { text: string }).text).join("\n").trim();
+}
