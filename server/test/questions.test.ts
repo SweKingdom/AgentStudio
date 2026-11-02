@@ -45,3 +45,28 @@ test("an answered question is reused; an open one is shared by the next story th
 
   assert.equal(askOnce(pid, "Who may cancel a class — instructors, managers or both?", a.id, "agt_requirements").kind, "new");
 });
+
+test("an answer is a required decision plus optional reasoning; it frees every story that asked", async () => {
+  const { createApp } = await import("../src/app.ts");
+  const server = createApp().listen(0);
+  const base = `http://127.0.0.1:${(server.address() as import("node:net").AddressInfo).port}/api`;
+  try {
+    const pid = project("QAN");
+    const a = createItem(pid, { type: "story", title: "Seed admin", state: "Requires additional information" });
+    const b = createItem(pid, { type: "story", title: "Sign in", state: "Requires additional information" });
+    const q = askOnce(pid, "Which password should the seeded admin account get?", a.id, "agt_requirements");
+    askOnce(pid, "What password does the seeded admin account get?", b.id, "agt_requirements");
+    const post = (body: unknown) => fetch(`${base}/questions/${q.id}/answer`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) });
+
+    assert.equal((await post({ reasoning: "Because." })).status, 400, "reasoning alone isn't an answer");
+    assert.equal((await post({ decision: "Admin123!", reasoning: "Only for the demo environment." })).status, 200);
+    const row = all<{ answer: string; reasoning: string }>("SELECT answer, reasoning FROM questions WHERE id = ?", q.id)[0];
+    assert.deepEqual([row.answer, row.reasoning], ["Admin123!", "Only for the demo environment."]);
+    for (const s of [a, b]) assert.equal(all<{ state: string }>("SELECT state FROM work_items WHERE id = ?", s.id)[0].state, "Ready for Refinement");
+    const list = await (await fetch(`${base}/projects/${pid}/questions`)).json();
+    assert.deepEqual(list[0].also_codes, [b.code]);
+    assert.equal((await post({ answer: "Old one-field form" })).status, 200, "the older form still works");
+  } finally {
+    server.close();
+  }
+});

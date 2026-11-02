@@ -40,6 +40,7 @@ import {
   listProjects,
   listWorkspaceFiles,
   logActivity,
+  answerText,
   openQuestionCount,
   patchItem,
   patchProject,
@@ -1310,18 +1311,24 @@ api.get("/projects/:pid/file-version", (req, res) => {
 });
 
 api.get("/projects/:pid/questions", (req, res) => {
-  res.json(all("SELECT q.*, w.code item_code FROM questions q LEFT JOIN work_items w ON w.id = q.item_id WHERE q.project_id = ? ORDER BY q.id", String(req.params.pid)));
+  const codes = new Map(listItems(String(req.params.pid)).map((i) => [i.id, i.code]));
+  const rows = all<{ also_items: string }>("SELECT q.*, w.code item_code FROM questions q LEFT JOIN work_items w ON w.id = q.item_id WHERE q.project_id = ? ORDER BY q.id", String(req.params.pid));
+  // A merged question lists every story that asked it.
+  res.json(rows.map((q) => ({ ...q, also_codes: (JSON.parse(q.also_items || "[]") as string[]).map((id) => codes.get(id)).filter(Boolean) })));
 });
 
 api.post("/questions/:id/answer", (req, res) => {
-  const q = get<{ id: number; project_id: string; item_id: string | null; asked_by: string; question: string }>("SELECT * FROM questions WHERE id = ?", Number(req.params.id));
+  const q = get<{ id: number; project_id: string; item_id: string | null; also_items: string; asked_by: string; question: string }>("SELECT * FROM questions WHERE id = ?", Number(req.params.id));
   if (!q) return res.status(404).json({ error: "Question not found" });
-  const answer = String(req.body?.answer ?? "").trim();
-  run("UPDATE questions SET answer = ?, answered_at = ? WHERE id = ?", answer, now(), q.id);
-  if (answer) {
-    postMessage({ projectId: q.project_id, from: "human", to: q.asked_by ?? "orchestrator", itemId: q.item_id, kind: "answer", content: answer });
-    if (q.item_id) {
-      const it = getItem(q.item_id);
+  // The decision is what agents act on; the reasoning (optional) tells them why. `answer` is the older one-field form.
+  const decision = String(req.body?.decision ?? req.body?.answer ?? "").trim();
+  const reasoning = String(req.body?.reasoning ?? "").trim();
+  if (!decision && reasoning) return res.status(400).json({ error: "Give a decision — the reasoning alone isn't an answer." });
+  run("UPDATE questions SET answer = ?, reasoning = ?, answered_at = ? WHERE id = ?", decision, reasoning || null, now(), q.id);
+  if (decision) {
+    postMessage({ projectId: q.project_id, from: "human", to: q.asked_by ?? "orchestrator", itemId: q.item_id, kind: "answer", content: answerText({ answer: decision, reasoning }) });
+    for (const itemId of [q.item_id, ...(JSON.parse(q.also_items || "[]") as string[])]) {
+      const it = itemId ? getItem(itemId) : undefined;
       if (it?.state === "Requires additional information" && openQuestionCount(it.id) === 0) patchItem(it.id, { state: "Ready for Refinement" });
     }
   }

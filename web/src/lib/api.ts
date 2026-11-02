@@ -84,7 +84,7 @@ export interface ItemDetail extends Omit<WorkItem, "tests" | "phases"> {
   comments: Comment[]; bugs: { id: string; code: string; title: string; state: string }[]; busy: boolean;
   costByAgent: { agent_id: string; costUsd: number; calls: number }[];
 }
-export interface Question { id: number; project_id: string; item_id: string | null; question: string; answer: string | null; asked_by: string; created_at: string; answered_at: string | null; item_code?: string }
+export interface Question { id: number; project_id: string; item_id: string | null; question: string; answer: string | null; asked_by: string; created_at: string; answered_at: string | null; item_code?: string; reasoning?: string | null; also_codes?: string[] }
 export interface DocMeta { id: string; kind: string; title: string; version: number; agent_id: string | null; item_id: string | null; updated_at: string; item_code?: string }
 export interface Doc extends DocMeta { content: string; created_at: string }
 
