@@ -39,13 +39,19 @@ AgentStudio är en kopia av SiroccoARM (2026-10-27) som blir ett generellt verkt
   - kontroller sparades inte när ett projekt skapades
   - `node --test` som kontroll rapporterade inget när AgentStudio självt kördes under `node --test`
 
-## Kvar
-
 ### Steg 3: Grindar som bygger på riktiga resultat (från Claude-Pipeline)
-- Klart i steg 2: utvecklarens och testarens godkännande kräver att `run_checks` returnerar exitkod 0.
-- Om allt är grönt görs inget modellanrop för att beskriva resultatet.
-- Deterministiska kontroller körs före dyra agentsteg. Rena resultat kostar inga anrop. Ett objektivt fynd ger ett avgränsat anrop för att rätta det.
-- En sista kontrollmatris körs efter bygget och efter varje automatisk åtgärd.
+- **Attesteringar** (`server/src/attest.ts`, tabellen `attestations`): varje kontrollkörning sparas med exakt det git-träd den kördes på, oavsett om det var en agents `run_checks` eller orkestratorns egen körning. `verify()` kör kontrollerna utan modell och återanvänder ett resultat för samma träd. En ändrad fil gör resultatet ogiltigt.
+- **Grön kod kostar inga extra anrop:** överlämning, QA:s godkännande och `publish_release` godtar kontroller som redan gått igenom på exakt samma kod. Ingen agent behöver köra om dem eller beskriva ett grönt resultat. Release-agenten får resultatet i sin uppgift och lägger in det i release notes.
+- **Deterministiskt före dyra steg:**
+  - Kontrollerna körs före QA. Är de röda går storyn tillbaka till utvecklaren utan något QA-anrop.
+  - Kontrollerna körs på `main` före release. Är de röda får utvecklaren ett avgränsat rättningsanrop, högst två, och release-agenten anropas inte förrän de är gröna.
+- **Slutlig kontrollmatris:** körs på exakt det som mergas, efter dokumentationen och efter att GitHubs `main` tagits in. Varje rättning följs av en ny körning. Är det fortfarande rött efter två rättningar blir storyn Blocked.
+- Tester: `server/test/deterministic.test.ts`.
+  - Återanvändning per träd.
+  - Kod som ändras efter gröna kontroller går tillbaka utan QA-anrop.
+  - En röd `main` rättas före release, eller stoppar releasen utan release-anrop.
+
+## Kvar
 
 ### Steg 4: Granskning och säkerhet
 - Granskningen gäller den faktiska git-diffen. Merge sker bara vid `APPROVE`, med högst två automatiska åtgärdsförsök.

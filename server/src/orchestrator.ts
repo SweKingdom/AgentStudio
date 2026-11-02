@@ -10,6 +10,7 @@ import { appSettings, claudeBackend, effectiveMode } from "./settings.js";
 import { planUsageFor, usageLevel } from "./claudeAccounts.js";
 import { failedChecks } from "./agents/context.js";
 import { baseNeedsSetup } from "./checks.js";
+import { verify } from "./attest.js";
 import { fill, teamSettings } from "./team.js";
 import { ensureItemBranch, finishMerge, mergeItemBranch, pushRefs } from "./git.js";
 import { PrConflictError, commentQaFindings, integrateViaPr, openDraftPr, prRepoFor } from "./pullrequests.js";
@@ -725,6 +726,41 @@ function prDescription(it: WorkItem, summary: string) {
   });
 }
 
+/** Automatic fixes the final checks may ask for before a story is given up as Blocked. */
+const MAX_FIX_ATTEMPTS = 2;
+
+/**
+ * The final check matrix before a story is merged: the checks must pass on the exact tree that will be merged. A red
+ * result is an objective finding, so the developer gets a bounded call with just that failure — at most two — and
+ * the checks run again after each fix. Still red: the story is Blocked with the failure.
+ */
+async function verifiedForMerge(projectId: string, itemId: string, dev: Agent | undefined, signal: AbortSignal, after: string): Promise<boolean> {
+  const code = getItem(itemId)!.code;
+  for (let attempt = 0; ; attempt++) {
+    const v = await verify(getProject(projectId)!, code, `Final checks on ${code} after ${after}`);
+    if (v.ok) return true;
+    if (!dev || attempt >= MAX_FIX_ATTEMPTS) {
+      patchItem(itemId, { state: "Blocked" });
+      postMessage({ projectId, from: "orchestrator", to: "human", itemId, kind: "question", content: `${code}'s final checks still fail after ${attempt} automatic fix(es), so it isn't merged:\n${v.failure.slice(0, 2000)}` });
+      logActivity({ projectId, agentId: "orchestrator", itemId, type: "blocked", summary: `⛔ ${code} not merged: the final checks fail after ${attempt} fix attempt(s)` });
+      return false;
+    }
+    checkpoint(projectId);
+    const phase = startPhase(projectId, itemId, "development", dev.id, lastIteration(itemId, "development") + 1);
+    await runAgent({
+      project: getProject(projectId)!,
+      agent: dev,
+      stage: "development",
+      item: getItem(itemId)!,
+      signal,
+      kind: "fix",
+      task: `${code} was approved, but the project's checks now fail on its branch (after ${after}). Fix only what makes them fail — nothing else — run run_checks until it passes, then call complete_development.\n\n## Failing check\n${v.failure.slice(0, 4000)}`,
+    });
+    endPhase(phase, "fix");
+    costGuard(projectId, itemId);
+  }
+}
+
 /** The task gets its own git branch and working copy before anyone works on it; an existing branch is brought up to
  *  date with the base branch. Returns the files left in conflict by that update (the developer resolves them). */
 async function startBranch(projectId: string, itemId: string) {
@@ -811,6 +847,8 @@ async function integrateItem(projectId: string, itemId: string, dev: Agent | und
       }
       // GitHub: the branch is up to date with the base branch — the merge happens through the story's pull request.
       if (m.ready) {
+        // Bringing the base in changed the code under the story: the checks must pass again on what GitHub merges.
+        if (!(await verifiedForMerge(projectId, itemId, dev, signal, `bringing ${base} in`))) return false;
         try {
           await integrateViaPr(projectId, itemId, body);
           return true;
@@ -1026,6 +1064,17 @@ ${r.summary.slice(0, 2000)}`;
       }
     }
     item = patchItem(itemId, { state: "In Peer Testing" });
+    // Deterministic first: QA is only worth a call when the checks pass on exactly this code. Usually they were just
+    // run on this tree by the developer, so this costs nothing; a red result goes straight back to development.
+    const pre = await verify(project(), item.code, `Checks on ${item.code} before QA`);
+    if (!pre.ok) {
+      findings = `The checks fail on the code handed over for QA:\n${pre.failure.slice(0, 3000)}`;
+      findingsFrom = "checks";
+      patchItem(itemId, { rework_count: (getItem(itemId)!.rework_count ?? 0) + 1 });
+      logActivity({ projectId, agentId: "orchestrator", itemId, type: "note", summary: `↩ ${item.code}: the checks fail before QA — back to development, QA not run` });
+      if (!dev) break;
+      continue;
+    }
     if (!qa.length) {
       if (await reviewPasses(iteration, n)) {
         approved = true;
@@ -1131,6 +1180,8 @@ ${r.summary.slice(0, 2000)}`;
     });
     endPhase(docPhase);
   }
+  // The final check matrix on what will be merged: after documentation (which can touch files) and after any fix.
+  if (!(await verifiedForMerge(projectId, itemId, dev, signal, "documentation"))) return;
   if (!(await integrateItem(projectId, itemId, dev, signal, lastDevSummary))) return;
   patchItem(itemId, { state: "Release Ready" });
   const rel = agentsFor(project(), "release")[0];
@@ -1145,6 +1196,28 @@ async function stageRelease(p: Project, signal: AbortSignal, onlyIds?: string[])
     logActivity({ projectId: p.id, agentId: agent.id, type: "note", summary: "Nothing is Release Ready — release skipped." });
     return;
   }
+  // Deterministic first: the release manager is only called when the checks pass on the base branch. A red base gets
+  // a bounded fix from the developer (at most two); still red, the release waits and you're told why.
+  const base = p.settings.repo?.branch || "main";
+  let checked = await verify(getProject(p.id)!, null, `Checks on ${base} before the release`);
+  const dev = agentsFor(p, "developer")[0];
+  for (let attempt = 1; !checked.ok && dev && attempt <= MAX_FIX_ATTEMPTS; attempt++) {
+    checkpoint(p.id);
+    await runAgent({
+      project: getProject(p.id)!,
+      agent: dev,
+      stage: "development",
+      signal,
+      kind: "fix",
+      task: `The project's checks fail on ${base}, so the release can't start. Fix only what makes them fail — nothing else — on ${base}, and run run_checks until it passes.\n\n## Failing check\n${checked.failure.slice(0, 4000)}`,
+    });
+    checked = await verify(getProject(p.id)!, null, `Checks on ${base} after fix ${attempt}`);
+  }
+  if (!checked.ok) {
+    postMessage({ projectId: p.id, from: "orchestrator", to: "human", kind: "question", content: `The checks fail on ${base}, so nothing was released:\n${checked.failure.slice(0, 2000)}` });
+    logActivity({ projectId: p.id, agentId: "orchestrator", type: "blocked", summary: `⛔ Release not started: the checks fail on ${base}` });
+    return;
+  }
   const phaseIds = scope.map((i) => {
     patchItem(i.id, { state: "Smoke Testing" });
     return startPhase(p.id, i.id, "release", agent.id);
@@ -1155,7 +1228,7 @@ async function stageRelease(p: Project, signal: AbortSignal, onlyIds?: string[])
     agent,
     stage: "release",
     signal,
-    task: `Release the ${scope.length} item(s) in state "Smoke Testing"/"Release Ready": ${scope.map((i) => i.code).join(", ")}. Run the project's checks on the base branch with run_checks, smoke test each item and publish the release. Put the check results in the release notes.`,
+    task: `Release the ${scope.length} item(s) in state "Smoke Testing"/"Release Ready": ${scope.map((i) => i.code).join(", ")}. The project's checks already passed on exactly this code on ${base} — don't run them again unless you change files. Smoke test each item and publish the release. Put the check results below in the release notes.\n\n## Checks on ${base}\n${checked.text.slice(0, 3000)}`,
   });
   phaseIds.forEach((id) => endPhase(id, r.outcome.released ? "released" : "not released"));
   if (r.outcome.released) {

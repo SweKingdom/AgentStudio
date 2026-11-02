@@ -36,10 +36,18 @@ import { changedOnBranch, commitWork, keepFiles, tagRelease, worktreeStatus } fr
 import { allowedCommands, commandRefusal, runCommand } from "../commands.js";
 import { askOnce } from "../questions.js";
 import { formatChecks, runChecks } from "../checks.js";
+import { attest, attestedNow } from "../attest.js";
 import { effectiveMode } from "../settings.js";
 import { agentEmail, listAgents } from "./store.js";
 
 const pexec = promisify(execFile);
+
+/** The checks passed on the working copy as it is now: in this run, or recorded for exactly this tree before (the
+ *  orchestrator's own run, or an earlier agent's) — so nobody re-runs them on code that didn't change. */
+async function checksGreen(ctx: ToolContext, code: string | null) {
+  if (ctx.outcome.checks) return ctx.outcome.checks.ok;
+  return (await attestedNow(ctx.project, code, "checks"))?.ok === true;
+}
 
 /** A list of { ac, how } from a tool call, cleaned: only entries with both fields. */
 function acNotes(v: unknown): { ac: string; how: string }[] {
@@ -583,10 +591,10 @@ const TOOLS: Record<string, ToolSpec> = {
         required: ["code", "summary"],
       },
     },
-    handler: (i, ctx) => {
+    handler: async (i, ctx) => {
       req(i, "summary");
-      // The story goes to QA only when the project's own checks passed on its branch in this run.
-      if (ctx.agent.tools.includes("run_checks") && !ctx.outcome.checks?.ok) {
+      // The story goes to QA only when the project's own checks passed on its branch as it is now.
+      if (ctx.agent.tools.includes("run_checks") && !(await checksGreen(ctx, ctx.item?.code ?? null))) {
         throw new Error(ctx.outcome.checks ? "The project's checks failed — fix every failure and run run_checks again, then call complete_development." : "Run the project's checks with run_checks first; complete_development needs them to pass.");
       }
       ctx.outcome.devCompleted = String(i.summary);
@@ -708,9 +716,9 @@ const TOOLS: Record<string, ToolSpec> = {
         required: ["code", "verdict", "findings"],
       },
     },
-    handler: (i, ctx) => {
+    handler: async (i, ctx) => {
       req(i, "verdict");
-      if (i.verdict === "approved" && ctx.agent.tools.includes("run_checks") && !ctx.outcome.checks?.ok) {
+      if (i.verdict === "approved" && ctx.agent.tools.includes("run_checks") && !(await checksGreen(ctx, ctx.item?.code ?? null))) {
         throw new Error(ctx.outcome.checks ? "The project's checks failed on the story's branch — you can't approve it. Request changes with the failures." : "Run the project's checks with run_checks before approving.");
       }
       ctx.outcome.review = {
@@ -929,6 +937,8 @@ const TOOLS: Record<string, ToolSpec> = {
       if (ctx.agent.role === "release") ctx.outcome.validation = { ok: report.ok, output: formatChecks(report) };
       const text = formatChecks(report);
       const failed = report.results.find((r) => !r.ok);
+      // Recorded with the tree it ran on: the orchestrator and the gates reuse it until the code changes.
+      await attest(ctx.project, code ?? null, "checks", report.ok, report.ok ? text : failed ? `${failed.name} (\`${failed.command}\`) failed:\n${failed.output}` : text);
       // The failure without timings: the same failure twice in a row means rework isn't getting anywhere.
       ctx.outcome.checks = { ok: report.ok, failure: failed ? `${failed.name}: ${failed.output.replace(/\b\d+(\.\d+)?\s?m?s\b/g, "").slice(-1500)}` : undefined };
       logActivity({
@@ -957,8 +967,13 @@ const TOOLS: Record<string, ToolSpec> = {
     },
     handler: async (i, ctx) => {
       req(i, "version", "notes");
-      if (ctx.agent.tools.includes("run_checks") && !ctx.outcome.checks?.ok) {
+      if (ctx.agent.tools.includes("run_checks") && !(await checksGreen(ctx, null))) {
         throw new Error("Run the project's checks on the base branch with run_checks first; a release needs them to pass.");
+      }
+      // The checks the release rests on: this run's, or the ones recorded for exactly this code before it.
+      if (!ctx.outcome.validation) {
+        const known = await attestedNow(ctx.project, null, "checks");
+        if (known) ctx.outcome.validation = { ok: known.ok, output: known.detail };
       }
       const id = uid("rel");
       insert("releases", {

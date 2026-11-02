@@ -238,10 +238,12 @@ test("live pipeline: PDF → backlog → build with a failing check fixed → QA
     assert.match(s.branch ?? "", new RegExp(`^feature/${s.code}-`));
   }
 
-  // Gates: no hand-over, approval or release before a passing run of the checks.
+  // Gates: no hand-over before a passing run of the checks on the code as it is.
   assert.ok(events.some((e) => e.startsWith("error:Run the project's checks with run_checks first")), "hand-over refused");
-  assert.ok(events.some((e) => e.startsWith("error:Run the project's checks with run_checks before approving")), "approval refused");
-  assert.ok(events.some((e) => e.startsWith("error:Run the project's checks on the base branch")), "release refused");
+  // Deterministic first: QA's approval and the release rest on checks already proven green on exactly that code (the
+  // developer's run, the orchestrator's run on the base branch), so they aren't refused for not re-running them.
+  assert.ok(!events.some((e) => e.startsWith("error:Run the project's checks with run_checks before approving")), "approval on attested green code");
+  assert.ok(!events.some((e) => e.startsWith("error:Run the project's checks on the base branch")), "release on attested green code");
   // Fix loop: the real `node --test` failed on the wrong first attempt, then passed after the fix.
   for (const s of stories) {
     assert.ok(events.includes(`dev-saw:${s.code}:failure`), `${s.code} saw the failing test`);

@@ -484,6 +484,22 @@ export function keepFiles(project: Pick<Project, "key" | "settings">, code: stri
   });
 }
 
+/** The git tree of a story's working copy (or the base workspace) as it is on disk, committed or not: what checks,
+ *  scans and reviews attest to. Null when there is no working copy. */
+export function currentTree(project: Pick<Project, "key" | "settings">, code: string | null) {
+  return serial(project.key, async () => {
+    const dir = code ? worktreeDir(project, code) : workspaceDir(project);
+    if (!fs.existsSync(path.join(dir, ".git"))) return null;
+    await git(dir, [...ARM_IDENTITY, "add", "-A"]);
+    return (await git(dir, ["write-tree"])).trim();
+  });
+}
+
+/** Paths that differ between two trees. */
+export function treeDiff(project: Pick<Project, "key" | "settings">, from: string, to: string) {
+  return serial(project.key, async () => (await git(workspaceDir(project), ["diff-tree", "-r", "--name-only", from, to])).split("\n").filter(Boolean));
+}
+
 /** Is the work on GitHub? Whether origin has the local base branch's commits and the release tag. Asks origin (one
  *  fetch and one ls-remote); null fields when it can't be reached. */
 export function remoteStatus(project: Pick<Project, "key" | "settings">, tag?: string | null) {

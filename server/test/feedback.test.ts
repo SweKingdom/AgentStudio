@@ -141,6 +141,7 @@ after(async () => {
 
 test("an AC that needs another story waits for it to be merged and is tested again, instead of passing untested", async () => {
   const p = await newProject("WFS", ["developer", "qa"]);
+  await api("PATCH", `/projects/${p.id}`, { settings: { parallelism: 1 } }); // the report story is tested before the seed story exists
   const report = story(p.id, "Report bookings", 1);
   const seed = story(p.id, "Seed bookings", 2);
   scripts["Report bookings"] = { qa: [{ blocked: { ac: "AC 1", waitsFor: seed.code } }, {}] };

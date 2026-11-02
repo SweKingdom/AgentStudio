@@ -321,6 +321,19 @@ addColumn("test_results", "waits_for", "TEXT");
 addColumn("questions", "reasoning", "TEXT");
 addColumn("questions", "also_items", "TEXT NOT NULL DEFAULT '[]'");
 
+// What a check, scan or review proved, and for which exact git tree (a story's working copy, or the base: item_code '').
+db.exec(`CREATE TABLE IF NOT EXISTS attestations (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+  item_code TEXT NOT NULL DEFAULT '',
+  kind TEXT NOT NULL,
+  tree TEXT NOT NULL,
+  ok INTEGER NOT NULL,
+  detail TEXT NOT NULL DEFAULT '',
+  created_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_attest ON attestations(project_id, item_code, kind, id);`);
+
 type Row = Record<string, unknown>;
 
 export function all<T = Row>(sql: string, ...params: SQLInputValue[]): T[] {
