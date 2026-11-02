@@ -49,4 +49,5 @@ A story is ready only if it has: specific field mappings (`target.field = source
 ## Tags
 
 - `Pre-deploy Steps` when manual-steps has pre-deployment steps; `Post-deploy Steps` for post-deployment steps.
+- `Manual step` when the story needs something agents can't do inside the repository (a generated binary or database, a store release, a secret, a cloud resource). The product owner decides up front whether it is automated (CI workflow or script, part of the story) or done by hand; record the answer and the exact steps in manual-steps.
 - Category tags are free-form but short (e.g. `Integration`, `Data`, `Reporting`).

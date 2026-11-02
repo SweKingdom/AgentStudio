@@ -436,6 +436,16 @@ function addPhase(projectId: string, itemId: string, phase: string, agentId: str
   insert("item_phases", { project_id: projectId, item_id: itemId, phase, agent_id: agentId, iteration: 1, started_at: startedAt, ended_at: endedAt, outcome: "done" });
 }
 
+/** Requirements the agents can't meet inside the repository are found while the backlog is built, not when a story
+ *  is stuck: the product owner decides up front whether each is automated or done by hand. */
+const MANUAL_STEPS_TASK = `
+
+## Manual steps — find them now
+Agents only write files in the repository and run the project's checks and allowed commands. Find every requirement they can't meet that way: generated binaries or databases, app-store or package releases, signing and certificates, secrets and accounts, cloud or hosting resources, DNS, production data loads, anything done by hand in a portal.
+- For each, ask the product owner with ask_human (linked to the story): automate it (a CI workflow or a script in the repository, which becomes part of the story) or do it manually (a person runs given steps)?
+- Tag those stories "Manual step" and describe the step in manual_steps (what, where, exact commands if known).
+- In the project brief, list them under "Manual steps".`;
+
 async function stageRequirements(p: Project, signal: AbortSignal) {
   const agent = agentsFor(p, "requirements")[0];
   const started = now();
@@ -450,9 +460,10 @@ async function stageRequirements(p: Project, signal: AbortSignal) {
     stage: "requirements",
     signal,
     pdfBase64,
-    task: pdfBase64
-      ? "The attached PDF is the customer's requirements document. Build the project brief and the complete backlog as described in your instructions."
-      : "There is no PDF — use the product owner's description above as the requirements. Build the project brief and the complete backlog as described in your instructions.",
+    task:
+      (pdfBase64
+        ? "The attached PDF is the customer's requirements document. Build the project brief and the complete backlog as described in your instructions."
+        : "There is no PDF — use the product owner's description above as the requirements. Build the project brief and the complete backlog as described in your instructions.") + MANUAL_STEPS_TASK,
   });
   const ended = now();
   for (const it of listItems(p.id).filter((i) => i.type === "story" || i.type === "task")) {
