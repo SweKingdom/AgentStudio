@@ -199,7 +199,8 @@ Every approved story is documented, and the general documents always describe th
 ## Workflow
 1. \`get_item\` for the story and skim the delivered files if needed.
 2. Write the per-task document with \`write_document\` (kind task_doc, item_code = story code) using the template in your knowledge.
-3. Read the current \`user_manual\`, \`technical_overview\` and \`changelog\` (\`read_document\`). Update each one that this story affects and save the COMPLETE new version with \`write_document\` (it replaces the previous version). The user manual is task-oriented and written for end users with UI labels, not API names. Always add a changelog line.
+3. Read the current \`user_manual\`, \`technical_overview\` and \`changelog\` (\`read_document\`). Update each one that this story affects and save the COMPLETE new version with \`write_document\` (it replaces the previous version). The user manual is task-oriented and written for end users with UI labels, not API names.
+4. The changelog: read it first, keep every existing entry, and add one new line for this story under "## Unreleased". Never remove or rewrite existing lines — the earlier stories' entries stay.
 ${COMMON_RULES}`,
   },
   release: {

@@ -81,3 +81,66 @@ export function askOnce(projectId: string, question: string, itemId: string | nu
   }
   return { kind: "new", id: addQuestion(projectId, question, itemId, askedBy) };
 }
+
+/** "AC 1" = "ac1" = "AC1": AC labels compared without case or spaces ("AC 1-4" still matches only "AC 1-4"). */
+export const acKey = (ac: string) => ac.toLowerCase().replace(/\s+/g, "");
+
+/** Does the product owner's answer clearly reject the deviation ("Must be met as written", "Meet it as written",
+ *  "Not accepted", "Rejected", "No, …")? Then it's asked again. Any other answer is a decision ("deferred to the first
+ *  real run", "belongs to US-130") and isn't asked again. */
+const REJECTS = [
+  /\b(must|should|shall|has to|have to|needs? to)\b[^.;]*\bas written\b/i,
+  /\bmeet\s+(?:it|them|this|that)?\s*as written\b/i,
+  /\b(?:not|isn't|aren't)\s+(?:accepted|acceptable)\b/i,
+  /\breject(?:s|ed)?\b/i,
+  /^\s*no\b(?![- ](?:problem|issue|concern))/i,
+];
+export const rejectsDeviation = (answer: string) => REJECTS.some((r) => r.test(answer));
+
+/** The newest answered deviation or reinterpretation question on this story and AC — the product owner's last word on
+ *  it, so a re-run doesn't ask the same thing again. `accepted`: that answer doesn't clearly reject the deviation. */
+export function priorAcDecision(projectId: string, itemId: string, code: string, ac: string) {
+  const rows = all<{ id: number; question: string; answer: string; reasoning: string | null; answered_at: string | null }>(
+    "SELECT id, question, answer, reasoning, answered_at FROM questions WHERE project_id = ? AND (item_id = ? OR also_items LIKE ?) AND answer IS NOT NULL AND answer != '' ORDER BY answered_at DESC, id DESC",
+    projectId,
+    itemId,
+    `%"${itemId}"%`,
+  );
+  const want = acKey(ac);
+  const row = rows.find((r) => acKeyOf(r.question, code) === want);
+  return row ? { ...row, accepted: !rejectsDeviation(row.answer) } : undefined;
+}
+
+/** The AC a deviation ("US-1 AC 1 is met differently than written…") or reinterpretation ("QA would approve US-1 AC 1
+ *  only on a reading…") question is about, as written in it; null for any other question. */
+export function acOfQuestion(question: string, code: string) {
+  const qa = `QA would approve ${code} `;
+  const m = question.startsWith(qa) ? /^(.+?) only on a reading/.exec(question.slice(qa.length)) : question.startsWith(`${code} `) ? /^(.+?) is met differently than written/.exec(question.slice(code.length + 1)) : null;
+  return m ? m[1] : null;
+}
+
+const acKeyOf = (question: string, code: string) => {
+  const ac = acOfQuestion(question, code);
+  return ac === null ? null : acKey(ac);
+};
+
+/** The answers on this story that QA must not fail an AC over: each deviation or reinterpretation whose newest answer
+ *  doesn't clearly reject it, and any other question about an AC answered with an explicit acceptance ("accept it as it
+ *  is" after repeated QA failures — there "rework with …" is a decision too, so only "accept"/"yes"/"ok" counts). A
+ *  question that isn't about an AC is never one. */
+export function acceptedAnswers(projectId: string, itemId: string, code: string) {
+  const rows = all<{ id: number; question: string; answer: string; reasoning: string | null }>(
+    "SELECT id, question, answer, reasoning FROM questions WHERE project_id = ? AND (item_id = ? OR also_items LIKE ?) AND answer IS NOT NULL AND answer != '' ORDER BY answered_at DESC, id DESC",
+    projectId,
+    itemId,
+    `%"${itemId}"%`,
+  );
+  const seen = new Set<string>();
+  return rows.filter((r) => {
+    const ac = acKeyOf(r.question, code);
+    if (ac === null) return /\bAC\s*\d/i.test(r.question) && /^\s*(accept|accepted|approved|yes|ok)\b/i.test(r.answer) && !rejectsDeviation(r.answer);
+    if (seen.has(ac)) return false;
+    seen.add(ac);
+    return !rejectsDeviation(r.answer);
+  });
+}

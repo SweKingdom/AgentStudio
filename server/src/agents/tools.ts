@@ -223,6 +223,7 @@ const TOOLS: Record<string, ToolSpec> = {
       if (!DOC_KINDS.includes(i.kind)) throw new Error(`Unknown kind ${i.kind}`);
       const item = i.item_code ? itemOrThrow(ctx, i.item_code) : undefined;
       if (ITEM_DOC_KINDS.includes(i.kind) && !item) throw new Error(`${i.kind} requires item_code`);
+      if (i.kind === "changelog") assertChangelogKept(findDoc(ctx.project.id, "changelog", null)?.content, String(i.content));
       const doc = upsertDoc({
         projectId: ctx.project.id,
         kind: i.kind,
@@ -305,6 +306,7 @@ const TOOLS: Record<string, ToolSpec> = {
       const heading = String(i.heading).replace(/^#+\s*/, "").trim();
       const body = String(i.content).trim();
       const content = replaceSection(existing?.content ?? `# ${i.kind.replace(/_/g, " ").replace(/^\w/, (c: string) => c.toUpperCase())}\n`, heading, body);
+      if (i.kind === "changelog") assertChangelogKept(existing?.content, content);
       const doc = upsertDoc({ projectId: ctx.project.id, kind: i.kind, itemId, title: existing?.title ?? i.kind.replace(/_/g, " "), content, agentId: ctx.agent.id });
       logActivity({ projectId: ctx.project.id, agentId: ctx.agent.id, runId: ctx.runId, itemId: item?.id ?? ctx.item?.id, type: "document", summary: `Updated "${heading}" in ${i.kind.replace(/_/g, " ")} (v${doc.version})` });
       return `Saved ${i.kind} v${doc.version} (section "${heading}").`;
@@ -614,7 +616,8 @@ const TOOLS: Record<string, ToolSpec> = {
     label: "Record ✅/❌/⛔ test result",
     def: {
       name: "record_test_result",
-      description: "Record the result of one check against an acceptance criterion.",
+      description:
+        "Record the result of one check against an acceptance criterion. An AC the product owner accepted as deferred or met differently (see the product owner's answers) is not a failure: record it as not tested with a note citing the answer, and never request changes because of it.",
       input_schema: {
         type: "object",
         properties: {
@@ -704,7 +707,8 @@ const TOOLS: Record<string, ToolSpec> = {
     label: "Approve or request changes",
     def: {
       name: "submit_review",
-      description: "Submit the QA verdict for the story under test.",
+      description:
+        "Submit the QA verdict for the story under test. An AC the product owner accepted as deferred or met differently (see the product owner's answers) is not a failure: record it as not tested with a note citing the answer, and never request changes because of it.",
       input_schema: {
         type: "object",
         properties: {
@@ -1045,6 +1049,15 @@ export function replaceSection(md: string, heading: string, body: string) {
   let end = lines.findIndex((l, idx) => idx > start && /^#{1,2}\s+/.test(l));
   if (end < 0) end = lines.length;
   return [...lines.slice(0, start), ...block, ...lines.slice(end)].join("\n").replace(/\n{3,}/g, "\n\n").trimEnd() + "\n";
+}
+
+/** The changelog only grows: a write that drops an existing entry ("- " line) is refused, naming what's missing. */
+export function assertChangelogKept(before: string | undefined, after: string) {
+  const kept = new Set(after.split("\n").map((l) => l.trim()));
+  const missing = (before ?? "").split("\n").map((l) => l.trim()).filter((l) => l.startsWith("- ") && !kept.has(l));
+  if (missing.length) {
+    throw new Error(`Not saved: the changelog would lose ${missing.length} existing entr${missing.length === 1 ? "y" : "ies"}:\n${missing.join("\n")}\nKeep every existing line exactly as it is and add one new line under "## Unreleased".`);
+  }
 }
 
 export function toolCatalog() {

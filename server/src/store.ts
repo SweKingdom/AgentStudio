@@ -516,11 +516,12 @@ export function openQuestionCount(itemId: string) {
 /** The product owner's decision, with their reasoning when they gave one — as agents and exports read it. */
 export const answerText = (q: { answer: string; reasoning?: string | null }) => (q.reasoning?.trim() ? `${q.answer} — Reasoning: ${q.reasoning.trim()}` : q.answer);
 
+/** Newest first: a newer answer on the same topic replaces older ones. */
 export function answeredQuestions(projectId: string) {
-  return all<{ question: string; answer: string; reasoning: string | null; item_id: string | null; also_items: string }>(
-    "SELECT question, answer, reasoning, item_id, also_items FROM questions WHERE project_id = ? AND answer IS NOT NULL AND answer != ''",
+  return all<{ id: number; question: string; answer: string; reasoning: string | null; item_id: string | null; also_items: string; answered_at: string | null }>(
+    "SELECT id, question, answer, reasoning, item_id, also_items, answered_at FROM questions WHERE project_id = ? AND answer IS NOT NULL AND answer != '' ORDER BY answered_at DESC, id DESC",
     projectId,
-  ).map((q) => ({ question: q.question, answer: answerText(q), item_id: q.item_id, items: [q.item_id, ...(JSON.parse(q.also_items || "[]") as string[])].filter(Boolean) as string[] }));
+  ).map((q) => ({ id: q.id, question: q.question, answer: answerText(q), answered_at: q.answered_at, item_id: q.item_id, items:[q.item_id, ...(JSON.parse(q.also_items || "[]") as string[])].filter(Boolean) as string[] }));
 }
 
 export function addTestResult(t: {

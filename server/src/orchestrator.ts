@@ -17,8 +17,10 @@ import { fill, teamSettings } from "./team.js";
 import { branchChanges, currentTree, ensureItemBranch, finishMerge, mergeItemBranch, pushRefs, treeDiff } from "./git.js";
 import { PrConflictError, commentQaFindings, integrateViaPr, openDraftPr, prRepoFor } from "./pullrequests.js";
 import { needsCodeReview, runCodeReview } from "./review.js";
+import { acceptedAnswers, priorAcDecision } from "./questions.js";
 import {
   addQuestion,
+  answerText,
   createItem,
   endPhase,
   findDoc,
@@ -1140,6 +1142,40 @@ function askProductOwner(projectId: string, itemId: string, askedBy: string, que
   }
 }
 
+/** An AC the product owner accepted as met differently (or deferred), and the question they accepted it in. */
+type AcceptedAc = { ac: string; questionId: number; answer: string };
+
+/** The developer's deviations or QA's reinterpretations go to the product owner — except those they already accepted
+ *  on an earlier run, which aren't asked again. Returns what was accepted earlier and how many were asked now. */
+function askAboutAcs(projectId: string, item: WorkItem, askedBy: string, kind: "deviation" | "reinterpretation", notes: { ac: string; how: string }[]) {
+  const accepted: AcceptedAc[] = [];
+  const ask: string[] = [];
+  for (const d of notes) {
+    const prior = priorAcDecision(projectId, item.id, item.code, d.ac);
+    if (prior?.accepted) {
+      accepted.push({ ac: d.ac, questionId: prior.id, answer: answerText(prior) });
+      logActivity({ projectId, agentId: "orchestrator", itemId: item.id, type: "note", summary: `✓ ${item.code} ${d.ac}: already accepted by the product owner (question #${prior.id})` });
+    } else {
+      ask.push(
+        kind === "deviation"
+          ? `${item.code} ${d.ac} is met differently than written: ${d.how} — is that acceptable, or must it be met as written?`
+          : `QA would approve ${item.code} ${d.ac} only on a reading that differs from its wording: ${d.how} — do you accept that, or must it be met as written?`,
+      );
+    }
+  }
+  askProductOwner(projectId, item.id, askedBy, ask);
+  return { accepted, asked: ask.length };
+}
+
+/** For QA: the ACs the product owner accepted as met differently or deferred, on this run and in earlier answers. */
+function acceptedAcsBlock(projectId: string, item: WorkItem, accepted: AcceptedAc[]) {
+  const lines = new Map<number, string>(accepted.map((a) => [a.questionId, `- ${a.ac} — question #${a.questionId}: ${a.answer}`]));
+  for (const q of acceptedAnswers(projectId, item.id, item.code)) {
+    if (!lines.has(q.id)) lines.set(q.id, `- Question #${q.id}: ${q.question.slice(0, 300)}\n  Answer: ${answerText(q)}`);
+  }
+  return lines.size ? `\n\n## ACs the product owner accepted as met differently or deferred — do not fail these; record them as accepted, citing the question number\n${[...lines.values()].join("\n")}` : "";
+}
+
 /** "parked": the story waits (for the product owner, or another story) and resumes where it left off once that's done. */
 async function deliverItem(projectId: string, itemId: string, dev: Agent | undefined, signal: AbortSignal, opts: DeliverOptions = {}): Promise<"parked" | undefined> {
   if (waitingForAnswers({ id: itemId })) {
@@ -1160,6 +1196,8 @@ async function deliverItem(projectId: string, itemId: string, dev: Agent | undef
   let findingsFrom = "qa" as "qa" | "review" | "checks"; // (a cast: it's also set inside reviewPasses, which TS can't follow)
   /** Every rework round in this delivery and why — distilled into lessons for later stories once this one is approved. */
   const reworkLog: ReworkEntry[] = [];
+  /** Deviations the product owner already accepted on an earlier run: QA is told not to fail them. */
+  const acceptedAcs: AcceptedAc[] = [];
   /** The failing check when the developer last couldn't hand over; the same failure twice means rework is stuck. */
   let lastFailure: string | undefined;
   let stuck = false;
@@ -1249,11 +1287,15 @@ ${r.summary.slice(0, 2000)}`;
         continue;
       }
       // An AC met differently than written isn't the developer's call: the product owner decides before QA.
+      // One the product owner already accepted on an earlier run isn't asked again.
       if (r.outcome.deviations?.length) {
-        askProductOwner(projectId, itemId, dev.id, r.outcome.deviations.map((d) => `${item.code} ${d.ac} is met differently than written: ${d.how} — is that acceptable, or must it be met as written?`));
-        patchItem(itemId, { state: "In Peer Testing" });
-        logActivity({ projectId, agentId: "orchestrator", itemId, type: "gate", summary: `⏸ ${item.code} waits for your decision on ${r.outcome.deviations.length} AC(s) the developer met differently than written` });
-        return "parked";
+        const { accepted, asked } = askAboutAcs(projectId, item, dev.id, "deviation", r.outcome.deviations);
+        acceptedAcs.push(...accepted);
+        if (asked) {
+          patchItem(itemId, { state: "In Peer Testing" });
+          logActivity({ projectId, agentId: "orchestrator", itemId, type: "gate", summary: `⏸ ${item.code} waits for your decision on ${asked} AC(s) the developer met differently than written` });
+          return "parked";
+        }
       }
     }
     item = patchItem(itemId, { state: "In Peer Testing" });
@@ -1293,7 +1335,7 @@ ${r.summary.slice(0, 2000)}`;
       signal,
       kind: opts.kind,
       feedback: n === 1 ? opts.feedback : undefined,
-      task: `Peer-test ${item.code} "${item.title}" (iteration ${iteration}) with the Rudolf method and submit your verdict with submit_review.${devSummary ? `\n\n## Developer's hand-over\n${devSummary.slice(0, 2000)}` : ""}${n > 1 && findings ? (findingsFrom === "review" ? `\n\n## Code review findings the developer fixed (re-test the checks they touch)\n${findings.slice(0, 3000)}` : `\n\n## Your findings from the previous iteration (check each one is fixed)\n${findings.slice(0, 3000)}`) : ""}${opts.feedback && n === 1 ? `\n\nAlso verify the product owner's feedback was applied: ${opts.feedback}` : ""}${lessonsBlock(project()) ? "\n\nAlso check the story follows the project's lessons." : ""}`,
+      task: `Peer-test ${item.code} "${item.title}" (iteration ${iteration}) with the Rudolf method and submit your verdict with submit_review.${devSummary ? `\n\n## Developer's hand-over\n${devSummary.slice(0, 2000)}` : ""}${n > 1 && findings ? (findingsFrom === "review" ? `\n\n## Code review findings the developer fixed (re-test the checks they touch)\n${findings.slice(0, 3000)}` : `\n\n## Your findings from the previous iteration (check each one is fixed)\n${findings.slice(0, 3000)}`) : ""}${opts.feedback && n === 1 ? `\n\nAlso verify the product owner's feedback was applied: ${opts.feedback}` : ""}${acceptedAcsBlock(projectId, item, acceptedAcs)}${lessonsBlock(project()) ? "\n\nAlso check the story follows the project's lessons." : ""}`,
     });
     const verdict = q.outcome.review?.verdict ?? "approved";
     qaNotes = q.outcome.review?.findings ?? "";
@@ -1301,9 +1343,12 @@ ${r.summary.slice(0, 2000)}`;
     if (verdict === "approved") {
       // QA approved an AC by reading it differently, or more weakly met than written: the product owner decides.
       if (q.outcome.reinterpretations?.length) {
-        askProductOwner(projectId, itemId, tester.id, q.outcome.reinterpretations.map((x) => `QA would approve ${item.code} ${x.ac} only on a reading that differs from its wording: ${x.how} — do you accept that, or must it be met as written?`));
-        logActivity({ projectId, agentId: "orchestrator", itemId, type: "gate", summary: `⏸ ${item.code} waits for your decision on ${q.outcome.reinterpretations.length} AC(s) QA reinterpreted` });
-        return "parked";
+        const { accepted, asked } = askAboutAcs(projectId, item, tester.id, "reinterpretation", q.outcome.reinterpretations);
+        acceptedAcs.push(...accepted);
+        if (asked) {
+          logActivity({ projectId, agentId: "orchestrator", itemId, type: "gate", summary: `⏸ ${item.code} waits for your decision on ${asked} AC(s) QA reinterpreted` });
+          return "parked";
+        }
       }
       // ⛔ ACs that need another story's code: wait for it to be merged and test again, instead of passing untested.
       const needs = [...new Set((q.outcome.waitsFor ?? []).map((w) => w.code))].filter((code) => {
@@ -1473,13 +1518,18 @@ export function listJobs(projectId: string) {
   return [...jobs.entries()].filter(([, j]) => j.projectId === projectId).map(([key, j]) => ({ key, label: j.label, itemId: j.itemId ?? null }));
 }
 
-function startJob(projectId: string, key: string, label: string, itemId: string | undefined, fn: (signal: AbortSignal) => Promise<void>, spec?: JobSpec) {
+/** Throws why a job can't start now — checked before anything is stored for it (see rerunItem). */
+function assertCanStart(projectId: string, key: string, itemId: string | undefined) {
   const gp = globalPause();
   if (gp) throw new Error(`All work is paused: ${gp.reason} Resume all first.`);
   if (controllers.has(projectId)) throw new Error("The pipeline is running — pause it or wait until it reaches a gate first.");
-  pauseRequested.delete(projectId);
   if (jobs.has(key)) throw new Error("That job is already running.");
   if (itemId && all("SELECT 1 FROM runs WHERE item_id = ? AND status = 'running'", itemId).length) throw new Error("An agent is already working on this item.");
+}
+
+function startJob(projectId: string, key: string, label: string, itemId: string | undefined, fn: (signal: AbortSignal) => Promise<void>, spec?: JobSpec) {
+  assertCanStart(projectId, key, itemId);
+  pauseRequested.delete(projectId);
   const ctrl = new AbortController();
   jobs.set(key, { projectId, label, ctrl, itemId, spec });
   emit({ type: "project", projectId });
@@ -1520,6 +1570,8 @@ export function rerunItem(itemId: string, role: RerunRole, feedback: string, res
     throw new Error(`${it.code} has ${openQuestionCount(it.id)} unanswered question(s) — answer them first. The analyst or architect can still revise it.`);
   }
   const text = feedback.trim();
+  // A second click while it runs: refused before the feedback is stored again.
+  assertCanStart(p.id, `item:${it.id}`, it.id);
   if (!resuming) {
     if (text) insert("comments", { project_id: p.id, item_id: it.id, author_id: "human", content: `Feedback for ${agent.name}: ${text}`, created_at: now() });
     postMessage({ projectId: p.id, from: "human", to: agent.id, itemId: it.id, kind: "rework", content: text || `Please redo your part of ${it.code}.` });
