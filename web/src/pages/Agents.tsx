@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { t } from "../lib/i18n";
 import { useNavigate } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { BookOpen, ChevronDown, MapPin, Plus, Sparkles, Trash2, Lock, Pencil } from "lucide-react";
@@ -84,13 +85,13 @@ function KnowledgeEditor({ pack, onClose }: { pack?: Knowledge; onClose: () => v
     <Modal
       onClose={onClose}
       title={pack ? `Edit ${pack.title}` : "New shared knowledge pack"}
-      footer={<><button className="btn ghost" onClick={onClose}>Cancel</button><button className="btn primary" disabled={!title || save.isPending} onClick={() => save.mutate()}>Save pack</button></>}
+      footer={<><button className="btn ghost" onClick={onClose}>{t("Cancel")}</button><button className="btn primary" disabled={!title || save.isPending} onClick={() => save.mutate()}>{t("Save pack")}</button></>}
     >
       <div className="col" style={{ gap: 12 }}>
         <Field label="Title" help="Name of the shared knowledge pack, shown when you assign packs to agents."><input className="input" value={title} onChange={(e) => setTitle(e.target.value)} placeholder="e.g. CPQ pricing rules" /></Field>
         <Field label="Summary" help="One line describing what the pack teaches. Shown next to the checkbox on each agent's Knowledge section."><input className="input" value={summary} onChange={(e) => setSummary(e.target.value)} placeholder="One line — shown when assigning packs" /></Field>
         <Field label="Content (Markdown)" help="The knowledge itself, in Markdown. It's added to the prompt of every agent that has this pack ticked."><textarea className="textarea code" style={{ minHeight: 300 }} value={content} onChange={(e) => setContent(e.target.value)} /></Field>
-        <div className="hint">Shared packs can be assigned to any agent. For knowledge that belongs to one agent only, use that agent's <b>Custom knowledge</b> section.</div>
+        <div className="hint">Shared packs can be assigned to any agent. For knowledge that belongs to one agent only, use that agent's <b>{t("Custom knowledge")}</b> section.</div>
       </div>
     </Modal>
   );
@@ -109,7 +110,7 @@ function KnowledgeLibrary() {
   return (
     <>
       <div className="row" style={{ marginBottom: 12 }}>
-        <div className="muted small">Built-in packs distil the DevOps story template, the Rudolf peer-testing method and engineering and testing standards. Add your own shared packs for anything else.</div>
+        <div className="muted small">{t("Built-in packs distil the DevOps story template, the Rudolf peer-testing method and engineering and testing standards. Add your own shared packs for anything else.")}</div>
         <span className="spacer" />
         <button className="btn" onClick={() => setEdit("new")}><Plus size={14} /> New pack</button>
       </div>
@@ -160,8 +161,8 @@ export default function Agents() {
     <div className="page">
       <div className="page-head">
         <div>
-          <h1 className="page-title">Agents</h1>
-          <div className="page-sub">The seven agents of your delivery team, named after Iberian mythology — open a card to read why. Each one has a role, a model, a prompt, tools and knowledge you can tailor.</div>
+          <h1 className="page-title">{t("Agents")}</h1>
+          <div className="page-sub">{t("The seven agents of your delivery team, named after Iberian mythology — open a card to read why. Each one has a role, a model, a prompt, tools and knowledge you can tailor.")}</div>
         </div>
         <div className="row">
           <Seg value={tab} onChange={setTab} options={[{ value: "team", label: "Team" }, { value: "knowledge", label: "Knowledge library" }]} />
@@ -172,7 +173,7 @@ export default function Agents() {
         agents?.length ? (
           <div className="grid g3 stagger">{agents.map((a) => <AgentCard key={a.id} a={a} />)}</div>
         ) : (
-          <Empty title="No agents">Create one from a role template.</Empty>
+          <Empty title="No agents">{t("Create one from a role template.")}</Empty>
         )
       ) : (
         <KnowledgeLibrary />

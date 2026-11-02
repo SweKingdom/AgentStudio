@@ -6,6 +6,9 @@ import {
 } from "lucide-react";
 import { useProjects } from "../lib/queries";
 import { prefersReducedMotion } from "../lib/motion";
+import { useQuery } from "@tanstack/react-query";
+import { setLang, useLang } from "../lib/i18n";
+import { Markdown } from "../components/ui";
 
 /*
  * Guide: how AgentStudio works, for someone who has never seen it. In Swedish it shows docs/Kom-igang.md, the Swedish
@@ -466,7 +469,7 @@ function scrollerOf(el: HTMLElement | null): HTMLElement | null {
   return (el?.closest(".content") as HTMLElement | null) ?? null;
 }
 
-export default function Guide() {
+function EnglishGuide() {
   const { section } = useParams();
   const [q, setQ] = useState("");
   const [active, setActive] = useState(SECTIONS[0].id);
@@ -613,4 +616,30 @@ export default function Guide() {
       </div>
     </>
   );
+}
+
+/** In Swedish the Guide is the Swedish getting-started guide (docs/Kom-igang.md), kept in step with the code. */
+function SwedishGuide() {
+  const { data, error } = useQuery({ queryKey: ["guide-sv"], queryFn: async () => {
+    const res = await fetch("/api/guide/sv");
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    return res.text();
+  } });
+  return (
+    <div className="page guide-page">
+      <div className="page-head">
+        <div>
+          <h1 className="page-title">Guide</h1>
+          <div className="page-sub">Så fungerar AgentStudio: hur du startar, skapar ett projekt, styr agenterna och följer arbetet. <button type="button" className="btn sm ghost" onClick={() => setLang("en")}>Read it in English</button></div>
+        </div>
+      </div>
+      <div className="card card-pad" style={{ maxWidth: 900 }}>
+        {error ? <div className="banner bad">Guiden kunde inte läsas in: {(error as Error).message}</div> : data ? <Markdown>{data}</Markdown> : <div className="small muted">Läser in…</div>}
+      </div>
+    </div>
+  );
+}
+
+export default function Guide() {
+  return useLang() === "sv" ? <SwedishGuide /> : <EnglishGuide />;
 }

@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { t as tr } from "../lib/i18n";
 import { Link } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 import { Coins, Cpu, Database, Gauge, Hash, Timer } from "lucide-react";
@@ -85,12 +86,12 @@ export default function CostsView({ projectId, projectKey }: { projectId?: strin
 
       <div className="grid g2">
         <div className="card">
-          <div className="card-head"><div className="card-title">Cost per agent</div><span className="card-sub">{money(t.costUsd)} total</span></div>
+          <div className="card-head"><div className="card-title">{tr("Cost per agent")}</div><span className="card-sub">{money(t.costUsd)} total</span></div>
           <div className="card-pad"><AgentBars rows={data.byAgent.map((a) => ({ agent: lookup(a.agent_id), value: a.costUsd }))} /></div>
         </div>
         <div className="card">
           <div className="card-head">
-            <div className="card-title">Usage per agent</div>
+            <div className="card-title">{tr("Usage per agent")}</div>
             <Seg value={usage} onChange={setUsage} options={[{ value: "busy", label: "Busy time" }, { value: "calls", label: "Calls" }, { value: "output", label: "Output tokens" }]} />
           </div>
           <div className="card-pad"><AgentBars rows={usageRows} fmt={usage === "busy" ? "duration" : usage === "calls" ? "count" : "tokens"} /></div>
@@ -98,14 +99,14 @@ export default function CostsView({ projectId, projectKey }: { projectId?: strin
       </div>
 
       <div className="card">
-        <div className="card-head"><div className="card-title">Cost per task, by agent</div><span className="card-sub">{itemCount > 30 ? "Top 30 tasks" : `${itemCount} tasks`} · project-level work (analysis, planning, release) is shown per agent above</span></div>
+        <div className="card-head"><div className="card-title">{tr("Cost per task, by agent")}</div><span className="card-sub">{itemCount > 30 ? "Top 30 tasks" : `${itemCount} tasks`} · project-level work (analysis, planning, release) is shown per agent above</span></div>
         <div className="card-pad"><StackedByAgent rows={itemRows} agents={orderedAgents} labelWidth={projectId ? 70 : 110} empty="Fills in as soon as agents start working on individual features and stories — analysis of the whole project is counted per agent above." /></div>
       </div>
 
       <div className="card">
         <div className="card-head">
           <div className="row" style={{ gap: 10 }}>
-            <div className="card-title">Spend over time</div>
+            <div className="card-title">{tr("Spend over time")}</div>
             <span className="card-sub">{spendMode === "cumulative" ? "running total" : `per ${stepLabel}`}, stacked by agent</span>
           </div>
           <Seg value={spendMode} onChange={setSpendMode} options={[{ value: "cumulative", label: "Cumulative" }, { value: "interval", label: `Per ${stepLabel}` }]} />
@@ -118,7 +119,7 @@ export default function CostsView({ projectId, projectKey }: { projectId?: strin
         <div style={{ overflowX: "auto" }}>
           <table className="table">
             <thead>
-              <tr><th>Agent</th><th className="num">Runs</th><th className="num">Tasks</th><th className="num">Calls</th><th className="num">Input</th><th className="num">Cache read</th><th className="num">Output</th><th className="num">Busy</th><th>Share</th><th className="num">Cost</th></tr>
+              <tr><th>{tr("Agent")}</th><th className="num">{tr("Runs")}</th><th className="num">{tr("Tasks")}</th><th className="num">{tr("Calls")}</th><th className="num">{tr("Input")}</th><th className="num">{tr("Cache read")}</th><th className="num">{tr("Output")}</th><th className="num">{tr("Busy")}</th><th>{tr("Share")}</th><th className="num">{tr("Cost")}</th></tr>
             </thead>
             <tbody>
               {data.byAgent.map((a) => {
@@ -145,10 +146,10 @@ export default function CostsView({ projectId, projectKey }: { projectId?: strin
 
       <div className="grid g2">
         <div className="card">
-          <div className="card-head"><div className="card-title">Cost per task</div></div>
+          <div className="card-head"><div className="card-title">{tr("Cost per task")}</div></div>
           <div style={{ maxHeight: 420, overflow: "auto" }}>
             <table className="table">
-              <thead><tr><th>Task</th><th>Category</th><th className="num">Pts</th><th className="num">$/pt</th><th className="num">Cost</th></tr></thead>
+              <thead><tr><th>{tr("Task")}</th><th>{tr("Category")}</th><th className="num">{tr("Pts")}</th><th className="num">$/pt</th><th className="num">{tr("Cost")}</th></tr></thead>
               <tbody>
                 {data.byItem.map((it) => (
                   <tr key={it.item_id}>
@@ -170,7 +171,7 @@ export default function CostsView({ projectId, projectKey }: { projectId?: strin
         <div className="col" style={{ gap: 14 }}>
           {!projectId && (
             <div className="card">
-              <div className="card-head"><div className="card-title">Cost per project</div></div>
+              <div className="card-head"><div className="card-title">{tr("Cost per project")}</div></div>
               <table className="table">
                 <tbody>
                   {data.byProject.map((p) => (
@@ -181,7 +182,7 @@ export default function CostsView({ projectId, projectKey }: { projectId?: strin
             </div>
           )}
           <div className="card">
-            <div className="card-head"><div className="card-title">Cost per stage</div></div>
+            <div className="card-head"><div className="card-title">{tr("Cost per stage")}</div></div>
             <table className="table">
               <tbody>
                 {data.byStage.map((s) => (
@@ -191,7 +192,7 @@ export default function CostsView({ projectId, projectKey }: { projectId?: strin
             </table>
           </div>
           <div className="card">
-            <div className="card-head"><div className="card-title">Cost per model</div></div>
+            <div className="card-head"><div className="card-title">{tr("Cost per model")}</div></div>
             <table className="table">
               <tbody>
                 {data.byModel.map((m) => (

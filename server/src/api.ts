@@ -1362,6 +1362,13 @@ api.post("/questions/:id/answer", (req, res) => {
 
 /** A sample requirements spec with the usual decisions already made (stack, time zone, sign-in, out of scope), so a
  *  new project starts with fewer open questions. Markdown, from docs/requirements-template.md. */
+/** The Swedish guide (docs/Kom-igang.md), shown in the app's Guide when the interface is in Swedish. */
+api.get("/guide/sv", (_req, res) => {
+  const file = path.join(ROOT_DIR, "docs", "Kom-igang.md");
+  if (!fs.existsSync(file)) return res.status(404).json({ error: "The Swedish guide is missing." });
+  res.type("text/markdown").send(fs.readFileSync(file, "utf8"));
+});
+
 api.get("/templates/requirements", (_req, res) => {
   const file = path.join(ROOT_DIR, "docs", "requirements-template.md");
   if (!fs.existsSync(file)) return res.status(404).json({ error: "The requirements template is missing." });

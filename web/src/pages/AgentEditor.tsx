@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
+import { t } from "../lib/i18n";
 import NotFound from "./NotFound";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
@@ -133,7 +134,7 @@ export default function AgentEditor() {
                 </Field>
               </div>
               <Field help="Disabled agents stay in the team list but are skipped when projects run — their stage is treated as missing.">
-                <div className="row"><Switch on={draft.enabled} onChange={(v) => set("enabled", v)} label="Enabled" /> <span className="small">Enabled — disabled agents are skipped by projects</span></div>
+                <div className="row"><Switch on={draft.enabled} onChange={(v) => set("enabled", v)} label="Enabled" /> <span className="small">{t("Enabled — disabled agents are skipped by projects")}</span></div>
               </Field>
             </div>
           </div>
@@ -179,7 +180,7 @@ export default function AgentEditor() {
             <div className="card-pad col" style={{ gap: 16 }}>
               <div>
                 <div className="row" style={{ marginBottom: 8 }}>
-                  <span className="label">Role knowledge packs</span>
+                  <span className="label">{t("Role knowledge packs")}</span>
                   <span className="spacer" />
                   <button className="btn ghost sm" onClick={() => setShowAllPacks(!showAllPacks)}>{showAllPacks ? "Show assigned only" : `Browse all ${packs?.length ?? 0} packs`}</button>
                 </div>
@@ -240,9 +241,9 @@ export default function AgentEditor() {
                   </div>
                 )}
                 <div className="row" style={{ marginTop: 6 }}>
-                  <span className="hint">Markdown. Injected after the role packs, so it overrides them when they conflict. Good for client conventions, naming rules, project specifics, lessons learned.</span>
+                  <span className="hint">{t("Markdown. Injected after the role packs, so it overrides them when they conflict. Good for client conventions, naming rules, project specifics, lessons learned.")}</span>
                   <span className="spacer" />
-                  {!draft.custom_knowledge && <button className="btn ghost sm" onClick={() => set("custom_knowledge", CUSTOM_TEMPLATE)}>Insert template</button>}
+                  {!draft.custom_knowledge && <button className="btn ghost sm" onClick={() => set("custom_knowledge", CUSTOM_TEMPLATE)}>{t("Insert template")}</button>}
                 </div>
               </div>
             </div>
@@ -286,7 +287,7 @@ export default function AgentEditor() {
         {/* Side panel */}
         <div className="col" style={{ gap: 14, position: "sticky", top: 16 }}>
           <div className="card card-pad col" style={{ gap: 12 }}>
-            <div className="card-title">Usage</div>
+            <div className="card-title">{t("Usage")}</div>
             <div className="grid g2">
               <div className="stat"><span className="v">{money(agent.stats.costUsd)}</span><span className="l">total cost</span></div>
               <div className="stat"><span className="v">{num(agent.stats.calls)}</span><span className="l">model calls</span></div>
@@ -301,7 +302,7 @@ export default function AgentEditor() {
           </div>
           <VersionHistory agentId={agent.id} current={agent.version} dirty={dirty} onRestored={() => setDraft(null)} />
           <div className="card">
-            <div className="card-head"><div className="card-title">Recent runs</div></div>
+            <div className="card-head"><div className="card-title">{t("Recent runs")}</div></div>
             <div style={{ maxHeight: 420, overflow: "auto" }}>
               {agent.recentRuns.length ? agent.recentRuns.map((r) => (
                 <Link key={r.id} to={`/p/${r.project_key}`} className="feed-row" style={{ gridTemplateColumns: "1fr auto" }}>
@@ -311,7 +312,7 @@ export default function AgentEditor() {
                   </div>
                   <span className="when">{ago(r.started_at)}</span>
                 </Link>
-              )) : <div className="empty small">No runs yet.</div>}
+              )) : <div className="empty small">{t("No runs yet.")}</div>}
             </div>
           </div>
         </div>

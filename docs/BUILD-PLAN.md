@@ -1,6 +1,6 @@
 # AgentStudio: byggplan
 
-Status: påbörjad 2026-10-30.
+Status: påbörjad 2026-10-30. Alla steg (1–6) klara 2026-11-02.
 
 AgentStudio är en kopia av SiroccoARM (2026-10-27) som blir ett generellt verktyg för valfritt kodrepo. Det behåller SiroccoARM:s gränssnitt och leveranspipeline och lägger till kvalitetsgrindarna från Claude-Pipeline. Agenterna kan köras på din egen Claude-plan i stället för med en API-nyckel.
 
@@ -87,12 +87,17 @@ AgentStudio är en kopia av SiroccoARM (2026-10-27) som blir ett generellt verkt
   - `live.test.ts`: kravsammanställningen och kritiken med tre perspektiv körs, av QA.
   - `guards.test.ts`: plangranskningens fynd.
 
+### Steg 6: Översättning och skärmdumpar
+- **Guiden:** när gränssnittet är på svenska visar Guide den svenska guiden `docs/Kom-igang.md` (via `GET /api/guide/sv`), med en knapp för att läsa den engelska. Den engelska guiden är oförändrad.
+- **Översatt:** story-lådan (flikar, avsnittsrubriker, knappar och texter), agentsidan, agent-editorn och kostnadsvyerna har `t()` och svenska texter.
+- **Toasts:** `toast()` översätter fasta meddelanden centralt. Meddelanden med variabler och fel från servern visas på engelska.
+- **Skärmdumparna:** de visade Salesforce-utseendet och är borttagna, enligt beslut 2026-11-02, i stället för att tas om. Det gäller filerna i `web/public/guide/` och `docs/.attachments/`, guidens komponenter för bild och förstoring och bildlänkarna i `docs/`. `docs/Development.md` beskriver hur nya tas om de behövs.
+
 ## Kvar
 
-### Steg 6: Översättning och skärmdumpar
-- Översätt resten av gränssnittet: guiden, item-lådan, agentsidorna, kostnadsvyerna och toasts.
-- Ta om skärmdumparna i guiden (`web/public/guide/`) och i `docs/.attachments/`. De visar fortfarande det gamla Salesforce-utseendet.
+Inget kvar av byggplanen.
 
 ## Kända saker
+- Delar av gränssnittet är fortfarande bara på engelska: inställningssidorna, flera hjälptexter (`help=`) och dynamiska meddelanden.
 - Planen är för personligt bruk. Om flera personer ska använda appen, eller om den ska köra oövervakad hela tiden, behövs API-motorn enligt Anthropics villkor.
 - En hel live-körning med alla sju agenter på planen mot ett riktigt repo är inte gjord än. Gör en generalrepetition med demorepot före en live-demo.
