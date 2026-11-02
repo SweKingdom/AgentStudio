@@ -838,6 +838,41 @@ async function integrateItem(projectId: string, itemId: string, dev: Agent | und
   }
 }
 
+/** "AC 2 — negative" and "AC 2" are the same criterion. */
+const acKey = (ref: string) => ref.match(/\bAC\s*(\d+)/i)?.[1] ? `AC ${ref.match(/\bAC\s*(\d+)/i)![1]}` : ref.trim().toLowerCase();
+
+/** ACs QA failed in each of its last two rounds on the story (the story's whole history, across runs). */
+export function repeatedQaFailures(itemId: string): string[] {
+  const rounds = all<{ iteration: number }>("SELECT DISTINCT iteration FROM test_results WHERE item_id = ? AND kind = 'qa' ORDER BY iteration DESC LIMIT 2", itemId);
+  if (rounds.length < 2) return [];
+  const failed = (iteration: number) =>
+    new Set(all<{ ac_ref: string }>("SELECT ac_ref FROM test_results WHERE item_id = ? AND kind = 'qa' AND result = 'fail' AND iteration = ?", itemId, iteration).map((r) => acKey(r.ac_ref)));
+  const [last, before] = [failed(rounds[0].iteration), failed(rounds[1].iteration)];
+  return [...last].filter((ac) => before.has(ac));
+}
+
+/** What a story is estimated to cost: its share (by story points) of the up-front estimate's per-story work. */
+export function storyEstimateUsd(projectId: string, itemId: string): number | null {
+  const est = getProject(projectId)?.estimate as { storyPoints?: number; agents?: { role: string; costUsd: number }[] } | null;
+  const it = getItem(itemId);
+  if (!est?.agents?.length || !est.storyPoints || !it) return null;
+  const perStory = est.agents.filter((a) => ["developer", "qa", "writer"].includes(a.role)).reduce((n, a) => n + a.costUsd, 0);
+  return perStory > 0 ? (perStory * (it.story_points ?? 3)) / est.storyPoints : null;
+}
+
+/** Alert once when a story has cost more than twice its estimate. */
+export function costGuard(projectId: string, itemId: string) {
+  const estimate = storyEstimateUsd(projectId, itemId);
+  if (!estimate) return;
+  const cost = all<{ c: number }>("SELECT COALESCE(SUM(cost_usd), 0) c FROM llm_calls WHERE item_id = ?", itemId)[0].c;
+  if (cost <= 2 * estimate) return;
+  const it = getItem(itemId)!;
+  if (all("SELECT 1 FROM activity WHERE item_id = ? AND type = 'cost'", itemId).length) return;
+  const text = `💸 ${it.code} has cost $${cost.toFixed(2)}, more than twice its estimate ($${estimate.toFixed(2)}).`;
+  logActivity({ projectId, agentId: "orchestrator", itemId, type: "cost", summary: `${text} Check whether it's stuck before more rounds run.` });
+  postMessage({ projectId, from: "orchestrator", to: "human", itemId, kind: "question", content: `${text} Look at its QA findings and activity: pause it, answer what blocks it, or let it continue.` });
+}
+
 /** Questions for the product owner on a story; it doesn't advance until they're answered. */
 function askProductOwner(projectId: string, itemId: string, askedBy: string, questions: string[]) {
   for (const q of questions) {
@@ -922,6 +957,7 @@ ${findings}`
                 : `Implement ${item.code} "${item.title}". Read it with get_item first. Finish with complete_development.${commentsBlock(itemId)}${setupBlock(project())}`),
       });
       endPhase(devPhase);
+      costGuard(projectId, itemId);
       devSummary = r.outcome.devCompleted ?? r.summary;
       lastDevSummary = devSummary;
       // The developer asked the product owner something (a question, or a manual step to run): wait for the answer
@@ -1018,6 +1054,17 @@ ${r.summary.slice(0, 2000)}`;
     await commentQaFindings(projectId, itemId, { iteration, findings, tester: tester.name });
     const report = findDoc(projectId, "test_report", itemId);
     postMessage({ projectId, from: tester.id, to: dev?.id ?? "human", itemId, kind: "rework", content: `${findings}${report ? `\n\nTest report v${report.version} with screenshots is attached to ${getItem(itemId)!.code}.` : ""}` });
+    costGuard(projectId, itemId);
+    // The same AC failing two QA rounds in a row: another rework round is unlikely to fix it. Ask instead of re-running.
+    const repeated = repeatedQaFailures(itemId);
+    if (repeated.length) {
+      askProductOwner(projectId, itemId, tester.id, [
+        `QA failed ${item.code} ${repeated.join(", ")} in two rounds in a row. Latest findings:\n${findings.slice(0, 1500)}\n\nHow should it go on: rework with your guidance (say what), change or drop the AC, or accept it as it is?`,
+      ]);
+      patchItem(itemId, { state: "In Progress" });
+      logActivity({ projectId, agentId: "orchestrator", itemId, type: "gate", summary: `⏸ ${item.code} paused: ${repeated.join(", ")} failed QA twice in a row — waiting for your decision instead of another round` });
+      return "parked";
+    }
     if (!dev) break;
   }
 

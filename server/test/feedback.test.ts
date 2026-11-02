@@ -33,7 +33,7 @@ const firstText = (params: any) => {
 };
 
 /** What each story's agents do, by story title. Each QA / dev run takes the next script entry (the last one repeats). */
-type QaStep = { blocked?: { ac: string; waitsFor?: string }; reinterpret?: string };
+type QaStep = { blocked?: { ac: string; waitsFor?: string }; reinterpret?: string; fail?: string };
 const scripts: Record<string, { dev?: { deviation?: string }[]; qa?: QaStep[] }> = {};
 const runs: string[] = [];
 const count = new Map<string, number>();
@@ -72,11 +72,14 @@ function respond(params: any) {
     const s = (globalThis as any).__qa as QaStep;
     if (turn === 1) {
       return reply([
-        s.blocked
-          ? use("record_test_result", { code, ac_ref: s.blocked.ac, result: "blocked", notes: "Needs data that isn't there yet.", ...(s.blocked.waitsFor ? { waits_for: s.blocked.waitsFor } : {}) })
-          : use("record_test_result", { code, ac_ref: "AC 1", result: "pass", notes: "Works." }),
+        s.fail
+          ? use("record_test_result", { code, ac_ref: s.fail, result: "fail", notes: "Still wrong." })
+          : s.blocked
+            ? use("record_test_result", { code, ac_ref: s.blocked.ac, result: "blocked", notes: "Needs data that isn't there yet.", ...(s.blocked.waitsFor ? { waits_for: s.blocked.waitsFor } : {}) })
+            : use("record_test_result", { code, ac_ref: "AC 1", result: "pass", notes: "Works." }),
       ]);
     }
+    if (turn === 2 && s.fail) return reply([use("submit_review", { code, verdict: "changes_requested", findings: `${s.fail} is still wrong.` })]);
     if (turn === 2) return reply([use("submit_review", { code, verdict: "approved", findings: "", ...(s.reinterpret ? { reinterpretations: [{ ac: "AC 1", how: s.reinterpret }] } : {}) })]);
     return reply([{ type: "text", text: "Done." }]);
   }
@@ -195,4 +198,19 @@ test("an AC met differently than written goes to the product owner, before QA an
   await waitFor(async () => !(await api("GET", `/projects/${p.id}`)).running, "the run to stop again");
   await api("POST", `/projects/${p.id}/approve`).catch(() => undefined);
   await waitFor(() => getItem(s.id)!.state === "Release Ready", "the story to be approved once you decided");
+});
+
+test("the same AC failing QA twice in a row pauses the story with a question instead of more rounds", async () => {
+  const p = await newProject("LOP", ["developer", "qa"]);
+  await api("PATCH", `/projects/${p.id}`, { settings: { maxRework: 5 } });
+  const s = story(p.id, "Waiting list", 1);
+  scripts["Waiting list"] = { qa: [{ fail: "AC 1" }, { fail: "AC 1 — negative case" }, {}] };
+  await api("POST", `/projects/${p.id}/start`);
+  await waitFor(async () => !(await api("GET", `/projects/${p.id}`)).running, "the run to stop");
+  assert.equal(runs.filter((r) => r === "qa:Waiting list").length, 2, "two QA rounds, not up to six");
+  assert.equal(runs.filter((r) => r === "dev:Waiting list").length, 2);
+  const q = all<{ question: string }>("SELECT question FROM questions WHERE item_id = ? AND answer IS NULL", s.id);
+  assert.equal(q.length, 1);
+  assert.match(q[0].question, /failed .* AC 1 in two rounds in a row/);
+  assert.notEqual(getItem(s.id)!.state, "Blocked", "paused for a decision, not blocked");
 });
