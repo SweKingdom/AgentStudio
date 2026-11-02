@@ -78,3 +78,11 @@ test("next steps after a release: deployment steps, untested ACs, open items and
   assert.equal(n.github.basePushed, true);
   assert.equal(n.github.tagPushed, true, "the release tag is on the remote");
 });
+
+test("the requirements template is served with its default choices", async () => {
+  const res = await fetch(`${base}/api/templates/requirements`);
+  assert.equal(res.status, 200);
+  assert.match(res.headers.get("content-type") ?? "", /markdown/);
+  const md = await res.text();
+  for (const heading of ["## Defaults", "**Time zone and locale:**", "**Sign-in:**", "**Stack:**", "## Manual steps", "## Out of scope", "## Open decisions"]) assert.ok(md.includes(heading), heading);
+});

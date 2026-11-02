@@ -5,7 +5,7 @@ import { Router, type Request, type Response, type NextFunction } from "express"
 import multer from "multer";
 import fs from "node:fs";
 import path from "node:path";
-import { DATA_DIR, all, get, insert, now, parseJson, run, uid } from "./db.js";
+import { DATA_DIR, ROOT_DIR, all, get, insert, now, parseJson, run, uid } from "./db.js";
 import { emit, subscribe } from "./events.js";
 import { DEFAULT_MODELS, models } from "./pricing.js";
 import { setSetting } from "./db.js";
@@ -1351,6 +1351,14 @@ api.post("/questions/:id/answer", (req, res) => {
   }
   emit({ type: "question", projectId: q.project_id });
   res.json({ ok: true });
+});
+
+/** A sample requirements spec with the usual decisions already made (stack, time zone, sign-in, out of scope), so a
+ *  new project starts with fewer open questions. Markdown, from docs/requirements-template.md. */
+api.get("/templates/requirements", (_req, res) => {
+  const file = path.join(ROOT_DIR, "docs", "requirements-template.md");
+  if (!fs.existsSync(file)) return res.status(404).json({ error: "The requirements template is missing." });
+  res.type("text/markdown").send(fs.readFileSync(file, "utf8"));
 });
 
 /** What a person still has to do after the agents' release: deployment steps, ACs nobody could test, what isn't

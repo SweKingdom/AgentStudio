@@ -127,6 +127,12 @@ export const SV: Record<string, string> = {
   "open question(s)": "öppna frågor",
   Blocked: "Blockerad",
   "Not released": "Inte releasad",
+  "A sample spec with the usual decisions already made — stack, time zone, sign-in, seed data, CI, what's out of scope. Keep the defaults you agree with: the agents won't ask about them.":
+    "En exempelspecifikation där de vanliga besluten redan är tagna — stack, tidszon, inloggning, seed-data, CI, vad som ligger utanför. Behåll de standardval du håller med om: agenterna frågar inte om dem.",
+  "Start from the requirements template": "Utgå från kravmallen",
+  "Download it (.md)": "Ladda ner den (.md)",
+  "Replace the description with the requirements template?": "Ersätta beskrivningen med kravmallen?",
+  "Couldn't load the template": "Kunde inte läsa in mallen",
   "Checking what's left to do…": "Kontrollerar vad som återstår…",
   "Next steps": "Nästa steg",
   release: "release",

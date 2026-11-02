@@ -235,6 +235,17 @@ export default function NewProject() {
     if (pushOff && !confirm(t("Push to origin is off, so nothing this project builds will reach the repository — it stays on this computer. Create the project anyway?"))) return;
     create.mutate(start);
   };
+  // The requirements template goes into the description, to be filled in (it replaces what's there only if you agree).
+  const insertTemplate = async () => {
+    if (description.trim() && !confirm(t("Replace the description with the requirements template?"))) return;
+    try {
+      const res = await fetch("/api/templates/requirements");
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      setDescription(await res.text());
+    } catch (e) {
+      toast(`${t("Couldn't load the template")}: ${e instanceof Error ? e.message : e}`, "bad");
+    }
+  };
 
   const pick = (f: File | undefined) => {
     if (!f) return;
@@ -301,6 +312,12 @@ export default function NewProject() {
               <Field label={file ? t("Context for the team (optional with a PDF)") : t("Context for the team — describe the requirements (no PDF)")} required={!file} help="Extra context every agent receives: client, goals, constraints, technical details, priorities. Without a PDF, describe the requirements here — each sentence with 'must', 'shall' or 'should' becomes a story.">
                 <textarea className="textarea" value={description} onChange={(e) => setDescription(e.target.value)} placeholder={t("Client, goals, constraints, technical details, what matters most… Without a PDF, describe the problem here.")} />
               </Field>
+              <div className="row small" style={{ gap: 10 }}>
+                <Hint text={t("A sample spec with the usual decisions already made — stack, time zone, sign-in, seed data, CI, what's out of scope. Keep the defaults you agree with: the agents won't ask about them.")}>
+                  <button type="button" className="btn sm ghost" onClick={insertTemplate}><FileText size={13} /> {t("Start from the requirements template")}</button>
+                </Hint>
+                <a href="/api/templates/requirements" download="requirements-template.md">{t("Download it (.md)")}</a>
+              </div>
             </div>
           </div>
 
