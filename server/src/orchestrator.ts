@@ -289,10 +289,10 @@ export interface UntestedAc {
   notes: string;
 }
 
-/** ⛔ results in the latest QA round of each story about to be released. */
-export function untestedAcs(projectId: string): UntestedAc[] {
+/** ⛔ results in the latest QA round of each story about to be released (or, with `states`, in those states). */
+export function untestedAcs(projectId: string, states = ["Release Ready", "Smoke Testing"]): UntestedAc[] {
   return listItems(projectId)
-    .filter((i) => i.state === "Release Ready" || i.state === "Smoke Testing")
+    .filter((i) => states.includes(i.state))
     .flatMap((it) =>
       all<{ ac_ref: string; notes: string }>(
         "SELECT ac_ref, notes FROM test_results WHERE item_id = ? AND kind = 'qa' AND result = 'blocked' AND iteration = (SELECT MAX(iteration) FROM test_results WHERE item_id = ? AND kind = 'qa') ORDER BY id",

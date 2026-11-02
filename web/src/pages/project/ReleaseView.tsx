@@ -12,6 +12,7 @@ import { money } from "../../lib/format";
 import { AgentTag, CategoryChip, TestBadge, TypeIcon } from "../../components/ui";
 import { dateTime } from "../../lib/format";
 import { Empty, Markdown } from "../../components/ui";
+import { NextSteps } from "../../components/NextSteps";
 
 export default function ReleaseView({ p }: { p: Project }) {
   const { data: releases } = useQuery({ queryKey: ["releases", p.id], queryFn: () => api.get<Release[]>(`/projects/${p.id}/releases`) });
@@ -26,6 +27,7 @@ export default function ReleaseView({ p }: { p: Project }) {
   return (
     <div className="grid" style={{ gridTemplateColumns: "minmax(0, 1fr) 360px", alignItems: "start" }}>
       <div className="col" style={{ gap: 14 }}>
+        {releases?.length ? <NextSteps p={p} /> : null}
         {ready.length > 0 && <ReadyToRelease p={p} ready={ready} releases={releases ?? []} />}
         {releases?.length ? releases.map((r) => {
           const v = r.validation ? (JSON.parse(r.validation) as { ok: boolean; mode: string; output: string }) : null;

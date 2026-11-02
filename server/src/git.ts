@@ -484,6 +484,30 @@ export function keepFiles(project: Pick<Project, "key" | "settings">, code: stri
   });
 }
 
+/** Is the work on GitHub? Whether origin has the local base branch's commits and the release tag. Asks origin (one
+ *  fetch and one ls-remote); null fields when it can't be reached. */
+export function remoteStatus(project: Pick<Project, "key" | "settings">, tag?: string | null) {
+  return serial(project.key, async () => {
+    const repo = project.settings.repo;
+    const base = repo?.branch || "main";
+    if (!repo?.url) return { reachable: false, basePushed: null as boolean | null, unpushed: null as number | null, tagPushed: null as boolean | null };
+    const dir = workspaceDir(project);
+    const refs = await remoteGit(dir, ["ls-remote", "origin", `refs/heads/${base}`, ...(tag ? [`refs/tags/${tag}`] : [])], 30_000);
+    if (!refs.ok) return { reachable: false, basePushed: null, unpushed: null, tagPushed: null };
+    const tagPushed = tag ? refs.out.includes(`refs/tags/${tag}`) : null;
+    // No base branch on the remote yet (e.g. an empty repository): every local commit is unpushed.
+    let range = base;
+    if (refs.out.includes(`refs/heads/${base}`)) {
+      const f = await remoteGit(dir, ["fetch", "-q", "origin", `refs/heads/${base}:refs/remotes/origin/${base}`], 30_000);
+      if (!f.ok) return { reachable: false, basePushed: null, unpushed: null, tagPushed };
+      range = `origin/${base}..${base}`;
+    }
+    const ahead = await tryGit(dir, ["rev-list", "--count", range]);
+    const unpushed = ahead.ok ? Number(ahead.out.trim()) || 0 : null;
+    return { reachable: true, basePushed: unpushed === null ? null : unpushed === 0, unpushed, tagPushed };
+  });
+}
+
 export function changedOnBranch(project: Pick<Project, "key" | "settings">, code: string) {
   return serial(project.key, async () => {
     const wt = worktreeDir(project, code);

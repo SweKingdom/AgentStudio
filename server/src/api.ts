@@ -20,7 +20,7 @@ import { buildPlanFromText, readPdf } from "./agents/simplan.js";
 import { approveGate, buildStages, finishUndelivered, fixBug, humanTransition, isPausing, pauseAll, resumeAll, startItem, startPlan, isRunning, listJobs, pauseProject, pipelineRunning, releaseNow, reportBug, reopenProject, rerunItem, startProject, teamOf, undeliveredItems, untestedAcs, type RerunRole } from "./orchestrator.js";
 import { chat, chatHistory } from "./chat.js";
 import { autoResumeAllowed, globalPause, spendStatus } from "./pause.js";
-import { ensureRepo, gitLog, listBranches, providerOf, repoName, testRemoteUrl, validateRepoUrl, webUrlOf } from "./git.js";
+import { ensureRepo, gitLog, listBranches, providerOf, remoteStatus, repoName, testRemoteUrl, validateRepoUrl, webUrlOf } from "./git.js";
 import { runChecks } from "./doctor.js";
 import { cleanAdoConfig } from "./ado.js";
 import { registerAdo } from "./routes/ado.js";
@@ -1352,6 +1352,39 @@ api.post("/questions/:id/answer", (req, res) => {
   emit({ type: "question", projectId: q.project_id });
   res.json({ ok: true });
 });
+
+/** What a person still has to do after the agents' release: deployment steps, ACs nobody could test, what isn't
+ *  delivered, and whether the code and the release tag are on the remote. */
+api.get(
+  "/projects/:pid/next-steps",
+  wrap(async (req, res) => {
+    const p = getProject(String(req.params.pid));
+    if (!p) return res.status(404).json({ error: "Project not found" });
+    const release = get<{ version: string; created_at: string; status: string }>("SELECT version, created_at, status FROM releases WHERE project_id = ? ORDER BY created_at DESC LIMIT 1", p.id) ?? null;
+    const shipped = listItems(p.id).filter((i) => ["story", "task", "bug"].includes(i.type) && ["Deployed (Done)", "Release Ready", "Smoke Testing"].includes(i.state));
+    const steps = shipped
+      .filter((i) => i.manual_steps.trim() || i.tags.some((t) => /deploy|manual step/i.test(t)))
+      .map((i) => ({
+        itemId: i.id,
+        code: i.code,
+        title: i.title,
+        pre: i.tags.some((t) => /pre-deploy/i.test(t)),
+        post: i.tags.some((t) => /post-deploy/i.test(t)),
+        manual: i.tags.some((t) => /manual step/i.test(t)),
+        text: i.manual_steps.trim(),
+      }));
+    const repo = p.settings.repo;
+    const tag = release ? `v${release.version.replace(/^v/, "")}` : null;
+    const remote = repo?.url && repo.push ? await remoteStatus(p, tag) : { reachable: false, basePushed: null, unpushed: null, tagPushed: null };
+    res.json({
+      release,
+      steps,
+      untested: untestedAcs(p.id, ["Release Ready", "Smoke Testing", "Deployed (Done)"]),
+      issues: undeliveredItems(p.id),
+      github: repo?.url ? { url: repo.url, webUrl: webUrlOf(repo.url), branch: repo.branch || "main", push: repo.push === true, tag, ...remote } : null,
+    });
+  }),
+);
 
 api.get("/projects/:pid/releases", (req, res) => {
   res.json(all("SELECT * FROM releases WHERE project_id = ? ORDER BY created_at DESC", String(req.params.pid)));
