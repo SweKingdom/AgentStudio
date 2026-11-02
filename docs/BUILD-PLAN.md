@@ -69,12 +69,25 @@ AgentStudio är en kopia av SiroccoARM (2026-10-27) som blir ett generellt verkt
   - Skanningens fyra slags fynd.
   - En hemlighet i en story: en rättning och sedan merge, eller två misslyckade rättningar och Blocked.
 
-## Kvar
-
 ### Steg 5: Starkare design och plan
-- Kravsammanställning (requirements-crystallizer).
-- Adversariell designkritik ur tre perspektiv innan designen godkänns.
-- Plangranskning och kontroll av avvikelser mellan plan och design före bygget.
+- **Kravsammanställning:** analytikern skriver först dokumentet `requirements_brief`. Där står mål, vad som ingår och inte ingår, aktörer och behörigheter, beteenden med kantfall, begränsningar, beroenden, antaganden (markerade som antaganden) och öppna frågor grupperade per tema. Bara det som ändrar vad som byggs frågas med `ask_human`. Backloggen byggs sedan från dokumentet: varje beteende som ingår täcks av en story, och inget som ligger utanför kommer med.
+- **Adversariell designkritik** efter den tekniska förfiningen, före planeringen. Kritikern är QA när den finns i teamet, så att det inte är arkitekten som granskar sitt eget arbete.
+  - Kritiken görs i ett anrop ur tre perspektiv: arkitektur; säkerhet och data; leverans och testbarhet.
+  - Kritikern skriver dokumentet `design_critique` och anropar `submit_design_critique` med `approved` eller `revise`. Vid `revise` reviderar arkitekten designen och berörda storyer en gång.
+  - Det är en projektinställning, **Design critique**, som är på som standard.
+- **Plangranskning och avvikelsekontroll** efter planeringen, deterministiskt (`planFindings`). Den hittar:
+  - beroenden som inte finns eller går i cirkel
+  - stories som planeras före ett beroende
+  - stories över 8 poäng
+  - stories utan numrerade AC eller utan teknisk specifikation
+  - en saknad lösningsdesign
+
+  Bara fynd kostar anrop: planeraren rättar ordning, storlek och beroenden, och arkitekten rättar luckor i designen, en runda var. Det som återstår sparas i dokumentet `plan_review` och visas vid godkännandet av planen.
+- Tester:
+  - `live.test.ts`: kravsammanställningen och kritiken med tre perspektiv körs, av QA.
+  - `guards.test.ts`: plangranskningens fynd.
+
+## Kvar
 
 ### Steg 6: Översättning och skärmdumpar
 - Översätt resten av gränssnittet: guiden, item-lådan, agentsidorna, kostnadsvyerna och toasts.

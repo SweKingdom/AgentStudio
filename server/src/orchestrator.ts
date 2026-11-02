@@ -30,6 +30,7 @@ import {
   patchProject,
   postMessage,
   startPhase,
+  upsertDoc,
   type Project,
   type StageState,
   type WorkItem,
@@ -442,6 +443,22 @@ function addPhase(projectId: string, itemId: string, phase: string, agentId: str
 
 /** Requirements the agents can't meet inside the repository are found while the backlog is built, not when a story
  *  is stuck: the product owner decides up front whether each is automated or done by hand. */
+/** Crystallize first (build plan step 5, from Claude-Pipeline's requirements-crystallizer): the fuzzy request becomes a
+ *  precise brief, and the backlog is built from the brief — not straight from the document. */
+const CRYSTALLIZE_TASK = `
+
+## First: crystallize the requirements
+Before any work item, save a \`requirements_brief\` document with write_document. Separate what the document says from what you assume:
+- **Goal** — one or two sentences: who it is for and what changes for them.
+- **In scope / Out of scope** — explicit lists. Anything the document doesn't mention is out of scope unless it's needed for something in scope.
+- **Actors and permissions** — who does what, and who may not.
+- **Behaviours** — per capability: the normal path and its edge cases (empty data, limits, duplicates, errors, a missing permission, concurrent use).
+- **Constraints** — technical, data, performance, security and compliance; the defaults the document sets (stack, time zone, locale, sign-in).
+- **Dependencies** — systems, data and decisions from outside the repository.
+- **Assumptions** — each marked as an assumption, so the product owner can correct it.
+- **Open questions** — grouped by theme (scope, behaviour, constraints, dependencies); ask each one with ask_human. Ask only what changes what gets built; decide the rest as a written assumption.
+Then build the project brief and the backlog from this brief: every in-scope behaviour is covered by a story, and nothing out of scope is.`;
+
 const MANUAL_STEPS_TASK = `
 
 ## Manual steps — find them now
@@ -467,7 +484,7 @@ async function stageRequirements(p: Project, signal: AbortSignal) {
     task:
       (pdfBase64
         ? "The attached PDF is the customer's requirements document. Build the project brief and the complete backlog as described in your instructions."
-        : "There is no PDF — use the product owner's description above as the requirements. Build the project brief and the complete backlog as described in your instructions.") + MANUAL_STEPS_TASK,
+        : "There is no PDF — use the product owner's description above as the requirements. Build the project brief and the complete backlog as described in your instructions.") + CRYSTALLIZE_TASK + MANUAL_STEPS_TASK,
   });
   const ended = now();
   for (const it of listItems(p.id).filter((i) => i.type === "story" || i.type === "task")) {
@@ -525,6 +542,47 @@ async function stageArchitecture(p: Project, signal: AbortSignal) {
   for (const it of listItems(p.id).filter((i) => (i.type === "story" || i.type === "task") && i.state === "Ready for Refinement" && !waitingForAnswers(i))) {
     patchItem(it.id, { state: "Ready for Sprint" });
   }
+  await critiqueDesign(getProject(p.id)!, signal);
+}
+
+/**
+ * Adversarial design critique (build plan step 5, from Claude-Pipeline's adversarial-coordinator): before the design is
+ * planned and built, a critic — QA when it's on the team, so it isn't the architect judging their own work — reviews
+ * it from three perspectives in one call. "revise" sends it back to the architect once with the findings.
+ */
+async function critiqueDesign(p: Project, signal: AbortSignal) {
+  if (p.settings.designCritique === false) return;
+  const architect = agentsFor(p, "architect")[0];
+  if (!architect || !findDoc(p.id, "solution_design", null)) return;
+  const base = agentsFor(p, "qa")[0] ?? architect;
+  const critic = { ...base, tools: [...new Set([...base.tools, "read_document", "list_items", "get_item", "write_document", "submit_design_critique"])] };
+  checkpoint(p.id);
+  const r = await runAgent({
+    project: p,
+    agent: critic,
+    stage: "critique",
+    signal,
+    task: `Critique the solution design (read_document kind solution_design) and the refined stories before they are planned. Look for what would cause rework or defects if built as designed — not style. Three perspectives:
+1. **Architecture** — structure and coupling, fit with the existing codebase and its patterns, data model, where the design contradicts itself or the stories.
+2. **Security and data** — authentication and authorisation on every action, input validation, secrets, data integrity and migrations, personal data.
+3. **Delivery and testability** — can each acceptance criterion be proven by a test; story boundaries and order (does a story need another's code first); what's missing to run, seed or deploy it.
+Write your findings as a design_critique document (one section per perspective, issues ranked, each with the design section and what to change; say "none" where there's nothing). Then call submit_design_critique: "revise" only if an issue would cause real rework or a defect, otherwise "approved".`,
+  });
+  const verdict = r.outcome.designCritique?.verdict ?? "approved";
+  const findings = r.outcome.designCritique?.findings ?? "";
+  logActivity({ projectId: p.id, agentId: critic.id, type: "review", summary: `Design critique by ${critic.name}: ${verdict === "approved" ? "✅ approved" : "✏ revise"}`, detail: findings || undefined });
+  if (verdict !== "revise") return;
+  checkpoint(p.id);
+  postMessage({ projectId: p.id, from: critic.id, to: architect.id, kind: "rework", content: `Design critique — please revise:\n${findings}`.slice(0, 3000) });
+  await runAgent({
+    project: getProject(p.id)!,
+    agent: architect,
+    stage: "architecture",
+    signal,
+    kind: "critique",
+    task: `The design critique asks you to revise the solution design before planning. Address each finding below: update the solution design document (update_document_section) and the technical specifications of the stories it affects. If you disagree with a finding, say why in the design's decisions. This is the only revision round.\n\n## Critique findings\n${findings.slice(0, 6000)}`,
+  });
+  logActivity({ projectId: p.id, agentId: architect.id, type: "review", summary: `${architect.name} revised the design after the critique` });
 }
 
 async function stagePlanning(p: Project, signal: AbortSignal) {
@@ -542,6 +600,93 @@ async function stagePlanning(p: Project, signal: AbortSignal) {
   });
   phaseIds.forEach((id) => endPhase(id));
   normalisePlan(p.id);
+  await reviewPlan(getProject(p.id)!, signal);
+}
+
+export interface PlanFinding {
+  code: string | null;
+  kind: "dependency" | "order" | "size" | "acceptance" | "design";
+  detail: string;
+}
+
+/**
+ * Plan review and drift check (build plan step 5, from Claude-Pipeline's plan-reviewer and drift-detector), done
+ * deterministically: does the plan hang together and does it match the design, before anything is built?
+ */
+export function planFindings(projectId: string): PlanFinding[] {
+  const items = listItems(projectId).filter((i) => (i.type === "story" || i.type === "task") && !["Cancelled", "Removed"].includes(i.state));
+  const byCode = new Map(items.map((i) => [i.code, i]));
+  const out: PlanFinding[] = [];
+  for (const it of items) {
+    for (const d of it.depends_on) {
+      const dep = byCode.get(d);
+      if (!dep) out.push({ code: it.code, kind: "dependency", detail: `depends on ${d}, which isn't in the backlog` });
+      else if ((dep.sprint ?? 0) > (it.sprint ?? 0) || ((dep.sprint ?? 0) === (it.sprint ?? 0) && (dep.rank ?? 0) > (it.rank ?? 0))) {
+        out.push({ code: it.code, kind: "order", detail: `is planned before ${d}, which it depends on (sprint ${it.sprint ?? "?"} rank ${it.rank ?? "?"} vs sprint ${dep.sprint ?? "?"} rank ${dep.rank ?? "?"})` });
+      }
+    }
+    if ((it.story_points ?? 0) > 8) out.push({ code: it.code, kind: "size", detail: `is ${it.story_points} points — split it (at most 8)` });
+    if (!/\bAC\s*\d+/i.test(it.acceptance_criteria)) out.push({ code: it.code, kind: "acceptance", detail: "has no numbered acceptance criteria to test" });
+    if (!waitingForAnswers(it) && !it.tech_spec.trim()) out.push({ code: it.code, kind: "design", detail: "has no technical specification — it isn't covered by the design" });
+  }
+  // Dependency cycles: a story that (through others) depends on itself can never start in order.
+  const visiting = new Set<string>();
+  const done = new Set<string>();
+  const cycle = (code: string, path: string[]): string[] | null => {
+    if (visiting.has(code)) return [...path.slice(path.indexOf(code)), code];
+    if (done.has(code)) return null;
+    visiting.add(code);
+    for (const d of byCode.get(code)?.depends_on ?? []) {
+      if (!byCode.has(d)) continue;
+      const c = cycle(d, [...path, code]);
+      if (c) return c;
+    }
+    visiting.delete(code);
+    done.add(code);
+    return null;
+  };
+  const seen = new Set<string>();
+  for (const it of items) {
+    const c = cycle(it.code, []);
+    if (c && !seen.has([...c].sort().join())) {
+      seen.add([...c].sort().join());
+      out.push({ code: c[0], kind: "dependency", detail: `dependency cycle: ${c.join(" → ")}` });
+    }
+  }
+  if (items.length && !findDoc(projectId, "solution_design", null) && agentsFor(getProject(projectId)!, "architect").length) {
+    out.push({ code: null, kind: "design", detail: "there is no solution design document" });
+  }
+  return out;
+}
+
+const formatPlanFindings = (f: PlanFinding[]) => f.map((x) => `- ${x.code ? `**${x.code}** ` : ""}${x.detail}`).join("\n");
+
+/** Check the plan; only findings cost a call: the planner fixes order, size and dependencies, the architect fills design
+ *  gaps — one round each. What's left is written down and shown at the plan approval. */
+async function reviewPlan(p: Project, signal: AbortSignal) {
+  let findings = planFindings(p.id);
+  if (findings.length) {
+    const planner = agentsFor(p, "planner")[0];
+    const architect = agentsFor(p, "architect")[0];
+    const planIssues = findings.filter((f) => f.kind !== "design" && f.kind !== "acceptance");
+    const designIssues = findings.filter((f) => f.kind === "design" || f.kind === "acceptance");
+    logActivity({ projectId: p.id, agentId: "orchestrator", type: "review", summary: `Plan review: ${findings.length} finding(s) — ${planIssues.length ? "the planner" : ""}${planIssues.length && designIssues.length ? " and " : ""}${designIssues.length ? "the architect" : ""} fix them once`, detail: formatPlanFindings(findings) });
+    if (architect && designIssues.length) {
+      checkpoint(p.id);
+      await runAgent({ project: getProject(p.id)!, agent: architect, stage: "architecture", signal, kind: "plan-review", task: `The plan review found gaps between the backlog and the design. Fix each one with update_work_item (technical specification, numbered acceptance criteria) and the solution design if needed:\n${formatPlanFindings(designIssues)}` });
+    }
+    if (planner && planIssues.length) {
+      checkpoint(p.id);
+      await runAgent({ project: getProject(p.id)!, agent: planner, stage: "planning", signal, kind: "plan-review", task: `The plan review found problems in the plan. Fix each one with plan_item (order dependencies before the stories that need them; split or re-estimate stories over 8 points; resolve unknown or circular dependencies) and update the delivery plan:\n${formatPlanFindings(planIssues)}` });
+      normalisePlan(p.id);
+    }
+    findings = planFindings(p.id);
+  }
+  const content = findings.length
+    ? `# Plan review\n\n${findings.length} finding(s) remain — look at them before approving the plan:\n\n${formatPlanFindings(findings)}`
+    : "# Plan review\n\nNo findings: every dependency exists and comes first, no story is over 8 points, every story has numbered acceptance criteria and a technical specification, and there's a solution design.";
+  upsertDoc({ projectId: p.id, kind: "plan_review", itemId: null, title: "Plan review", content, agentId: "orchestrator" });
+  logActivity({ projectId: p.id, agentId: "orchestrator", type: "review", summary: findings.length ? `⚠ Plan review: ${findings.length} finding(s) remain — shown at the plan approval` : "✅ Plan review: the plan matches the design" });
 }
 
 /** Ensure every deliverable item has a rank, sprint, points and is in 'To Do' even if the planner skipped it. */

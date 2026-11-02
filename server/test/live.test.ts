@@ -101,6 +101,10 @@ function respond(params: any) {
     }
     return reply([text(`${code} implemented.`)]);
   }
+  if (tools.includes("submit_design_critique")) {
+    if (turn === 0) return reply([toolUse("submit_design_critique", { verdict: "approved", findings: "No blocking issues." })]);
+    return reply([text("Critique done.")]);
+  }
   if (tools.includes("submit_review")) {
     const code = codes(task, "US")[0];
     if (turn === 0) return reply([toolUse("submit_review", { code, verdict: "approved", findings: "Too early." }), toolUse("run_checks", {})]);
@@ -221,7 +225,12 @@ test("live pipeline: PDF → backlog → build with a failing check fixed → QA
   assert.doesNotMatch(devText, /## Project brief/, "no full brief for the developer");
   assert.match(JSON.stringify(dev.messages[0].content), /`node --test`/, "agents are told the project's checks");
   assert.equal(dev.messages[0].content.filter((b: any) => b.cache_control).length, 1, "project block is cached");
-  const qa = requests.find((r) => r.tools.some((t: any) => t.name === "submit_review"));
+  const qa = requests.find((r) => r.tools.some((t: any) => t.name === "submit_review") && /Peer-test/.test(firstText(r)));
+  // The design is critiqued from three perspectives before planning, by QA (not the architect who wrote it).
+  const critique = requests.find((r) => r.tools.some((t: any) => t.name === "submit_design_critique"));
+  assert.ok(critique, "a design critique ran");
+  assert.match(firstText(critique), /Architecture[\s\S]*Security and data[\s\S]*Delivery and testability/);
+  assert.match(firstText(analyst), /First: crystallize the requirements/, "the analyst writes a requirements brief first");
   assert.match(firstText(qa), /## Developer's hand-over/);
   assert.match(firstText(qa), /## Files US-\d+ changed on its branch[\s\S]*src\/us-\d+\.mjs/);
   const names = (r: any) => r.tools.map((t: any) => t.name);

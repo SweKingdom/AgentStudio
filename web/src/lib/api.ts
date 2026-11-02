@@ -22,7 +22,7 @@ export interface AgentDetail extends Agent { systemPrompt: string; recentRuns: R
 export interface Run { id: string; project_id: string; agent_id: string; stage: string; item_id: string | null; status: string; turns: number; agent_version?: number; kind?: string; summary: string | null; error: string | null; started_at: string; ended_at: string | null; project_key?: string; item_code?: string }
 export interface Knowledge { id: string; title: string; summary: string; content: string; tokens: number; custom: boolean }
 export interface StageState { key: string; role: string; label: string; status: "pending" | "running" | "done" | "skipped" | "awaiting_approval" | "failed"; gate?: boolean }
-export interface ProjectSettings { gates: boolean; parallelism: number; budgetUsd: number; maxRework: number; repo?: { url: string; branch: string; push?: boolean } | null; codeReview?: "off" | "complex" | "all"; checks?: Partial<ChecksSettings>; ado?: AdoConfig | null; claudeAccount?: string | null; commands?: string[]; protectedPaths?: string[] }
+export interface ProjectSettings { gates: boolean; parallelism: number; budgetUsd: number; maxRework: number; repo?: { url: string; branch: string; push?: boolean } | null; codeReview?: "off" | "complex" | "all"; checks?: Partial<ChecksSettings>; ado?: AdoConfig | null; claudeAccount?: string | null; commands?: string[]; protectedPaths?: string[]; designCritique?: boolean }
 /** Azure DevOps project the backlog syncs to. The token lives only in .env (AZURE_DEVOPS_PAT). */
 export interface AdoConfig { orgUrl: string; project: string; areaPath?: string; iterationRoot?: string; stateMode: "same" | "agile" }
 export interface RepoInfo { url: string; branch: string; push?: boolean; provider: "github" | "azure" | "gitlab" | "bitbucket" | "other"; name: string; webUrl: string | null }
@@ -40,7 +40,7 @@ export interface Project {
   settings: ProjectSettings; estimate: Estimate | null; mode: "live" | "simulation"; error: string | null; created_at: string;
   started_at: string | null; finished_at: string | null; running: boolean;
   counts: { epics: number; features: number; stories: number; done: number; releaseReady: number; inProgress: number; blocked: number; points: number };
-  costUsd: number; tokens: number; openQuestions: number; install: string | null; undelivered: { id: string; code: string; title: string; state: string; reason: string }[]; untested: { itemId: string; code: string; ac: string; notes: string }[]; planUsage: { window: string; status: string; utilization: number | null; resetsAt: string | null; at: string } | null; activeRuns: { agent_id: string; item_id: string | null; stage: string }[];
+  costUsd: number; tokens: number; openQuestions: number; install: string | null; undelivered: { id: string; code: string; title: string; state: string; reason: string }[]; untested: { itemId: string; code: string; ac: string; notes: string }[]; planFindings: { code: string | null; kind: string; detail: string }[]; planUsage: { window: string; status: string; utilization: number | null; resetsAt: string | null; at: string } | null; activeRuns: { agent_id: string; item_id: string | null; stage: string }[];
   pipelineRunning: boolean; pausing: boolean; jobs: { key: string; label: string; itemId: string | null }[]; checks: CheckCommand[]; repoInfo: RepoInfo | null;
   liveEstimate?: Estimate | null;
 }

@@ -71,6 +71,8 @@ export interface ToolContext {
     review?: { verdict: "approved" | "changes_requested"; findings: string };
     /** The architect's code review of the story's diff (submit_code_review). */
     codeReview?: { verdict: "approved" | "changes_requested"; findings: string };
+    /** The design critique's verdict (submit_design_critique). */
+    designCritique?: { verdict: "approved" | "revise"; findings: string };
     released?: { version: string };
     validation?: { ok: boolean; output: string };
     /** Last run_checks result in this run: the gate for complete_development, an approval and a release. */
@@ -136,6 +138,9 @@ const DOC_KINDS = [
   "technical_overview",
   "changelog",
   "release_notes",
+  "requirements_brief",
+  "design_critique",
+  "plan_review",
 ];
 
 const ITEM_TEXT_FIELDS = {
@@ -752,6 +757,28 @@ const TOOLS: Record<string, ToolSpec> = {
         findings: String(i.findings ?? ""),
       };
       return "Code review recorded.";
+    },
+  },
+
+  submit_design_critique: {
+    label: "Submit a design critique",
+    def: {
+      name: "submit_design_critique",
+      description:
+        "Submit your verdict on the solution design after critiquing it from the three perspectives (architecture; security and data; delivery and testability). 'revise' sends it back to the architect once with your findings.",
+      input_schema: {
+        type: "object",
+        properties: {
+          verdict: { type: "string", enum: ["approved", "revise"] },
+          findings: { type: "string", description: "Markdown. Per perspective, the issues that would cause rework or defects if built as designed: what, where in the design, what to change. Only real ones." },
+        },
+        required: ["verdict", "findings"],
+      },
+    },
+    handler: (i, ctx) => {
+      req(i, "verdict");
+      ctx.outcome.designCritique = { verdict: i.verdict === "revise" ? "revise" : "approved", findings: String(i.findings ?? "") };
+      return "Design critique recorded.";
     },
   },
 

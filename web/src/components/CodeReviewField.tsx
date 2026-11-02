@@ -20,3 +20,7 @@ export function CodeReviewField({ value, onChange }: { value: CodeReviewMode | u
     </Field>
   );
 }
+
+/** Build plan step 5: what the design critique does, for the switch in New project and Project settings. */
+export const DESIGN_CRITIQUE_HELP =
+  "Before planning, a critic (QA when it's on the team, not the architect who wrote it) reviews the solution design from three perspectives — architecture; security and data; delivery and testability — and can send it back to the architect once. A few calls per project, not per story. The plan is then checked against the design without a model call.";

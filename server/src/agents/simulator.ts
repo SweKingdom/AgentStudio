@@ -270,6 +270,7 @@ export async function simulateRun(ctx: ToolContext, o: RunOptions): Promise<stri
   const c = await runContext(ctx, o);
   const st: SimState = { history: 0, first: true, firstTokens: tok(c.shared) + tok(firstMessageTail(c, o)) };
   if (o.stage === "review" && o.item && ctx.agent.role === "architect") return simCodeReview(ctx, o, st);
+  if (o.stage === "critique") return simDesignCritique(ctx, o, st);
   if (o.kind === "rerun" && o.item && (ctx.agent.role === "requirements" || ctx.agent.role === "architect")) return simRefineItem(ctx, o, st);
   switch (ctx.agent.role) {
     case "requirements":
@@ -885,6 +886,23 @@ ${failing ? `\n## What to do\n- **${failing.split(" — ")[0]}** — ${failing.s
 
 /** Scripted architect code review: approves, except the first review of the story that also fails QA once — so the
  *  review → development → QA → review loop is exercised on one predictable story. */
+/** The design critique: three perspectives, written down, approved (the simulated design has no real gaps). */
+async function simDesignCritique(ctx: ToolContext, o: RunOptions, st: SimState) {
+  const stories = listItems(ctx.project.id).filter((i) => i.type === "story" || i.type === "task");
+  await simTurn(ctx, o, st, [["read_document", { kind: "solution_design" }]], "Reading the solution design and the refined stories.");
+  const content = [
+    "# Design critique",
+    "## Architecture",
+    `None blocking. The ${stories.length} stories map onto the modules in the design without overlap.`,
+    "## Security and data",
+    "None blocking. Every write action names who may perform it, and input is validated at the API boundary.",
+    "## Delivery and testability",
+    "None blocking. Each acceptance criterion has a direct, observable outcome a test can assert.",
+  ].join("\n\n");
+  await simTurn(ctx, o, st, [["write_document", { kind: "design_critique", title: "Design critique", content }], ["submit_design_critique", { verdict: "approved", findings: "No blocking issues from the three perspectives." }]]);
+  return "✅ Design critique: approved.";
+}
+
 async function simCodeReview(ctx: ToolContext, o: RunOptions, st: SimState) {
   const it = getItem(o.item!.id)!;
   const sim = findSimStory(ctx.project, it.title);

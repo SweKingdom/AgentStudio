@@ -18,7 +18,7 @@ import { buildSystemPrompt, countPdfTokens } from "./agents/runner.js";
 import { deleteCustomKnowledge, listKnowledge, saveCustomKnowledge } from "./knowledge.js";
 import { estimateProject } from "./estimate.js";
 import { buildPlanFromText, readPdf } from "./agents/simplan.js";
-import { approveGate, buildStages, finishUndelivered, fixBug, humanTransition, isPausing, pauseAll, resumeAll, startItem, startPlan, isRunning, listJobs, pauseProject, pipelineRunning, releaseNow, reportBug, reopenProject, rerunItem, startProject, teamOf, undeliveredItems, untestedAcs, type RerunRole } from "./orchestrator.js";
+import { approveGate, buildStages, finishUndelivered, fixBug, humanTransition, isPausing, pauseAll, resumeAll, startItem, startPlan, isRunning, listJobs, pauseProject, pipelineRunning, releaseNow, reportBug, reopenProject, planFindings, rerunItem, startProject, teamOf, undeliveredItems, untestedAcs, type RerunRole } from "./orchestrator.js";
 import { chat, chatHistory } from "./chat.js";
 import { autoResumeAllowed, globalPause, spendStatus } from "./pause.js";
 import { ensureRepo, gitLog, listBranches, providerOf, remoteStatus, repoName, testRemoteUrl, validateRepoUrl, webUrlOf } from "./git.js";
@@ -351,6 +351,7 @@ function projectSummary(p: Project) {
     openQuestions,
     undelivered: undeliveredItems(p.id),
     untested: untestedAcs(p.id),
+    planFindings: p.stage === "approve_plan" || p.stage === "planning" ? planFindings(p.id) : [],
     planUsage: claudeBackend() === "subscription" ? planUsageFor(p) : null,
     activeRuns,
   };

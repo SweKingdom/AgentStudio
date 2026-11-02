@@ -7,7 +7,7 @@ import { ago } from "../../lib/format";
 import { useAgentLookup } from "../../lib/queries";
 import { AgentTag, Empty, Markdown } from "../../components/ui";
 
-const ORDER = ["project_brief", "solution_design", "delivery_plan", "user_manual", "technical_overview", "changelog", "release_notes"];
+const ORDER = ["requirements_brief", "project_brief", "solution_design", "design_critique", "delivery_plan", "plan_review", "user_manual", "technical_overview", "changelog", "release_notes"];
 
 export default function Documents({ p }: { p: Project }) {
   const agent = useAgentLookup();

@@ -58,9 +58,12 @@ export const PHASES: { key: string; label: string; color: string }[] = [
 ];
 
 export const DOC_KINDS: Record<string, string> = {
+  requirements_brief: "Requirements brief",
   project_brief: "Project brief",
   solution_design: "Solution design",
+  design_critique: "Design critique",
   delivery_plan: "Delivery plan",
+  plan_review: "Plan review",
   user_manual: "User manual",
   technical_overview: "Technical overview",
   changelog: "Changelog",
