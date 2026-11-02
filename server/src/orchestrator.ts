@@ -6,7 +6,8 @@ import { AbortedError, BudgetExceededError, LimitReachedError, PauseRequestedErr
 import type { LimitKind } from "./errors.js";
 import { autoResumeAllowed, globalPause, pauseLabel, setGlobalPause, spendStatus, type JobSpec } from "./pause.js";
 import { ROLES } from "./agents/roles.js";
-import { appSettings, effectiveMode } from "./settings.js";
+import { appSettings, claudeBackend, effectiveMode } from "./settings.js";
+import { planUsageFor, usageLevel } from "./claudeAccounts.js";
 import { failedChecks } from "./agents/context.js";
 import { baseNeedsSetup } from "./checks.js";
 import { fill, teamSettings } from "./team.js";
@@ -259,6 +260,7 @@ async function loop(projectId: string, signal: AbortSignal) {
       logActivity({ projectId, agentId: "orchestrator", type: "gate", summary: `⏸ Waiting for approval: ${next.label}` });
       return;
     }
+    planUsageCheck(projectId, next);
     setStage(projectId, next.key, "running");
     await runStage(getProject(projectId)!, next.key, signal);
     setStage(projectId, next.key, "done");
@@ -836,6 +838,39 @@ async function integrateItem(projectId: string, itemId: string, dev: Agent | und
     postMessage({ projectId, from: "orchestrator", to: "human", itemId, kind: "question", content: `${it.code} could not be merged into ${base}: ${e instanceof Error ? e.message : e}` });
     return false;
   }
+}
+
+/** Which agents' estimated work belongs to each stage. */
+const STAGE_ROLES: Record<string, string[]> = { requirements: ["requirements"], architecture: ["architect"], planning: ["planner"], delivery: ["developer", "qa", "writer"], release: ["release"] };
+
+/** The up-front estimate of what a stage still costs (delivery: the stories not yet delivered), or null. */
+export function stageEstimateUsd(projectId: string, stageKey: string): number | null {
+  const est = getProject(projectId)?.estimate as { storyPoints?: number; agents?: { role: string; costUsd: number }[] } | null;
+  const roles = STAGE_ROLES[stageKey];
+  if (!est?.agents?.length || !roles) return null;
+  const total = est.agents.filter((a) => roles.includes(a.role)).reduce((n, a) => n + a.costUsd, 0);
+  if (stageKey !== "delivery" || !est.storyPoints) return total || null;
+  const left = listItems(projectId).filter((i) => ["story", "task", "bug"].includes(i.type) && !DELIVERED_STATES.includes(i.state)).reduce((n, i) => n + (i.story_points ?? 3), 0);
+  return total ? (total * left) / est.storyPoints : null;
+}
+
+/** Before a stage starts on the Claude plan: if the plan's window is nearly used, say what the stage will need and
+ *  what helps (another account, fewer lanes), instead of finding out from a refused call halfway. */
+function planUsageCheck(projectId: string, stage: StageState) {
+  const p = getProject(projectId)!;
+  if (isSimulated(p) || claudeBackend() !== "subscription") return;
+  const usage = planUsageFor(p);
+  if (!usage || usageLevel(usage) < 0.75) return;
+  const pct = Math.round(usageLevel(usage) * 100);
+  const window = usage.window === "five_hour" ? "5-hour" : usage.window.startsWith("seven_day") ? "weekly" : usage.window;
+  const resets = usage.resetsAt ? `, resets ${new Date(usage.resetsAt).toLocaleString("en-GB", { weekday: "short", hour: "2-digit", minute: "2-digit" })}` : "";
+  const est = stageEstimateUsd(projectId, stage.key);
+  logActivity({
+    projectId,
+    agentId: "orchestrator",
+    type: "gate",
+    summary: `⚠ Claude plan: ${window} window at ${pct} %${resets} before ${stage.label}${est ? ` (estimated ~$${est.toFixed(2)} of work)` : ""} — it may pause midway. Switch account (Settings → Claude account)${p.settings.parallelism > 1 ? ` or lower Parallel lanes (now ${p.settings.parallelism})` : ""}.`,
+  });
 }
 
 /** "AC 2 — negative" and "AC 2" are the same criterion. */

@@ -218,3 +218,39 @@ export function openLoginTerminal(id: string): boolean {
   }
   return false;
 }
+
+// ---------------------------------------------------------------- plan usage
+
+/** The latest usage of a plan window as Claude reported it to a run (it reports it with each answer once it's notable). */
+export interface PlanUsage {
+  window: string;
+  status: "allowed" | "allowed_warning" | "rejected";
+  /** 0–1 of the window used, when Claude said. */
+  utilization: number | null;
+  resetsAt: string | null;
+  at: string;
+}
+
+const usageKey = (configDir?: string) => (configDir ? `dir:${configDir}` : "computer");
+
+/** Remember what Claude reported for the account a run used (one entry per window). */
+export function recordPlanUsage(configDir: string | undefined, info: { status: PlanUsage["status"]; rateLimitType?: string; utilization?: number; resetsAt?: number }) {
+  const all = getSetting<Record<string, Record<string, PlanUsage>>>("planUsage", {});
+  const key = usageKey(configDir);
+  const window = info.rateLimitType ?? "usage";
+  all[key] = {
+    ...all[key],
+    [window]: { window, status: info.status, utilization: typeof info.utilization === "number" ? info.utilization : null, resetsAt: info.resetsAt ? new Date(info.resetsAt * 1000).toISOString() : null, at: new Date().toISOString() },
+  };
+  setSetting("planUsage", all);
+}
+
+/** The fullest window of the account a project runs on that hasn't reset yet, or null when nothing notable is known. */
+export function planUsageFor(project?: Pick<Project, "settings"> | null): PlanUsage | null {
+  const windows = Object.values(getSetting<Record<string, Record<string, PlanUsage>>>("planUsage", {})[usageKey(claudeConfigDir(project))] ?? {});
+  const live = windows.filter((w) => !w.resetsAt || new Date(w.resetsAt).getTime() > Date.now());
+  const level = (w: PlanUsage) => w.utilization ?? (w.status === "rejected" ? 1 : w.status === "allowed_warning" ? 0.8 : 0);
+  return live.sort((a, b) => level(b) - level(a))[0] ?? null;
+}
+
+export const usageLevel = (w: PlanUsage) => w.utilization ?? (w.status === "rejected" ? 1 : w.status === "allowed_warning" ? 0.8 : 0);

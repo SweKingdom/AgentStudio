@@ -3,7 +3,7 @@ import "./setup.ts";
 import { test } from "node:test";
 import assert from "node:assert/strict";
 
-const { costGuard, repeatedQaFailures, storyEstimateUsd } = await import("../src/orchestrator.ts");
+const { costGuard, repeatedQaFailures, stageEstimateUsd, storyEstimateUsd } = await import("../src/orchestrator.ts");
 const { createItem } = await import("../src/store.ts");
 const { all, insert, now } = await import("../src/db.ts");
 
@@ -42,4 +42,13 @@ test("the cost guard alerts once when a story costs more than twice its share of
   assert.equal(alerts.length, 1, "alerted once");
   assert.match(alerts[0].summary, /\$4\.50, more than twice its estimate \(\$2\.00\)/);
   assert.equal(storyEstimateUsd(project("NOE", null), it.id), null, "no estimate, no guard");
+});
+
+test("a stage's estimate: its agents' share; delivery counts only the stories not delivered yet", () => {
+  const pid = project("STG", { storyPoints: 10, agents: [{ role: "developer", costUsd: 6 }, { role: "qa", costUsd: 3 }, { role: "writer", costUsd: 1 }, { role: "requirements", costUsd: 4 }] });
+  createItem(pid, { type: "story", title: "Done one", story_points: 5, state: "Deployed (Done)" });
+  createItem(pid, { type: "story", title: "Left one", story_points: 5, state: "To Do" });
+  assert.equal(stageEstimateUsd(pid, "requirements"), 4);
+  assert.equal(stageEstimateUsd(pid, "delivery"), 5, "half the points are left: half of $10");
+  assert.equal(stageEstimateUsd(pid, "approve_plan"), null);
 });

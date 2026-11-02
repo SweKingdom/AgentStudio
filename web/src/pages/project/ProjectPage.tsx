@@ -51,6 +51,9 @@ const STAGE_HELP: Record<string, string> = {
   approve_untested: "QA marked acceptance criteria as untested (⛔): the release waits until you approve them.",
 };
 
+/** How full a plan window is, 0–1: Claude's own figure, else what its status implies. */
+const planLevel = (u: NonNullable<Project["planUsage"]>) => u.utilization ?? (u.status === "rejected" ? 1 : u.status === "allowed_warning" ? 0.8 : 0);
+
 function UndeliveredList({ p, base }: { p: Project; base: string }) {
   return (
     <ul className="small" style={{ margin: "6px 0 0", paddingLeft: 18 }}>
@@ -160,6 +163,11 @@ export default function ProjectPage() {
   const pushOn = useMutation({
     mutationFn: () => api.patch(`/projects/${p!.id}`, { settings: { repo: { ...p!.settings.repo!, push: true } } }),
     onSuccess: () => { qc.invalidateQueries({ queryKey: ["project", key] }); toast(t("Push to origin is on")); },
+    onError: (e: Error) => toast(e.message, "bad"),
+  });
+  const lanes = useMutation({
+    mutationFn: () => api.patch(`/projects/${p!.id}`, { settings: { parallelism: 1 } }),
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ["project", key] }); toast(t("One lane from the next story on")); },
     onError: (e: Error) => toast(e.message, "bad"),
   });
   // "Keep it local" is remembered per project in this browser.
@@ -312,6 +320,19 @@ export default function ProjectPage() {
             <ShieldAlert size={16} />
             <div style={{ flex: 1 }}>{p.error}</div>
             {p.error.includes("Budget") && <button className="btn sm" onClick={() => raise.mutate()}>Raise budget 50%</button>}
+          </div>
+        )}
+        {p.planUsage && planLevel(p.planUsage) >= 0.75 && p.status !== "completed" && (
+          <div className={`banner ${planLevel(p.planUsage) >= 1 ? "bad" : "warn"}`}>
+            <ShieldAlert size={16} />
+            <div style={{ flex: 1 }}>
+              <b>{t("Claude plan")}: {p.planUsage.window === "five_hour" ? t("5-hour window") : p.planUsage.window.startsWith("seven_day") ? t("weekly window") : p.planUsage.window} {Math.round(planLevel(p.planUsage) * 100)} %</b>
+              {p.planUsage.resetsAt && <> — {t("resets")} {new Date(p.planUsage.resetsAt).toLocaleString(undefined, { weekday: "short", hour: "2-digit", minute: "2-digit" })}</>}
+              . {t("Work may pause before the next stage is done.")}{" "}
+              <NavLink to="/settings/claude" style={{ color: "var(--text)", textDecoration: "underline" }}>{t("Switch Claude account")}</NavLink>
+              {p.settings.parallelism > 1 && <> {t("or lower Parallel lanes (now")} {p.settings.parallelism}).</>}
+            </div>
+            {canWrite && p.settings.parallelism > 1 && <button className="btn sm" onClick={() => lanes.mutate()}>{t("Use 1 lane")}</button>}
           </div>
         )}
         {p.repoInfo && !p.repoInfo.push && isRemoteUrl(p.repoInfo.url) && !localOnly && (

@@ -1,4 +1,4 @@
-import { accountStatus, addAccount, cancelLogin, listAccounts, loginCommandFor, loginState, logoutAccount, openLoginTerminal, removeAccount, setActiveAccount, startLogin } from "./claudeAccounts.js";
+import { accountStatus, addAccount, cancelLogin, listAccounts, planUsageFor, loginCommandFor, loginState, logoutAccount, openLoginTerminal, removeAccount, setActiveAccount, startLogin } from "./claudeAccounts.js";
 import { cleanAllowedCommands } from "./commands.js";
 import { Router, type Request, type Response, type NextFunction } from "express";
 import multer from "multer";
@@ -349,6 +349,7 @@ function projectSummary(p: Project) {
     openQuestions,
     undelivered: undeliveredItems(p.id),
     untested: untestedAcs(p.id),
+    planUsage: claudeBackend() === "subscription" ? planUsageFor(p) : null,
     activeRuns,
   };
 }
