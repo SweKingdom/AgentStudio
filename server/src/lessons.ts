@@ -5,7 +5,11 @@
  * Stored as an ordinary document (kind `project_lessons`), one Markdown bullet per lesson, newest last, each ending with
  * where it came from: `(US-121, qa)` or `(product owner)`.
  */
-import type { Project } from "./store.js";
+import { insert, now } from "./db.js";
+import type { Agent } from "./agents/store.js";
+import { similarity } from "./questions.js";
+import { effectiveMode } from "./settings.js";
+import { findDoc, logActivity, upsertDoc, type Project, type WorkItem } from "./store.js";
 
 export const LESSONS_KIND = "project_lessons";
 export const LESSONS_TITLE = "Lessons learned";
@@ -63,3 +67,54 @@ export function lessonsProblem(lessons: Lesson[]): string | null {
   if (long) return `Each lesson must be at most ${MAX_LESSON_CHARS} characters: "${long.text.slice(0, 60)}…" has ${long.text.length}.`;
   return null;
 }
+
+export type ReworkSource = "qa" | "review" | "checks";
+export interface ReworkEntry {
+  from: ReworkSource;
+  findings: string;
+}
+
+/** Candidate lessons that are worth keeping: short, not about this story, and not already known (or repeated). */
+export function freshLessons(candidates: string[], existing: Lesson[], storyCode: string) {
+  const kept: string[] = [];
+  for (const raw of candidates) {
+    const text = raw.trim().replace(/^[-*]\s+/, "");
+    if (!text || text.length > MAX_LESSON_CHARS || text.includes(storyCode)) continue;
+    if ([...existing.map((l) => l.text), ...kept].some((t) => similarity(t, text) >= 0.6)) continue;
+    kept.push(text);
+  }
+  return kept;
+}
+
+/** The source a story's lessons are tagged with: whoever sent it back most often (the latest on a tie). */
+function mainSource(log: ReworkEntry[]): ReworkSource {
+  const count = (s: ReworkSource) => log.filter((e) => e.from === s).length;
+  return [...log].reverse().map((e) => e.from).sort((a, b) => count(b) - count(a))[0];
+}
+
+/**
+ * After a story is approved following rework: distil what it was sent back for into at most two lessons for later
+ * stories, and save them. Simulation makes no model call — the first line of the first finding becomes the lesson.
+ */
+export async function captureLessons(o: { project: Project; item: WorkItem; reworkLog: ReworkEntry[]; fix: string; agent?: Agent; signal?: AbortSignal }) {
+  const { project, item, reworkLog } = o;
+  if (!reworkLog.length || !lessonsEnabled(project)) return [];
+  const doc = findDoc(project.id, LESSONS_KIND, null);
+  const current = doc ? parseLessons(doc.content) : [];
+  const simulated = project.mode === "simulation" || effectiveMode() === "simulation";
+  const candidates = simulated
+    ? [firstLine(reworkLog[0].findings).replaceAll(item.code, "this story").slice(0, MAX_LESSON_CHARS)]
+    : [];
+  const added = freshLessons(candidates, current, item.code).slice(0, 2);
+  if (!added.length) return [];
+  const source = `${item.code}, ${mainSource(reworkLog)}`;
+  const next = capLessons([...current, ...added.map((text) => ({ text, source, manual: false }))]);
+  upsertDoc({ projectId: project.id, kind: LESSONS_KIND, itemId: null, title: LESSONS_TITLE, content: renderLessons(next), agentId: o.agent?.id ?? null });
+  for (const text of added) {
+    insert("comments", { project_id: project.id, item_id: item.id, author_id: o.agent?.id ?? "orchestrator", content: `📝 Lesson added: ${text}`, created_at: now() });
+  }
+  logActivity({ projectId: project.id, agentId: o.agent?.id ?? "orchestrator", itemId: item.id, type: "note", summary: `📝 Lesson added from ${item.code}` });
+  return added;
+}
+
+const firstLine = (s: string) => s.split("\n").map((l) => l.trim().replace(/^[-*#>\s❌⛔]+/u, "").trim()).find(Boolean) ?? "";

@@ -112,6 +112,16 @@ test("the full pipeline runs on the document's own requirements", async () => {
   const reworked = all.filter((i) => i.rework_count > 0);
   assert.equal(reworked.length, 1, "exactly one story went back from QA to development");
   assert.equal(reworked[0].category, "integration");
+  // The rework taught the project one lesson (simulation: no model call), tagged with where it came from.
+  const docList = await api<any[]>("GET", "/projects/NFS/documents");
+  const lessonsMeta = docList.find((d) => d.kind === "project_lessons");
+  assert.ok(lessonsMeta, "a lessons document was written");
+  const lessons = await api<any>("GET", `/documents/${lessonsMeta.id}`);
+  const lines = lessons.content.split("\n");
+  assert.equal(lines.length, 1);
+  assert.ok(lines[0].endsWith(`(${reworked[0].code}, qa)`), lines[0]);
+  const { comments } = await api<any>("GET", `/items/${reworked[0].id}`);
+  assert.ok(comments.some((c: any) => c.content.startsWith("📝 Lesson added: ")), "the story says which lesson it added");
   for (const i of all.filter((x) => heldIds.has(x.id))) {
     assert.equal(i.state, "Requires additional information", `${i.code} is held by its open questions`);
     assert.ok(!i.phases.some((x: any) => ["architecture", "planning", "development"].includes(x.phase)), `${i.code} didn't advance`);
