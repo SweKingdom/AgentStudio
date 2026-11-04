@@ -15,8 +15,9 @@ import { baseNeedsSetup } from "./checks.js";
 import { attest, lastAttestation, verify } from "./attest.js";
 import { formatFindings, scanBranch } from "./scan.js";
 import { fill, teamSettings } from "./team.js";
-import { branchChanges, currentTree, ensureItemBranch, finishMerge, mergeItemBranch, pushRefs, treeDiff } from "./git.js";
-import { PrConflictError, commentQaFindings, integrateViaPr, openDraftPr, prRepoFor } from "./pullrequests.js";
+import { branchChanges, currentTree, ensureItemBranch, finishMerge, mergeIntoBase, mergeItemBranch, pushRefs, syncBaseAfterPr, treeDiff } from "./git.js";
+import { PrConflictError, commentQaFindings, integrateViaPr, openDraftPr, openForReview, prRepoFor } from "./pullrequests.js";
+import { githubRepoOf, prNumberOf, prStatus } from "./github.js";
 import { needsCodeReview, runCodeReview } from "./review.js";
 import { acceptedAnswers, priorAcDecision } from "./questions.js";
 import {
@@ -28,6 +29,7 @@ import {
   getItem,
   getProject,
   listItems,
+  listProjects,
   logActivity,
   openQuestionCount,
   patchItem,
@@ -42,8 +44,13 @@ import {
 
 const controllers = new Map<string, AbortController>();
 
-const DONE_STATES = ["Ready for UAT", "Release Ready", "Smoke Testing", "Deployed (Done)", "Cancelled", "Removed"];
+const DONE_STATES = ["Ready for UAT", "In Review", "Release Ready", "Smoke Testing", "Deployed (Done)", "Cancelled", "Removed"];
 const DELIVERED_STATES = ["Release Ready", "Smoke Testing", "Deployed (Done)", "Cancelled", "Removed"];
+/** Done and waiting for a person to review and merge its PR (review mode); not delivered until it's merged. */
+export const IN_REVIEW = "In Review";
+
+/** Review mode for this item: its own setting, else the project's. A person merges its PR; AgentStudio doesn't. */
+export const reviewMode = (p: Pick<Project, "settings">, it: Pick<WorkItem, "merge_mode">) => (it.merge_mode ?? p.settings.mergeMode ?? "auto") === "review";
 
 export function isRunning(projectId: string) {
   return controllers.has(projectId) || [...jobs.values()].some((j) => j.projectId === projectId);
@@ -368,8 +375,10 @@ export function undeliveredItems(projectId: string): UndeliveredItem[] {
     const q = openQuestionCount(it.id);
     if (q) return `${q} open question(s)`;
     if (it.state === "Blocked") return "Blocked";
+    if (it.state === IN_REVIEW) return it.pr_url ? `In review: ${it.pr_url}` : "In review: merge it from the story";
     const deps = dependenciesOf(it, items);
     const d = notDone.find((x) => deps.includes(x.code));
+    if (d?.state === IN_REVIEW) return `Waits for the review of ${d.code}`;
     return d ? `Waits for ${d.code}${p && !ownedByStudio(p, d) ? ` (${ownerName(p, d)})` : ""}` : "Not started";
   };
   // With a release manager on the team, merged work isn't delivered until a release publishes it.
@@ -392,9 +401,9 @@ function openUndeliveredGate(projectId: string) {
 }
 
 /** Continue at the undelivered-items gate: Blocked items get another try, then delivery and release run again. */
-function continueUndelivered(projectId: string) {
+function continueUndelivered(projectId: string, o: { retryBlocked?: boolean } = {}) {
   const left = undeliveredItems(projectId);
-  for (const it of left) if (it.state === "Blocked") patchItem(it.id, { state: "To Do" });
+  if (o.retryBlocked !== false) for (const it of left) if (it.state === "Blocked") patchItem(it.id, { state: "To Do" });
   const again = new Set(["delivery", "approve_release", "release"]);
   const p = getProject(projectId)!;
   patchProject(projectId, {
@@ -404,6 +413,86 @@ function continueUndelivered(projectId: string) {
   postMessage({ projectId, from: "human", to: "orchestrator", kind: "approval", content: `Continue with ${left.length} undelivered item(s)` });
   logActivity({ projectId, agentId: "human", type: "approval", summary: `▶ Continue with ${left.length} undelivered item(s): ${left.map((i) => i.code).join(", ")}` });
   startProject(projectId);
+}
+
+// ---------------------------------------------------------------------------------------------------------------------
+// Review mode: finished stories wait in review until a person merges (or closes) their PR.
+
+const checkingReviews = new Set<string>();
+
+/** Merged reviews become Release Ready (the local base branch takes GitHub's merge); closed ones become Blocked.
+ *  Runs when delivery starts and every few minutes. A project stopped at the undelivered-items gate continues by
+ *  itself once a merge unblocks something, the way new commits on origin are picked up. Never throws. */
+export async function checkReviews(projectId: string, o: { continueGate?: boolean } = {}) {
+  if (checkingReviews.has(projectId)) return { merged: 0, closed: 0 };
+  checkingReviews.add(projectId);
+  let merged = 0;
+  let closed = 0;
+  try {
+    const p = getProject(projectId);
+    if (!p) return { merged, closed };
+    const repo = githubRepoOf(p.settings.repo?.url);
+    for (const it of listItems(projectId).filter((i) => i.state === IN_REVIEW)) {
+      const n = prNumberOf(it.pr_url);
+      if (!repo || !n) continue; // without GitHub the story's Merge button merges it
+      try {
+        const pr = await prStatus(repo, n);
+        if (pr.state === "MERGED") {
+          await syncBaseAfterPr(getProject(projectId)!, { ...it, body: "" });
+          patchItem(it.id, { state: "Release Ready" });
+          logActivity({ projectId, agentId: "orchestrator", itemId: it.id, type: "approval", summary: `✅ PR #${n} for ${it.code} was merged after review — ${it.code} is Release Ready` });
+          const rel = agentsFor(p, "release")[0];
+          if (rel) postMessage({ projectId, from: "orchestrator", to: rel.id, itemId: it.id, kind: "handoff", content: `${it.code} is Release Ready (merged after review).` });
+          merged++;
+        } else if (pr.state === "CLOSED") {
+          patchItem(it.id, { state: "Blocked" });
+          postMessage({ projectId, from: "orchestrator", to: "human", itemId: it.id, kind: "question", content: `PR #${n} for ${it.code} was closed without being merged. Start the story again, or cancel it.` });
+          logActivity({ projectId, agentId: "orchestrator", itemId: it.id, type: "blocked", summary: `⛔ PR #${n} for ${it.code} was closed without merging` });
+          closed++;
+        }
+      } catch (e) {
+        logActivity({ projectId, agentId: "orchestrator", itemId: it.id, type: "tool_error", summary: `⚠ Couldn't check PR #${n} for ${it.code}: ${e instanceof Error ? e.message.split("\n")[0] : e}` });
+      }
+    }
+    if (merged && o.continueGate !== false) continueAfterReview(projectId);
+  } finally {
+    checkingReviews.delete(projectId);
+  }
+  return { merged, closed };
+}
+
+/** At the undelivered-items gate and not running: continue, so what the merge unblocked is built. */
+function continueAfterReview(projectId: string) {
+  const p = getProject(projectId);
+  if (!p || isRunning(projectId) || p.status !== "awaiting_approval" || !p.stages.some((s) => s.key === OPEN_ITEMS && s.status === "awaiting_approval")) return;
+  if (!undeliveredItems(projectId).length) return finishProject(projectId);
+  logActivity({ projectId, agentId: "orchestrator", type: "pipeline", summary: "▶ A review was merged — continuing with what it unblocked" });
+  // Not a person's Continue: Blocked items (e.g. a PR the reviewer closed) stay blocked until someone decides.
+  continueUndelivered(projectId, { retryBlocked: false });
+}
+
+/** Every few minutes: check the reviews of every project that has stories in review. */
+export function reviewTick() {
+  for (const p of listProjects()) {
+    if (listItems(p.id).some((i) => i.state === IN_REVIEW)) void checkReviews(p.id);
+  }
+}
+
+/** Without GitHub, the person who reviewed the branch merges it from the story. */
+export async function mergeReviewed(itemId: string) {
+  const it = getItem(itemId);
+  if (!it) throw new Error("Item not found");
+  if (it.state !== IN_REVIEW) throw new Error(`${it.code} isn't in review.`);
+  const p = getProject(it.project_id)!;
+  if (githubRepoOf(p.settings.repo?.url) && it.pr_url) throw new Error(`${it.code} has a pull request on GitHub: merge it there, and AgentStudio picks it up.`);
+  if (isRunning(p.id)) throw new Error("The project is running — wait until it stops, then merge.");
+  const base = p.settings.repo?.branch || "main";
+  const m = await mergeIntoBase(p, { ...it, body: prDescription(it, "") });
+  if (p.settings.repo?.push) await pushRefs(p, [base, it.branch!]);
+  patchItem(itemId, { state: "Release Ready" });
+  logActivity({ projectId: p.id, agentId: "human", itemId, type: "approval", summary: `✅ You merged ${it.code} after review (${m.commit ?? base})` });
+  continueAfterReview(p.id);
+  return getItem(itemId)!;
 }
 
 /** Close the project at the undelivered-items gate; the items stay as they are. */
@@ -698,6 +787,7 @@ async function reviewPlan(p: Project, signal: AbortSignal) {
 /** Ensure every deliverable item has a rank, sprint, points and is in 'To Do' even if the planner skipped it. */
 function normalisePlan(projectId: string) {
   const s = appSettings();
+  const project = getProject(projectId)!;
   const items = listItems(projectId).filter((i) => i.type === "story" || i.type === "task");
   let maxRank = Math.max(0, ...items.map((i) => i.rank ?? 0));
   for (const it of items) {
@@ -705,7 +795,8 @@ function normalisePlan(projectId: string) {
     if (it.rank == null) patch.rank = ++maxRank;
     if (it.sprint == null) patch.sprint = 1;
     if (it.story_points == null) patch.story_points = 3;
-    if (!["Cancelled", "Removed", ...DONE_STATES].includes(it.state) && !waitingForAnswers(it)) patch.state = "To Do";
+    // Blocked items wait for a decision, and someone else's follow their own work: neither is reset.
+    if (!["Cancelled", "Removed", "Blocked", ...DONE_STATES].includes(it.state) && !waitingForAnswers(it) && ownedByStudio(project, it)) patch.state = "To Do";
     patch.human_hours = (patch.story_points ?? it.story_points ?? 3) * s.hoursPerStoryPoint;
     patchItem(it.id, patch);
   }
@@ -719,7 +810,9 @@ async function stageDelivery(p: Project, signal: AbortSignal) {
     logActivity({ projectId: p.id, agentId: "orchestrator", itemId: w.id, type: "gate", summary: `⏸ ${w.code} stays in “${w.state}” — ${openQuestionCount(w.id)} open question(s) must be answered first` });
   }
   const ours = (i: WorkItem) => ownedByStudio(getProject(p.id)!, i);
-  const pending = all().filter((i) => ours(i) && !DELIVERED_STATES.includes(i.state) && !waitingForAnswers(i) && !["Blocked", "Cancelled"].includes(i.state));
+  // Reviews merged (or closed) since the last run first: what they unblock joins this delivery.
+  await checkReviews(p.id, { continueGate: false });
+  const pending = all().filter((i) => ours(i) && !DELIVERED_STATES.includes(i.state) && !waitingForAnswers(i) && !["Blocked", "Cancelled", IN_REVIEW].includes(i.state));
   const started = new Set<string>();
   const busy = new Map<string, number>();
   const inFlight = new Set<Promise<void>>();
@@ -744,7 +837,7 @@ async function stageDelivery(p: Project, signal: AbortSignal) {
     for (const code of dependenciesOf(it, items)) {
       const d = items.find((x) => x.code === code);
       if (!d || DELIVERED_STATES.includes(d.state) || seen.has(d.id)) continue;
-      if (!pending.some((x) => x.id === d.id) || d.state === "Blocked" || stuckDependency(d, seen)) return d;
+      if (!pending.some((x) => x.id === d.id) || d.state === "Blocked" || d.state === IN_REVIEW || stuckDependency(d, seen)) return d;
     }
     return undefined;
   };
@@ -760,7 +853,7 @@ async function stageDelivery(p: Project, signal: AbortSignal) {
       throw new PauseRequestedError("Paused");
     }
     // Questions answered while the stage runs: those items join the delivery.
-    for (const w of all().filter((i) => ours(i) && !DELIVERED_STATES.includes(i.state) && !["Blocked", "Cancelled"].includes(i.state) && !pending.some((x) => x.id === i.id) && !waitingForAnswers(i))) {
+    for (const w of all().filter((i) => ours(i) && !DELIVERED_STATES.includes(i.state) && !["Blocked", "Cancelled", IN_REVIEW].includes(i.state) && !pending.some((x) => x.id === i.id) && !waitingForAnswers(i))) {
       pending.push(w);
       logActivity({ projectId: p.id, agentId: "orchestrator", itemId: w.id, type: "pipeline", summary: `▶ ${w.code}'s questions are answered — it joins the delivery` });
     }
@@ -777,7 +870,8 @@ async function stageDelivery(p: Project, signal: AbortSignal) {
       if (d && !held.has(it.id)) {
         held.add(it.id);
         const whose = ours(d) ? "" : `, which ${ownerName(getProject(p.id)!, d)} builds`;
-        logActivity({ projectId: p.id, agentId: "orchestrator", itemId: it.id, type: "gate", summary: `⏸ ${it.code} waits for ${d.code} (${waitingForAnswers(d) ? "open questions" : d.state}${whose}) — it builds on that code` });
+        const what = d.state === IN_REVIEW ? `the review of ${d.code}` : `${d.code} (${waitingForAnswers(d) ? "open questions" : d.state}${whose})`;
+        logActivity({ projectId: p.id, agentId: "orchestrator", itemId: it.id, type: "gate", summary: `⏸ ${it.code} waits for ${what} — it builds on that code` });
       } else if (!d) held.delete(it.id);
     }
     const startable = fresh.filter((i) => !held.has(i.id));
@@ -987,13 +1081,15 @@ const conflictsBlock = (conflicts: string[], base: string) =>
  *  simulation), then task branch → base branch with a merge commit. Pushes both when the project pushes; a project
  *  that pushes to GitHub merges through the story's pull request instead (falling back to the local merge).
  *  Returns false when the task couldn't be integrated (it's then Blocked with a message to you). */
-async function integrateItem(projectId: string, itemId: string, dev: Agent | undefined, signal: AbortSignal, summary = ""): Promise<boolean> {
+async function integrateItem(projectId: string, itemId: string, dev: Agent | undefined, signal: AbortSignal, summary = ""): Promise<boolean | "review"> {
   const project = () => getProject(projectId)!;
   const it = getItem(itemId)!;
   if (!it.branch) return true;
   const base = project().settings.repo?.branch || "main";
   const body = prDescription(it, summary);
-  const via = prRepoFor(project()) ? "pr" : "local";
+  // Review mode stops once the branch is ready, like the pull-request flow: a person merges it, not AgentStudio.
+  const review = reviewMode(project(), it);
+  const via = review || prRepoFor(project()) ? "pr" : "local";
   try {
     let m = await mergeItemBranch(project(), { ...it, body, via });
     // Conflicts can come back: GitHub's base branch may move (another lane merged) while this one is resolved.
@@ -1042,6 +1138,12 @@ async function integrateItem(projectId: string, itemId: string, dev: Agent | und
       if (m.ready) {
         // Bringing the base in changed the code under the story: the checks must pass again on what GitHub merges.
         if (!(await verifiedForMerge(projectId, itemId, dev, signal, `bringing ${base} in`))) return false;
+        if (review) {
+          const url = await openForReview(projectId, itemId, body);
+          patchItem(itemId, { state: IN_REVIEW });
+          logActivity({ projectId, agentId: "orchestrator", itemId, type: "gate", summary: url ? `⏸ ${it.code} is in review: a person merges ${url}` : `⏸ ${it.code} is in review: merge it from the story when it's approved` });
+          return "review";
+        }
         try {
           await integrateViaPr(projectId, itemId, body);
           return true;
@@ -1435,7 +1537,8 @@ ${r.summary.slice(0, 2000)}`;
   }
   // The final check matrix on what will be merged: after documentation (which can touch files) and after any fix.
   if (!(await verifiedForMerge(projectId, itemId, dev, signal, "documentation"))) return;
-  if (!(await integrateItem(projectId, itemId, dev, signal, lastDevSummary))) return;
+  const integrated = await integrateItem(projectId, itemId, dev, signal, lastDevSummary);
+  if (!integrated || integrated === "review") return;
   patchItem(itemId, { state: "Release Ready" });
   const rel = agentsFor(project(), "release")[0];
   if (rel) postMessage({ projectId, from: writer?.id ?? dev?.id ?? "orchestrator", to: rel.id, itemId, kind: "handoff", content: `${getItem(itemId)!.code} is Release Ready.` });
@@ -1610,7 +1713,8 @@ export function rerunItem(itemId: string, role: RerunRole, feedback: string, res
 // Start work on one item: run every missing step in pipeline order, calling the agents that own each step.
 
 const PRE_REFINED = ["New", "Requires additional information", "Ready for Refinement"];
-const STARTED = ["In Progress", "In Peer Testing", "Ready for UAT", "Release Ready", "Smoke Testing", "Deployed (Done)"];
+const STARTED = ["In Progress", "In Peer Testing", "Ready for UAT", "In Review", "Release Ready", "Smoke Testing", "Deployed (Done)"];
+const RELEASED = ["Release Ready", "Smoke Testing", "Deployed (Done)"];
 
 /** The steps "Start work" will run for an item, in order — shown to the user before confirming. */
 export function startPlan(itemId: string) {
@@ -1696,7 +1800,7 @@ export function startItem(itemId: string) {
 export function humanTransition(from: string, to: string, someoneElses = false): string | null {
   if (to === from || someoneElses) return null;
   if (to === "Cancelled") return from === "Deployed (Done)" ? "A deployed item can't be cancelled — report a bug instead." : null;
-  if (to === "Blocked") return STARTED.slice(3).includes(from) ? "Released items can't be put on hold." : null;
+  if (to === "Blocked") return RELEASED.includes(from) ? "Released items can't be put on hold." : null;
   if (to === "New" && (from === "Cancelled" || from === "Blocked")) return null;
   return `State changes follow the pipeline: ${from} → ${to} would skip steps. Use "Start work" and the agents move the item forward.`;
 }

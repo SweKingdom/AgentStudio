@@ -23,7 +23,7 @@ export interface Run { id: string; project_id: string; agent_id: string; stage: 
 export interface Knowledge { id: string; title: string; summary: string; content: string; tokens: number; custom: boolean }
 export interface StageState { key: string; role: string; label: string; status: "pending" | "running" | "done" | "skipped" | "awaiting_approval" | "failed"; gate?: boolean }
 export interface WorkRule { assignees?: string[]; iterations?: string[]; tags?: string[] }
-export interface ProjectSettings { gates: boolean; parallelism: number; budgetUsd: number; maxRework: number; repo?: { url: string; branch: string; push?: boolean } | null; codeReview?: "off" | "complex" | "all"; checks?: Partial<ChecksSettings>; ado?: AdoConfig | null; claudeAccount?: string | null; commands?: string[]; protectedPaths?: string[]; designCritique?: boolean; lessons?: boolean; workRule?: WorkRule | null; modelBySize?: { small?: string | null; large?: string | null } | null }
+export interface ProjectSettings { gates: boolean; parallelism: number; budgetUsd: number; maxRework: number; repo?: { url: string; branch: string; push?: boolean } | null; codeReview?: "off" | "complex" | "all"; checks?: Partial<ChecksSettings>; ado?: AdoConfig | null; claudeAccount?: string | null; commands?: string[]; protectedPaths?: string[]; designCritique?: boolean; lessons?: boolean; workRule?: WorkRule | null; mergeMode?: "auto" | "review"; modelBySize?: { small?: string | null; large?: string | null } | null }
 /** Azure DevOps project the backlog syncs to. The token lives only in .env (AZURE_DEVOPS_PAT). */
 export interface AdoConfig { orgUrl: string; project: string; areaPath?: string; iterationRoot?: string; stateMode: "same" | "agile" }
 export interface RepoInfo { url: string; branch: string; push?: boolean; provider: "github" | "azure" | "gitlab" | "bitbucket" | "other"; name: string; webUrl: string | null }
@@ -72,6 +72,8 @@ export interface WorkItem {
   tags: string[]; depends_on: string[]; assigned_agent_id: string | null; rework_count: number;
   /** Who builds it: unset = AgentStudio, "agentstudio" = given to it, "person" = someone else; assignee = their name. */
   owner?: "agentstudio" | "person" | null; assignee?: string | null; iteration?: string | null;
+  /** How it is merged when done: unset = the project's setting; "review" = a person reviews and merges its PR. */
+  merge_mode?: "auto" | "review" | null;
   /** From the items list: whether AgentStudio builds it (its owner, else the project's rule). */
   ours?: boolean; branch?: string | null; pr_url?: string | null; ado_id?: number | null; human_hours: number | null; created_by: string | null;
   created_at: string; updated_at: string; costUsd?: number; phases?: Phase[]; tests?: { pass: number; fail: number; blocked: number } | null; activeAgent?: string | null; openQuestions?: number;

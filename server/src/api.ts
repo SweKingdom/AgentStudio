@@ -18,7 +18,7 @@ import { buildSystemPrompt, countPdfTokens } from "./agents/runner.js";
 import { deleteCustomKnowledge, listKnowledge, saveCustomKnowledge } from "./knowledge.js";
 import { estimateProject } from "./estimate.js";
 import { buildPlanFromText, readPdf } from "./agents/simplan.js";
-import { approveGate, buildStages, finishUndelivered, fixBug, humanTransition, isPausing, pauseAll, resumeAll, startItem, startPlan, isRunning, listJobs, pauseProject, pipelineRunning, releaseNow, reportBug, reopenProject, planFindings, rerunItem, startProject, teamOf, undeliveredItems, untestedAcs, type RerunRole } from "./orchestrator.js";
+import { approveGate, buildStages, checkReviews, mergeReviewed, finishUndelivered, fixBug, humanTransition, isPausing, pauseAll, resumeAll, startItem, startPlan, isRunning, listJobs, pauseProject, pipelineRunning, releaseNow, reportBug, reopenProject, planFindings, rerunItem, startProject, teamOf, undeliveredItems, untestedAcs, type RerunRole } from "./orchestrator.js";
 import { chat, chatHistory } from "./chat.js";
 import { autoResumeAllowed, globalPause, spendStatus } from "./pause.js";
 import { ensureRepo, gitLog, listBranches, providerOf, remoteStatus, repoName, testRemoteUrl, validateRepoUrl, webUrlOf } from "./git.js";
@@ -89,7 +89,7 @@ const wrap =
 
 const STATES = [
   "New", "Requires additional information", "Ready for Refinement", "Ready for Sprint", "To Do", "In Progress",
-  "In Peer Testing", "Ready for UAT", "Release Ready", "Smoke Testing", "Deployed (Done)", "Blocked", "Cancelled",
+  "In Peer Testing", "Ready for UAT", "In Review", "Release Ready", "Smoke Testing", "Deployed (Done)", "Blocked", "Cancelled",
 ];
 
 // ---------------------------------------------------------------- meta & settings
@@ -442,7 +442,12 @@ api.post("/projects", wrap(async (req, res) => {
     maxRework: Number(body.settings?.maxRework ?? s.maxRework),
     codeReview: codeReviewMode(body.settings?.codeReview),
     repo: { url: repoCheck.url, branch, push: body.settings?.repo?.push === true },
+    // Switches that are on unless turned off (the New project form sends them).
+    ...(body.settings?.designCritique === false ? { designCritique: false } : {}),
+    ...(body.settings?.lessons === false ? { lessons: false } : {}),
+    ...(body.settings?.mergeMode === "review" ? { mergeMode: "review" as const } : {}),
   };
+  if (body.settings?.mergeMode !== undefined && !["auto", "review"].includes(body.settings.mergeMode)) return res.status(400).json({ error: 'mergeMode must be "auto" or "review"' });
   const id = uid("prj");
   const key = body.key ? String(body.key).toUpperCase().replace(/[^A-Z0-9]/g, "").slice(0, 6) : uniqueProjectKey(name);
   if (get("SELECT 1 FROM projects WHERE key = ?", key)) return res.status(409).json({ error: `Project key ${key} already exists` });
@@ -555,6 +560,9 @@ api.patch("/projects/:pid", wrap(async (req, res) => {
     } catch (e) {
       return res.status(400).json({ error: e instanceof Error ? e.message : String(e) });
     }
+  }
+  if (body.settings?.mergeMode !== undefined) {
+    if (!["auto", "review"].includes(body.settings.mergeMode)) return res.status(400).json({ error: 'mergeMode must be "auto" or "review"' });
   }
   if (body.settings?.modelBySize !== undefined) {
     const known = new Set(models().map((m) => m.id));
@@ -809,6 +817,10 @@ api.patch("/items/:id", (req, res) => {
   ];
   const patch: Record<string, unknown> = {};
   for (const k of allowed) if (req.body?.[k] !== undefined) patch[k] = req.body[k];
+  if (req.body?.merge_mode !== undefined) {
+    if (![null, "auto", "review"].includes(req.body.merge_mode)) return res.status(400).json({ error: 'merge_mode must be "auto", "review" or null' });
+    patch.merge_mode = req.body.merge_mode;
+  }
   const owner = req.body?.owner !== undefined || req.body?.assignee !== undefined ? ownerPatch(req.body) : {};
   if ("error" in owner) return res.status(400).json({ error: owner.error });
   Object.assign(patch, owner);
@@ -841,6 +853,20 @@ function ownerPatch(body: Record<string, unknown>): { owner?: WorkItem["owner"];
   }
   return out;
 }
+
+/** Review mode without GitHub: the reviewer merges the story's branch from the story. */
+api.post("/items/:id/merge-review", wrap(async (req, res) => {
+  try {
+    res.json(await mergeReviewed(String(req.params.id)));
+  } catch (e) {
+    res.status(409).json({ error: e instanceof Error ? e.message : String(e) });
+  }
+}));
+
+/** Check the project's reviews now instead of waiting for the next check. */
+api.post("/projects/:pid/reviews/check", wrap(async (req, res) => {
+  res.json(await checkReviews(String(req.params.pid)));
+}));
 
 /** Give many items to AgentStudio or to a person at once (the backlog's bulk action). */
 api.post("/projects/:pid/items/owner", (req, res) => {

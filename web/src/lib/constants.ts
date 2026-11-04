@@ -33,6 +33,7 @@ export const STATE_GROUP: Record<string, { lane: string; color: string }> = {
   "In Progress": { lane: "In Progress", color: "#4f8ff7" },
   "In Peer Testing": { lane: "Peer Testing", color: "#ef5b6b" },
   "Ready for UAT": { lane: "Documenting", color: "#3ecf8e" },
+  "In Review": { lane: "In Review", color: "#c98500" },
   "Release Ready": { lane: "Release Ready", color: "#b2a792" },
   "Smoke Testing": { lane: "Releasing", color: "#e85aa8" },
   "Deployed (Done)": { lane: "Done", color: "#3ecf8e" },
@@ -40,7 +41,7 @@ export const STATE_GROUP: Record<string, { lane: string; color: string }> = {
   Cancelled: { lane: "Cancelled", color: "#5c6478" },
 };
 
-export const LANES = ["Backlog", "To Do", "In Progress", "Peer Testing", "Documenting", "Release Ready", "Releasing", "Done", "Blocked"];
+export const LANES = ["Backlog", "To Do", "In Progress", "Peer Testing", "Documenting", "In Review", "Release Ready", "Releasing", "Done", "Blocked"];
 
 export function stateColor(s: string) {
   return STATE_GROUP[s]?.color ?? "#8a92a6";

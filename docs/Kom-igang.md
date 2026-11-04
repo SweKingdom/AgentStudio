@@ -138,6 +138,13 @@ Projektsidan visar hur många kontroller som gäller. **No checks** betyder att 
 
 **Vid en grind** står projektet på *Awaiting approval*. Svara på öppna frågor (**Questions**), granska och godkänn för att gå vidare.
 
+**Vilka stories AgentStudio bygger:** varje story har en ägare, AgentStudio eller någon annan.
+- I **Backlog** filtrerar du på *Byggs av*, *Tilldelad*, *Iteration*, *Status*, *Tagg* och *Typ* och söker i texten. Kryssa i stories (eller **Välj alla som visas**) och välj **Ge till AgentStudio** eller **Ge till någon annan**.
+- **Gör detta till AgentStudios regel** sparar filtren för tilldelad, iteration och tagg. AgentStudio bygger då det som matchar, och regeln kontrolleras vid varje körning, så nya och omfördelade stories följer den. Stories du gett bort för hand behåller det.
+- Någon annans stories byggs aldrig och håller inte projektet öppet. AgentStudios stories som bygger på dem väntar tills de är levererade.
+
+**Merge efter granskning:** under projektinställningen **Merge** väljer du *Review PR: en person mergar*, eller per story i storylådan. När en story är klar öppnar AgentStudio pull requesten (inte som utkast), lägger QA:s utlåtande som kommentar och sätter storyn i **In Review** i stället för att merga. Stories som bygger på den väntar. AgentStudio kollar var 2:e minut och vid varje körning: en mergad PR gör storyn *Release Ready* och projektet fortsätter av sig självt, en stängd PR gör den *Blocked*. Utan GitHub får storyn en **Merga**-knapp.
+
 **Tid och kostnad (Overview):** siffrorna är mätta, inte uppskattade.
 - **Vart tiden gick:** projektets förflutna tid delas upp i när agenterna arbetade, när projektet väntade på dig (grindar och frågor), pausade för gränser (Claude-planens fönster, utgiftstak eller budget), pausades av dig, och övrigt (kontroller, merge och väntan). Varje ögonblick räknas en gång, även när flera lanes körs samtidigt. Väntan och pauser registreras från och med den här versionen; tidigare hamnar de under *Övrigt*.
 - **Vart pengarna gick:** vad modellanropen kostade, uppdelat på levererade stories, pågående, stoppade (blockerade, avbrutna, borttagna) och arbete för hela projektet (analys, design, planering, release). Under det står hur mycket som gick till omarbetning, alltså rundor efter att QA, kodgranskningen eller kontrollerna skickat tillbaka en story, och hur stor andel av de testade storyerna som gick igenom första gången.

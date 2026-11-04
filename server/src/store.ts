@@ -43,6 +43,8 @@ export interface ProjectSettings {
   protectedPaths?: string[];
   /** Which items AgentStudio builds when they aren't given to it or to someone explicitly (ownership.ts). */
   workRule?: import("./ownership.js").WorkRule | null;
+  /** "auto" (default): AgentStudio merges finished stories. "review": it opens the PR and a person reviews and merges it. */
+  mergeMode?: "auto" | "review";
 }
 
 export interface Project {
@@ -201,6 +203,8 @@ export interface WorkItem {
   assignee?: string | null;
   /** The iteration as the team names it (e.g. "2026-23" from Azure DevOps); AgentStudio's own planning uses `sprint`. */
   iteration?: string | null;
+  /** How it is merged when done: unset = the project's setting; "review" = a PR a person merges (orchestrator.ts). */
+  merge_mode?: "auto" | "review" | null;
   human_hours: number | null;
   created_by: string | null;
   created_at: string;

@@ -6,7 +6,7 @@ import { ROOT_DIR } from "./db.js";
 import { api } from "./api.js";
 import { authMiddleware } from "./auth.js";
 import { seedAgents } from "./agents/store.js";
-import { autoResumeTick, recoverInterrupted } from "./orchestrator.js";
+import { autoResumeTick, recoverInterrupted, reviewTick } from "./orchestrator.js";
 import { ensureRepo } from "./git.js";
 import { listProjects } from "./store.js";
 
@@ -18,6 +18,8 @@ export function createApp() {
   for (const p of listProjects()) void ensureRepo(p).catch((e) => console.error(`git init ${p.key}:`, e instanceof Error ? e.message : e));
   // Resume on its own after a rate limit, an API overload, or when a spend-limit period resets.
   setInterval(autoResumeTick, 30_000).unref();
+  // Stories in review: pick up PRs a person merged (or closed) on GitHub.
+  setInterval(reviewTick, 120_000).unref();
   const app = express();
   app.use(express.json({ limit: "10mb" }));
   // Optional sign-in: a no-op until the first admin exists (see auth.ts).

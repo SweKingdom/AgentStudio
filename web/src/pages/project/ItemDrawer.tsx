@@ -86,6 +86,11 @@ export default function ItemDrawer({ id, project, onClose }: { id: string; proje
     queryFn: () => (fileRow!.first_version! > 1 ? api.get<{ content: string }>(versionUrl(fileRow!.first_version! - 1)) : Promise.resolve({ content: "" })),
     enabled: !!file && !!fileRow?.first_version,
   });
+  const mergeReview = useMutation({
+    mutationFn: () => api.post(`/items/${id}/merge-review`),
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ["item", id] }); qc.invalidateQueries({ queryKey: ["items"] }); toast("Merged"); },
+    onError: (e: Error) => toast(e.message, "bad"),
+  });
   const save = useMutation({
     mutationFn: (patch: Record<string, unknown>) => api.patch(`/items/${id}`, patch),
     onSuccess: () => { qc.invalidateQueries({ queryKey: ["item", id] }); qc.invalidateQueries({ queryKey: ["items"] }); setEdit(null); toast("Saved"); },
@@ -170,6 +175,18 @@ export default function ItemDrawer({ id, project, onClose }: { id: string; proje
           <span className="small muted">{money(it.cost.costUsd)}</span>
         </div>
         <div className="row wrap" style={{ gap: 6 }}>
+          {it.state === "In Review" && (it.pr_url
+            ? <a className="btn sm primary" href={it.pr_url} target="_blank" rel="noopener noreferrer" title={t("Review and merge the pull request on GitHub; AgentStudio picks the merge up by itself.")}><GitPullRequest size={13} /> {t("Review the PR")}</a>
+            : <button className="btn sm primary" disabled={mergeReview.isPending} title={t("Merge the reviewed branch into the base branch.")} onClick={() => mergeReview.mutate()}><GitBranch size={13} /> {t("Merge")}</button>)}
+          {isDeliverable && (
+            <Hint text={t("How this story is merged when it's done. Project default follows the project's Merging setting.")}>
+              <select className="select" style={{ width: 170, height: 28, padding: "2px 8px" }} aria-label={t("Merging")} disabled={save.isPending} value={it.merge_mode ?? ""} onChange={(e) => save.mutate({ merge_mode: e.target.value || null })}>
+                <option value="">{t("Merge: project default")}</option>
+                <option value="auto">{t("Merge: AgentStudio")}</option>
+                <option value="review">{t("Merge: review PR")}</option>
+              </select>
+            </Hint>
+          )}
           {isDeliverable && <OwnerField item={it} disabled={save.isPending || (it.busy && !isSomeoneElses(it))} onSave={(patch) => save.mutate(patch)} />}
           {it.busy && <span className="pill" style={{ color: "var(--info)", border: "1px solid var(--line-2)" }}><Loader2 size={12} className="spin" /> An agent is working on this item</span>}
           {isDeliverable && ["New", "Requires additional information", "Ready for Refinement", "Ready for Sprint", "To Do", "Blocked"].includes(it.state) && (

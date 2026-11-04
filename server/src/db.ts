@@ -328,6 +328,8 @@ addColumn("work_items", "owner", "TEXT");
 addColumn("work_items", "assignee", "TEXT");
 // The iteration (sprint) an item belongs to, as the team names it (e.g. from Azure DevOps); AgentStudio's own use sprint.
 addColumn("work_items", "iteration", "TEXT");
+// How a finished item is merged: null = the project's setting, "auto", or "review" (a person merges its PR).
+addColumn("work_items", "merge_mode", "TEXT");
 
 // Stretches of a project's time that weren't agents working: waiting for the product owner (an approval gate), paused
 // for a Claude plan or spend limit, or paused by hand. Written when the project's status changes (store.patchProject).
