@@ -12,6 +12,7 @@ import { useItems } from "./hooks";
 import { Count } from "../../components/Count";
 import EstimateAccuracy from "../../components/EstimateAccuracy";
 import { t } from "../../lib/i18n";
+import { EffortCard, useEffort } from "../../components/Effort";
 
 export default function ProjectOverview({ p }: { p: Project }) {
   const { data: meta } = useMeta();
@@ -21,7 +22,8 @@ export default function ProjectOverview({ p }: { p: Project }) {
   const deliverables = (items ?? []).filter((i) => i.type === "story" || i.type === "task" || i.type === "bug");
   const elapsed = p.started_at ? secondsBetween(p.started_at, p.finished_at) : 0;
   const humanH = p.counts.points * (meta?.settings.hoursPerStoryPoint ?? 6) * 1.35;
-  const speedup = elapsed > 0 && humanH > 0 ? (humanH * 3600) / 4 / elapsed : 0;
+  const { data: effort } = useEffort(p.id);
+  const plan = meta?.backend === "subscription" && p.mode === "live";
   const est = p.liveEstimate ?? p.estimate;
   const team = (graph?.nodes ?? []).filter((n) => n.role !== "human" && n.role !== "orchestrator");
   const cats = Object.entries(CATEGORY).map(([k, v]) => ({ k, ...v, n: deliverables.filter((i) => i.category === k).length })).filter((c) => c.n);
@@ -30,9 +32,9 @@ export default function ProjectOverview({ p }: { p: Project }) {
     <div className="col" style={{ gap: 14 }}>
       <div className="grid g5 stagger">
         <Kpi label={t("Deployed")} icon={<CheckCircle2 size={13} />} value={`${p.counts.done}/${p.counts.stories}`} foot={`${p.counts.releaseReady} release-ready · ${p.counts.inProgress} in flight`} />
-        <Kpi label={meta?.backend === "subscription" && p.mode === "live" ? t("AI cost (est.)") : t("AI cost")} icon={<Coins size={13} />} value={<Count value={p.costUsd} format={(n) => money(n)} />} accent foot={p.estimate ? `estimated ${money(p.estimate.totalUsd)} up front` : undefined} />
-        <Kpi label={t("Elapsed")} icon={<Clock size={13} />} value={duration(elapsed)} foot="incl. time waiting for approvals" />
-        <Kpi label={t("Human team equivalent")} icon={<Zap size={13} />} value={<Count value={humanH} format={(n) => hours(n)} />} foot={speedup ? `~${num(speedup)}× faster than a team of 4` : `${p.counts.points} story points`} />
+        <Kpi label={plan ? t("API value") : t("AI cost")} icon={<Coins size={13} />} value={<Count value={p.costUsd} format={(n) => money(n)} />} accent foot={plan ? t("covered by your Claude plan") : p.estimate ? `estimated ${money(p.estimate.totalUsd)} up front` : undefined} />
+        <Kpi label={t("Agents working")} icon={<Clock size={13} />} value={duration(effort?.time.workingSeconds ?? 0)} foot={t("of {e} elapsed", { e: duration(effort?.time.elapsedSeconds ?? elapsed) })} />
+        <Kpi label={t("Human estimate")} icon={<Zap size={13} />} value={<Count value={humanH} format={(n) => hours(n)} />} foot={t("{p} points × {h} h, not measured", { p: p.counts.points, h: meta?.settings.hoursPerStoryPoint ?? 6 })} />
         <Kpi label={t("Open questions")} icon={<HelpCircle size={13} />} value={p.openQuestions} foot={p.openQuestions ? <Link to={`/p/${p.key}/questions`} style={{ color: "var(--accent)" }}>Answer them →</Link> : "nothing pending"} />
       </div>
 
@@ -70,6 +72,7 @@ export default function ProjectOverview({ p }: { p: Project }) {
         </div>
 
         <div className="col" style={{ gap: 14 }}>
+          {p.started_at && <EffortCard projectId={p.id} />}
           <div className="card card-pad">
             <div className="card-title" style={{ marginBottom: 12 }}>{p.liveEstimate ? "Forecast from the backlog" : "Up-front estimate"}</div>
             {est ? <EstimatePanel est={est} compact /> : <div className="small muted">No estimate.</div>}

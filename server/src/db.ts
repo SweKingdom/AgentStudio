@@ -321,6 +321,29 @@ addColumn("work_items", "ado_id", "INTEGER");
 addColumn("test_results", "waits_for", "TEXT");
 addColumn("questions", "reasoning", "TEXT");
 addColumn("questions", "also_items", "TEXT NOT NULL DEFAULT '[]'");
+addColumn("runs", "iteration", "INTEGER");
+addColumn("runs", "attempt", "INTEGER");
+
+// Stretches of a project's time that weren't agents working: waiting for the product owner (an approval gate), paused
+// for a Claude plan or spend limit, or paused by hand. Written when the project's status changes (store.patchProject).
+db.exec(`CREATE TABLE IF NOT EXISTS project_waits (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+  kind TEXT NOT NULL,
+  started_at TEXT NOT NULL,
+  ended_at TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_waits_project ON project_waits(project_id);
+CREATE INDEX IF NOT EXISTS idx_calls_run ON llm_calls(run_id);`);
+
+/** The plan backend used to give every model of a run the run's whole duration (Sonnet and the SDK's own Haiku calls
+ *  alike), so the time was counted once per model. Keeps it on the run's main (costliest) model only; runs at startup. */
+export function keepRunTimeOnMainModel() {
+  db.exec(`UPDATE llm_calls SET duration_ms = 0 WHERE duration_ms > 0 AND run_id IS NOT NULL AND EXISTS (
+    SELECT 1 FROM llm_calls o WHERE o.run_id = llm_calls.run_id AND o.id <> llm_calls.id AND o.duration_ms = llm_calls.duration_ms
+      AND (o.cost_usd > llm_calls.cost_usd OR (o.cost_usd = llm_calls.cost_usd AND o.id < llm_calls.id)))`);
+}
+keepRunTimeOnMainModel();
 
 // What a check, scan or review proved, and for which exact git tree (a story's working copy, or the base: item_code '').
 db.exec(`CREATE TABLE IF NOT EXISTS attestations (

@@ -3,7 +3,7 @@ import { useQuery } from "@tanstack/react-query";
 import { useLocation } from "react-router-dom";
 import { Printer } from "lucide-react";
 import brandLogo from "../assets/agentstudio-logo.svg?raw";
-import { api, storyAssetBase } from "../lib/api";
+import { api, storyAssetBase, type ProjectTime, type Spend } from "../lib/api";
 import type { AccuracyResult } from "../components/EstimateAccuracy";
 import { CATEGORY, DOC_KINDS, STATE_GROUP, TYPE } from "../lib/constants";
 import { dateTime, duration, hours, money, num } from "../lib/format";
@@ -20,7 +20,7 @@ interface Report {
   project: { key: string; name: string; description: string; status: string; mode: string; createdAt: string; startedAt: string | null; finishedAt: string | null; pdfName: string | null; repo: { url: string; branch: string } | null; gates: boolean; budgetUsd: number };
   kpis: {
     epics: number; features: number; items: number; points: number; deployed: number; releaseReady: number; inProgress: number; notStarted: number; held: number; blocked: number;
-    costUsd: number; calls: number; tokens: number; aiBusySeconds: number; simulated: boolean; elapsedSeconds: number; humanHours: number; humanCostUsd: number; speedup: number | null;
+    costUsd: number; calls: number; tokens: number; simulated: boolean; elapsedSeconds: number; humanHours: number; humanCostUsd: number; time: ProjectTime; spend: Spend; planBackend: boolean;
     reworkLoops: number; firstPassYield: number | null; qaChecks: { pass: number; fail: number; blocked: number }; openQuestions: number; commits: number;
   };
   team: { id: string; name: string; title: string; role: string; model: string; effort: string; color: string; version: number; costUsd: number; calls: number; runs: number; busySeconds: number }[];
@@ -188,16 +188,16 @@ export default function ReportView() {
         <p className="rp-lead">
           <b>{p.name}</b> covers <b>{k.items} work items ({num(k.points)} story points)</b> across {k.epics} epics and {k.features} features, derived from {p.pdfName ? <i>{p.pdfName}</i> : "the project description"}.{" "}
           {k.deployed} {k.deployed === 1 ? "is" : "are"} deployed{k.releaseReady ? `, ${k.releaseReady} ready for release` : ""}{k.inProgress ? `, ${k.inProgress} in progress` : ""}{k.held ? `, and ${k.held} on hold until open questions are answered` : ""}.{" "}
-          The AI team spent <b>{money(k.costUsd)}</b> over {duration(k.elapsedSeconds)} of elapsed time — a human team of four would need an estimated <b>{hours(k.humanHours)}</b> (≈{money(k.humanCostUsd, 0)}).{" "}
+          The agents worked for <b>{duration(k.time.workingSeconds)}</b> of {duration(k.elapsedSeconds)} elapsed ({duration(k.time.waitingForYouSeconds)} waiting for you, {duration(k.time.limitSeconds)} paused for limits), using <b>{money(k.costUsd)}</b>{k.planBackend ? " of API value, covered by the Claude plan" : ""}; {money(k.spend.deliveredUsd)} of it is in delivered items and {money(k.spend.reworkUsd)} went on rework. By story points, a human team would need an estimated {hours(k.humanHours)} (≈{money(k.humanCostUsd, 0)}); that figure is an estimate, not a measurement.{" "}
           Peer testing recorded {k.qaChecks.pass} passing checks and {k.qaChecks.fail} failure{k.qaChecks.fail === 1 ? "" : "s"}; {k.reworkLoops} rework loop{k.reworkLoops === 1 ? " was" : "s were"} needed{k.firstPassYield != null ? `, a first-pass yield of ${Math.round(k.firstPassYield * 100)}%` : ""}.
         </p>
         <div className="rp-kpis">
           {[
             ["Scope", `${k.items} items`, `${num(k.points)} pts · ${k.epics} epics`],
             ["Deployed", `${k.deployed}/${k.items}`, `${k.releaseReady} release-ready`],
-            ["AI cost", money(k.costUsd), `${num(k.calls)} model calls${k.simulated ? " · simulated" : ""}`],
-            ["Elapsed", duration(k.elapsedSeconds), `AI busy ${duration(k.aiBusySeconds)}`],
-            ["Human equivalent", hours(k.humanHours), k.speedup ? `~${num(k.speedup)}× faster` : "team of 4"],
+            [k.planBackend ? "API value" : "AI cost", money(k.costUsd), `${num(k.calls)} model calls${k.simulated ? " · simulated" : k.planBackend ? " · covered by the plan" : ""}`],
+            ["Agents working", duration(k.time.workingSeconds), `of ${duration(k.elapsedSeconds)} elapsed`],
+            ["Human estimate", hours(k.humanHours), "from story points, not measured"],
             ["First-pass yield", k.firstPassYield != null ? `${Math.round(k.firstPassYield * 100)}%` : "—", `${k.reworkLoops} rework loop(s)`],
           ].map(([l, v, f]) => (
             <div key={l} className="rp-kpi"><div className="rp-kpi-l">{l}</div><div className="rp-kpi-v">{v}</div><div className="rp-kpi-f">{f}</div></div>
@@ -286,9 +286,9 @@ export default function ReportView() {
       {/* ---------------------------------------------------------------- 6. cost */}
       <Section n={sn("cost")} title="Cost" id="cost">
         <div className="rp-kpis rp-kpis-4">
-          <div className="rp-kpi"><div className="rp-kpi-l">Total AI cost</div><div className="rp-kpi-v">{money(k.costUsd)}</div><div className="rp-kpi-f">{k.simulated ? "simulated at real prices" : "billed usage"}</div></div>
+          <div className="rp-kpi"><div className="rp-kpi-l">Total AI cost</div><div className="rp-kpi-v">{money(k.costUsd)}</div><div className="rp-kpi-f">{k.simulated ? "simulated at real prices" : k.planBackend ? "API prices; covered by the Claude plan" : "billed usage"}</div></div>
           <div className="rp-kpi"><div className="rp-kpi-l">Per story point</div><div className="rp-kpi-v">{money(k.points ? k.costUsd / k.points : 0)}</div><div className="rp-kpi-f">{num(k.points)} pts</div></div>
-          <div className="rp-kpi"><div className="rp-kpi-l">Human-team cost</div><div className="rp-kpi-v">{money(k.humanCostUsd, 0)}</div><div className="rp-kpi-f">{hours(k.humanHours)} estimated</div></div>
+          <div className="rp-kpi"><div className="rp-kpi-l">Delivered</div><div className="rp-kpi-v">{money(k.spend.deliveredUsd)}</div><div className="rp-kpi-f">{money(k.spend.reworkUsd)} on rework · {money(k.spend.stoppedUsd)} stopped</div></div>
           <div className="rp-kpi"><div className="rp-kpi-l">Tokens</div><div className="rp-kpi-v">{num(k.tokens / 1000)}k</div><div className="rp-kpi-f">{num(k.calls)} model calls</div></div>
         </div>
         <h3 className="rp-h3">By stage</h3>

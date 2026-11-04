@@ -84,6 +84,8 @@ export interface ItemDetail extends Omit<WorkItem, "tests" | "phases"> {
   documents: { id: string; kind: string; title: string; version: number; updated_at: string }[];
   questions: Question[]; cost: { costUsd: number; calls: number; inputTokens: number; outputTokens: number };
   comments: Comment[]; bugs: { id: string; code: string; title: string; state: string }[]; busy: boolean;
+  /** Direct spend, and the part of it that went on rework rounds (after QA, code review or the checks sent it back). */
+  spend?: { totalUsd: number; reworkUsd: number };
   costByAgent: { agent_id: string; costUsd: number; calls: number }[];
 }
 export interface Question { id: number; project_id: string; item_id: string | null; question: string; answer: string | null; asked_by: string; created_at: string; answered_at: string | null; item_code?: string; reasoning?: string | null; also_codes?: string[] }
@@ -99,6 +101,9 @@ export interface GraphNode { id: string; name: string; role: string; title: stri
 export interface GraphEdge { from: string; to: string; count: number; last: string; kinds: string[] }
 export interface Graph { nodes: GraphNode[]; edges: GraphEdge[] }
 export interface Release { id: string; project_id: string; version: string; notes: string; status: string; validation: string | null; created_at: string }
+export interface ProjectTime { elapsedSeconds: number; workingSeconds: number; agentSeconds: number; waitingForYouSeconds: number; limitSeconds: number; pausedSeconds: number; otherSeconds: number; limitPauses: number }
+export interface Spend { totalUsd: number; deliveredUsd: number; inProgressUsd: number; stoppedUsd: number; projectWideUsd: number; reworkUsd: number; firstTry: { tested: number; passed: number } }
+export interface Effort { time: ProjectTime; spend: Spend; planBackend: boolean; human: { points: number; hoursPerPoint: number; hours: number } }
 export interface ItemMetrics { id: string; code: string; title: string; category: string; state: string; points: number | null; rework: number; humanHours: number | null; seconds: Record<string, number>; leadTimeSeconds: number | null; phases: Phase[] }
 export interface Costs {
   totals: { costUsd: number; calls: number; inputTokens: number; outputTokens: number; cacheReadTokens: number; cacheWriteTokens: number; busyMs: number; simulatedUsd: number };

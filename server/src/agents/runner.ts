@@ -130,6 +130,8 @@ function startRun(o: RunOptions) {
     status: "running",
     agent_version: o.agent.version,
     kind: o.kind ?? "pipeline",
+    iteration: o.item ? o.iteration ?? 1 : null,
+    attempt: o.attempt ?? null,
     started_at: now(),
   });
   emit({ type: "run", projectId: o.project.id, data: { runId, agentId: o.agent.id, status: "running", itemId: o.item?.id } });

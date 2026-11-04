@@ -92,3 +92,12 @@ test("a spent budget stops the run and still reports its usage", async () => {
   script([result({ subtype: "error_max_budget_usd", is_error: true })]);
   await assert.rejects(sdkRun({ agent, system: "s", content: [], maxTurns: 1, effort: "low" }), (e: unknown) => e instanceof BudgetExceededError && (e as { calls?: unknown[] }).calls?.length === 1);
 });
+
+test("a run's time goes on its main model only, not once per model", async () => {
+  const dev = { ...agent, model: "claude-sonnet-5-5" };
+  script([result({ modelUsage: { "claude-haiku-5-5": usage, "claude-sonnet-5-5": usage } })]);
+  const r = await sdkRun({ agent: dev, system: "sys", content: [{ type: "text", text: "task" }], maxTurns: 5, effort: "medium" });
+  const ms = Object.fromEntries(r.calls.map((c) => [c.model, c.durationMs]));
+  assert.equal(ms["claude-haiku-5-5"], 0, "the SDK's helper calls ran inside the same time");
+  assert.ok(ms["claude-sonnet-5-5"] >= 0 && Object.keys(ms).length === 2);
+});

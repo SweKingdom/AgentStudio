@@ -99,7 +99,7 @@ export default function Overview() {
         <Kpi label={t("Projects")} icon={<FolderKanban size={13} />} value={<Count value={projects?.length ?? 0} format={(n) => String(Math.round(n))} />} foot={t("{n} running now", { n: projects?.filter((p) => p.running).length ?? 0 })} />
         <Kpi label={t("Items deployed")} icon={<CheckCircle2 size={13} />} value={`${delivered}/${items}`} foot={t("{n} story points planned", { n: points })} />
         <Kpi label={t("AI spend")} icon={<Coins size={13} />} value={<Count value={spend} format={(n) => money(n)} />} foot={items ? t("{m} per item", { m: money(spend / Math.max(1, items)) }) : "—"} accent />
-        <Kpi label={t("Human-equivalent effort")} icon={<Clock size={13} />} value={<Count value={humanHours} format={(n) => hours(n)} />} foot={t("≈ {m} at team rates", { m: money(humanHours * (meta?.settings.humanHourlyRateUsd ?? 65), 0) })} />
+        <Kpi label={t("Human estimate")} icon={<Clock size={13} />} value={<Count value={humanHours} format={(n) => hours(n)} />} foot={t("from story points, not measured · ≈ {m} at team rates", { m: money(humanHours * (meta?.settings.humanHourlyRateUsd ?? 65), 0) })} />
         <Kpi label={t("Agents")} icon={<Bot size={13} />} value={<Count value={agents?.length ?? 0} format={(n) => String(Math.round(n))} />} foot={t("{n} working right now", { n: activeAgents })} />
       </div>
 

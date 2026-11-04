@@ -130,10 +130,12 @@ export async function sdkRun(o: {
         }
       }
       if (m.type === "result") {
+        // The run's time goes on its main model only: the SDK's helper calls on other models ran inside the same time.
+        const main = Object.keys(m.modelUsage).includes(o.agent.model) ? o.agent.model : Object.keys(m.modelUsage)[0];
         const calls = Object.entries(m.modelUsage).map(([model, u]) => ({
           model,
           usage: { input_tokens: u.inputTokens, output_tokens: u.outputTokens, cache_read_tokens: u.cacheReadInputTokens, cache_write_tokens: u.cacheCreationInputTokens },
-          durationMs: Date.now() - started,
+          durationMs: model === main ? Date.now() - started : 0,
         }));
         if (m.subtype === "error_max_budget_usd") throw Object.assign(new BudgetExceededError("Project budget reached during the run."), { calls });
         if (m.subtype === "error_during_execution") throw Object.assign(new Error(m.errors.join("; ") || "The agent run failed."), { calls });
