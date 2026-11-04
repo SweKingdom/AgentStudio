@@ -255,3 +255,34 @@ test("a story picked up again first takes what was pushed to its branch on origi
   assert.match(diverged.remote.warning ?? "", /diverged/);
   assert.ok(!fs.existsSync(path.join(worktreeDir(p, "US-801"), "data/other.db")));
 });
+
+test("README, CHANGELOG, .gitignore and .env.example keep both stories' lines instead of conflicting", async () => {
+  const { p } = project("UNI");
+  await ensureRepo(p);
+  const main = workspaceDir(p);
+  write(main, "README.md", "# App\n\n## Run\n");
+  write(main, ".gitignore", "node_modules/\n");
+  sh(main, "add", "-A");
+  sh(main, "-c", "user.name=t", "-c", "user.email=t@t", "commit", "-q", "-m", "base");
+  const story = item("US-601", "Search");
+  const { branch } = await ensureItemBranch(p, story);
+  write(worktreeDir(p, "US-601"), "README.md", "# App\n\n## Run\n\n## Search\n");
+  write(worktreeDir(p, "US-601"), ".gitignore", "node_modules/\ncoverage/\n");
+  await commitWork(p, { author: "Dev", email: "dev@x", message: "US-601: search", itemCode: "US-601" });
+  // Another story added its own section and ignore line on main meanwhile.
+  write(main, "README.md", "# App\n\n## Run\n\n## Bookings\n");
+  write(main, ".gitignore", "node_modules/\ndist/\n");
+  sh(main, "add", "-A");
+  sh(main, "-c", "user.name=t", "-c", "user.email=t@t", "commit", "-q", "-m", "US-600: bookings");
+
+  const again = await ensureItemBranch(p, { ...story, branch });
+  assert.deepEqual(again.conflicts, [], "no conflict for the developer to resolve");
+  const readme = fs.readFileSync(path.join(worktreeDir(p, "US-601"), "README.md"), "utf8");
+  assert.match(readme, /## Search/);
+  assert.match(readme, /## Bookings/);
+  const ignore = fs.readFileSync(path.join(worktreeDir(p, "US-601"), ".gitignore"), "utf8");
+  assert.ok(ignore.includes("coverage/") && ignore.includes("dist/"));
+  assert.equal(sh(main, "status", "--porcelain"), "", "the merge rule isn't a committed file");
+  await ensureRepo(p);
+  assert.equal(fs.readFileSync(path.join(main, ".git", "info", "attributes"), "utf8").match(/README\.md merge=union/g)?.length, 1, "written once");
+});
