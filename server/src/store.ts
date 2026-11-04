@@ -34,6 +34,9 @@ export interface ProjectSettings {
   designCritique?: boolean;
   /** Write down what a story was sent back for, and show it to later stories (lessons.ts). Unset = on. */
   lessons?: boolean;
+  /** Models for the developer and QA by story size: `small` for stories of at most 2 points, `large` for 8 points.
+   *  Unset (or null) = the agent's own model. */
+  modelBySize?: { small?: string | null; large?: string | null } | null;
   /** Commands a developer agent may run in its story's worktree (each a prefix, word for word). */
   commands?: string[];
   /** Paths (globs) no story may add or change, on top of the built-in ones (env files, keys, credentials). */

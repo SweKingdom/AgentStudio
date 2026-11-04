@@ -127,6 +127,13 @@ export const SV: Record<string, string> = {
   "open question(s)": "öppna frågor",
   Blocked: "Blockerad",
   "Not released": "Inte releasad",
+  "The agent's own model": "Agentens egen modell",
+  "Model for small stories (1–2 points)": "Modell för små stories (1–2 poäng)",
+  "Model for large stories (8 points)": "Modell för stora stories (8 poäng)",
+  "The developer and QA use this model on small stories. A cheaper model costs less per story, but watch the rework rounds: if they go up, it costs more. Takes effect from the next agent run.":
+    "Utvecklaren och QA använder den här modellen på små stories. En billigare modell kostar mindre per story, men håll koll på omarbetningsrundorna: blir de fler kostar det mer. Gäller från nästa agentkörning.",
+  "The developer and QA use this model on 8-point stories, where a stronger model often saves rework rounds. Takes effect from the next agent run.":
+    "Utvecklaren och QA använder den här modellen på stories med 8 poäng, där en starkare modell ofta sparar omarbetningsrundor. Gäller från nästa agentkörning.",
   "Cancel": "Avbryt",
   "Children": "Underliggande",
   "Development": "Utveckling",

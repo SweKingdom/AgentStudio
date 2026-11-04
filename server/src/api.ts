@@ -533,6 +533,15 @@ api.patch("/projects/:pid", wrap(async (req, res) => {
     if (!list || list.length > 30 || list.some((g) => (g as string).length > 200)) return res.status(400).json({ error: "Protected paths: at most 30 globs of at most 200 characters." });
     body.settings.protectedPaths = list;
   }
+  if (body.settings?.modelBySize !== undefined) {
+    const known = new Set(models().map((m) => m.id));
+    const pick = (v: unknown) => (v ? String(v) : null);
+    const m = body.settings.modelBySize ?? {};
+    const sized = { small: pick(m.small), large: pick(m.large) };
+    const bad = [sized.small, sized.large].find((x) => x && !known.has(x));
+    if (bad) return res.status(400).json({ error: `Unknown model: ${bad}` });
+    body.settings.modelBySize = sized.small || sized.large ? sized : null;
+  }
   if (body.settings?.commands !== undefined) {
     try {
       body.settings.commands = cleanAllowedCommands(body.settings.commands);

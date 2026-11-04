@@ -11,6 +11,8 @@ import { AdoSettings, adoConfigError, adoFormValue, adoSettingsOf } from "../../
 import { BookmarkPlus } from "lucide-react";
 import { CodeReviewField, DESIGN_CRITIQUE_HELP, LESSONS_HELP } from "../../components/CodeReviewField";
 import { useClaudeAccounts } from "../../components/ClaudeAccounts";
+import { t } from "../../lib/i18n";
+import { useMeta } from "../../lib/queries";
 
 /** Edit a project after creation: identity, repository, run settings and checks. */
 export function ProjectSettingsModal({ p, onClose }: { p: Project; onClose: () => void }) {
@@ -18,7 +20,14 @@ export function ProjectSettingsModal({ p, onClose }: { p: Project; onClose: () =
   const [name, setName] = useState(p.name);
   const [description, setDescription] = useState(p.description);
   const [repo, setRepo] = useState({ url: p.settings.repo?.url ?? "", branch: p.settings.repo?.branch ?? "main", push: p.settings.repo?.push ?? false });
-  const [s, setS] = useState({ gates: p.settings.gates, parallelism: p.settings.parallelism, budgetUsd: p.settings.budgetUsd, maxRework: p.settings.maxRework, codeReview: p.settings.codeReview ?? "off", designCritique: p.settings.designCritique !== false, lessons: p.settings.lessons !== false, claudeAccount: p.settings.claudeAccount ?? null });
+  const [s, setS] = useState({ gates: p.settings.gates, parallelism: p.settings.parallelism, budgetUsd: p.settings.budgetUsd, maxRework: p.settings.maxRework, codeReview: p.settings.codeReview ?? "off", designCritique: p.settings.designCritique !== false, lessons: p.settings.lessons !== false, claudeAccount: p.settings.claudeAccount ?? null, modelBySize: { small: p.settings.modelBySize?.small ?? null, large: p.settings.modelBySize?.large ?? null } });
+  const { data: meta } = useMeta();
+  const sizeModel = (size: "small" | "large", label: string) => (
+    <select className="input" aria-label={label} value={s.modelBySize[size] ?? ""} onChange={(e) => setS({ ...s, modelBySize: { ...s.modelBySize, [size]: e.target.value || null } })}>
+      <option value="">{t("The agent's own model")}</option>
+      {meta?.models.map((m) => <option key={m.id} value={m.id}>{m.label}</option>)}
+    </select>
+  );
   const { data: claude } = useClaudeAccounts();
   const { data: team } = useTeam();
   // Only what differs from the team defaults is stored on the project; an empty list follows the team.
@@ -66,6 +75,12 @@ export function ProjectSettingsModal({ p, onClose }: { p: Project; onClose: () =
           </Field>
           <Field label="Lessons learned" help={LESSONS_HELP}>
             <div className="row" style={{ height: 34 }}><Switch on={s.lessons} onChange={(v) => setS({ ...s, lessons: v })} label="Lessons learned" /><span className="small muted">{s.lessons ? "On" : "Off"}</span></div>
+          </Field>
+          <Field label={t("Model for small stories (1–2 points)")} help={t("The developer and QA use this model on small stories. A cheaper model costs less per story, but watch the rework rounds: if they go up, it costs more. Takes effect from the next agent run.")}>
+            {sizeModel("small", t("Model for small stories (1–2 points)"))}
+          </Field>
+          <Field label={t("Model for large stories (8 points)")} help={t("The developer and QA use this model on 8-point stories, where a stronger model often saves rework rounds. Takes effect from the next agent run.")}>
+            {sizeModel("large", t("Model for large stories (8 points)"))}
           </Field>
           <Field label="Claude account" help="Which Claude login this project's live agents use on the plan backend (Settings → Claude account). Takes effect from the next agent run.">
             <select className="input" value={s.claudeAccount ?? ""} onChange={(e) => setS({ ...s, claudeAccount: e.target.value || null })}>
