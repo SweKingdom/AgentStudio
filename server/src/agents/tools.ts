@@ -38,6 +38,7 @@ import { askOnce } from "../questions.js";
 import { formatChecks, runChecks } from "../checks.js";
 import { attest, attestedNow } from "../attest.js";
 import { effectiveMode } from "../settings.js";
+import { protectedPath } from "../scan.js";
 import { agentEmail, listAgents } from "./store.js";
 
 const pexec = promisify(execFile);
@@ -565,6 +566,9 @@ const TOOLS: Record<string, ToolSpec> = {
     },
     handler: (i, ctx) => {
       req(i, "path", "content");
+      // Refused here, not only at the merge scan: the agent picks another file in the same turn instead of a rework round.
+      const why = protectedPath(ctx.project, String(i.path));
+      if (why) throw new Error(`${i.path} is protected (${why}), so no agent may write it. Put example values in a template such as .env.example and read the real ones from the environment. If the story really needs this file, ask the product owner with request_manual_step.`);
       const rel = recordFile(ctx.project.id, i.path, i.content, ctx.agent.id, ctx.item?.id ?? null);
       logActivity({
         projectId: ctx.project.id,

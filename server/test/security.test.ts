@@ -89,6 +89,21 @@ test("the scan finds secrets, protected paths, other dependency sources and link
   assert.deepEqual(await scanBranch(clean.p, clean.code), []);
 });
 
+test("write_file refuses a protected path when it's written, so it never costs a rework round", async () => {
+  const { executeTool } = await import("../src/agents/tools.ts");
+  const { defaultAgentFor } = await import("../src/agents/store.ts");
+  const { p } = await storyRepo("WRP", { protectedPaths: ["infra/prod/**"] });
+  const item = createItem(p.id, { type: "story", title: "Config" });
+  const ctx = { project: getProject(p.id)!, agent: defaultAgentFor("developer"), item, runId: "run_wrp", iteration: 1, outcome: {} } as any;
+  for (const bad of [".env", "./.env.local", "certs\\server.key", "infra/prod/main.tf"]) {
+    const r = await executeTool("write_file", { path: bad, content: "x\n" }, ctx);
+    assert.equal(r.ok, false, bad);
+    assert.match(r.content, /is protected .* no agent may write it/, bad);
+    assert.ok(!fs.existsSync(path.join(worktreeDir(p, item.code), bad.replace(/\\/g, "/"))), `${bad} wasn't written`);
+  }
+  for (const ok of [".env.example", "infra/staging/main.tf", "src/env.ts"]) assert.equal((await executeTool("write_file", { path: ok, content: "x\n" }, ctx)).ok, true, ok);
+});
+
 // ---------------------------------------------------------------- the merge gate, end to end
 
 let n = 0;
