@@ -150,6 +150,7 @@ export default function ItemDrawer({ id, project, onClose }: { id: string; proje
           {it.moscow && <span className="chip" style={{ background: "var(--panel-3)" }}>{it.moscow}</span>}
           {it.priority != null && <span className="chip" style={{ background: "var(--panel-3)" }}>P{it.priority}</span>}
           {it.sprint != null && <span className="chip" style={{ background: "var(--panel-3)" }}>Sprint {it.sprint}</span>}
+          {it.iteration && <span className="chip" title={t("The iteration as your team names it")} style={{ background: "var(--panel-3)" }}>{it.iteration}</span>}
           {it.rank != null && <span className="chip" style={{ background: "var(--panel-3)" }}>Rank #{it.rank}</span>}
           {it.rework_count > 0 && <span className="chip" style={{ background: "rgba(242,85,90,.12)", color: "var(--bad)" }}><RotateCcw size={11} /> {it.rework_count} rework</span>}
           {it.branch && <span className="chip mono" title="This task's own git branch: every agent run on it is a commit there; it's merged into the default branch when the task is done." style={{ background: "var(--panel-3)" }}><GitBranch size={11} /> {it.branch}</span>}

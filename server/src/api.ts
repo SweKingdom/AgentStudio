@@ -30,7 +30,7 @@ import { registerAccuracy } from "./routes/accuracy.js";
 import { codeReviewMode } from "./review.js";
 import { CUSTOM_AGENTS_ENABLED } from "./team.js";
 import { itemSpend, projectSpend, projectTime } from "./timing.js";
-import { ownedByStudio } from "./ownership.js";
+import { cleanWorkRule, ownedByStudio } from "./ownership.js";
 import { registerTemplates } from "./routes/templates.js";
 import { audit } from "./auth.js";
 import { LESSONS_KIND, LESSONS_TITLE, lessonsProblem, parseLessons, renderLessons } from "./lessons.js";
@@ -549,6 +549,13 @@ api.patch("/projects/:pid", wrap(async (req, res) => {
     if (!list || list.length > 30 || list.some((g) => (g as string).length > 200)) return res.status(400).json({ error: "Protected paths: at most 30 globs of at most 200 characters." });
     body.settings.protectedPaths = list;
   }
+  if (body.settings?.workRule !== undefined) {
+    try {
+      body.settings.workRule = cleanWorkRule(body.settings.workRule);
+    } catch (e) {
+      return res.status(400).json({ error: e instanceof Error ? e.message : String(e) });
+    }
+  }
   if (body.settings?.modelBySize !== undefined) {
     const known = new Set(models().map((m) => m.id));
     const pick = (v: unknown) => (v ? String(v) : null);
@@ -722,6 +729,8 @@ api.get("/projects/:pid/items", (req, res) => {
       tests: tests.find((t) => t.item_id === it.id) ?? null,
       activeAgent: active.find((a) => a.item_id === it.id)?.agent_id ?? null,
       openQuestions: openQ.find((q) => q.item_id === it.id)?.n ?? 0,
+      /** Whether AgentStudio builds it: its owner, else the project's rule. */
+      ours: ownedByStudio(p, it),
     })),
   );
 });
@@ -780,6 +789,7 @@ api.get("/items/:id", (req, res) => {
     questions: all("SELECT * FROM questions WHERE item_id = ? OR also_items LIKE ? ORDER BY id", it.id, `%"${it.id}"%`),
     comments: all("SELECT * FROM comments WHERE item_id = ? ORDER BY id", it.id),
     spend: itemSpend(it.id),
+    ours: ownedByStudio(getProject(it.project_id)!, it),
     bugs: listItems(it.project_id).filter((b) => b.type === "bug" && b.parent_id === it.id).map((b) => ({ id: b.id, code: b.code, title: b.title, state: b.state })),
     busy: all("SELECT 1 FROM runs WHERE item_id = ? AND status = 'running'", it.id).length > 0 || listJobs(it.project_id).some((j) => j.itemId === it.id),
     cost: get(
@@ -795,7 +805,7 @@ api.patch("/items/:id", (req, res) => {
   if (!it) return res.status(404).json({ error: "Item not found" });
   const allowed = [
     "title", "category", "state", "priority", "moscow", "story_points", "sprint", "rank", "user_story", "background",
-    "business_rules", "dependencies", "out_of_scope", "acceptance_criteria", "tech_spec", "how_to_test", "manual_steps", "tags",
+    "business_rules", "dependencies", "out_of_scope", "acceptance_criteria", "tech_spec", "how_to_test", "manual_steps", "tags", "iteration",
   ];
   const patch: Record<string, unknown> = {};
   for (const k of allowed) if (req.body?.[k] !== undefined) patch[k] = req.body[k];

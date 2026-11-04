@@ -4,12 +4,12 @@ import type { WorkItem } from "../lib/api";
 import { t } from "../lib/i18n";
 import { Hint } from "./Hint";
 
-/** AgentStudio builds the item, unless it's given to someone else (ownership.ts). */
-export const isSomeoneElses = (it: Pick<WorkItem, "owner">) => it.owner === "person";
-export const ownerLabel = (it: Pick<WorkItem, "owner" | "assignee">) => (isSomeoneElses(it) ? it.assignee?.trim() || t("Someone else") : "AgentStudio");
+/** Given to someone else, or (from the items list) outside the project's rule for AgentStudio. */
+export const isSomeoneElses = (it: Pick<WorkItem, "owner"> & { ours?: boolean }) => it.owner === "person" || (it.owner !== "agentstudio" && it.ours === false);
+export const ownerLabel = (it: Pick<WorkItem, "owner" | "assignee"> & { ours?: boolean }) => (isSomeoneElses(it) ? it.assignee?.trim() || t("Someone else") : "AgentStudio");
 
 /** A small chip for cards and lists: only shown when someone else builds the item. */
-export function OwnerChip({ item }: { item: Pick<WorkItem, "owner" | "assignee"> }) {
+export function OwnerChip({ item }: { item: Pick<WorkItem, "owner" | "assignee"> & { ours?: boolean } }) {
   if (!isSomeoneElses(item)) return null;
   return (
     <span className="chip" title={t("Someone else builds this; AgentStudio doesn't, but waits for it when its own stories depend on it.")} style={{ background: "var(--panel-3)" }}>
@@ -19,7 +19,7 @@ export function OwnerChip({ item }: { item: Pick<WorkItem, "owner" | "assignee">
 }
 
 /** Who builds the item, editable in the story drawer. */
-export function OwnerField({ item, disabled, onSave }: { item: Pick<WorkItem, "owner" | "assignee">; disabled?: boolean; onSave: (patch: { owner: WorkItem["owner"]; assignee?: string | null }) => void }) {
+export function OwnerField({ item, disabled, onSave }: { item: Pick<WorkItem, "owner" | "assignee"> & { ours?: boolean }; disabled?: boolean; onSave: (patch: { owner: WorkItem["owner"]; assignee?: string | null }) => void }) {
   const [name, setName] = useState(item.assignee ?? "");
   useEffect(() => setName(item.assignee ?? ""), [item.assignee]);
   const theirs = isSomeoneElses(item);

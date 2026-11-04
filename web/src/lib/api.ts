@@ -22,7 +22,8 @@ export interface AgentDetail extends Agent { systemPrompt: string; recentRuns: R
 export interface Run { id: string; project_id: string; agent_id: string; stage: string; item_id: string | null; status: string; turns: number; agent_version?: number; kind?: string; summary: string | null; error: string | null; started_at: string; ended_at: string | null; project_key?: string; item_code?: string }
 export interface Knowledge { id: string; title: string; summary: string; content: string; tokens: number; custom: boolean }
 export interface StageState { key: string; role: string; label: string; status: "pending" | "running" | "done" | "skipped" | "awaiting_approval" | "failed"; gate?: boolean }
-export interface ProjectSettings { gates: boolean; parallelism: number; budgetUsd: number; maxRework: number; repo?: { url: string; branch: string; push?: boolean } | null; codeReview?: "off" | "complex" | "all"; checks?: Partial<ChecksSettings>; ado?: AdoConfig | null; claudeAccount?: string | null; commands?: string[]; protectedPaths?: string[]; designCritique?: boolean; lessons?: boolean; modelBySize?: { small?: string | null; large?: string | null } | null }
+export interface WorkRule { assignees?: string[]; iterations?: string[]; tags?: string[] }
+export interface ProjectSettings { gates: boolean; parallelism: number; budgetUsd: number; maxRework: number; repo?: { url: string; branch: string; push?: boolean } | null; codeReview?: "off" | "complex" | "all"; checks?: Partial<ChecksSettings>; ado?: AdoConfig | null; claudeAccount?: string | null; commands?: string[]; protectedPaths?: string[]; designCritique?: boolean; lessons?: boolean; workRule?: WorkRule | null; modelBySize?: { small?: string | null; large?: string | null } | null }
 /** Azure DevOps project the backlog syncs to. The token lives only in .env (AZURE_DEVOPS_PAT). */
 export interface AdoConfig { orgUrl: string; project: string; areaPath?: string; iterationRoot?: string; stateMode: "same" | "agile" }
 export interface RepoInfo { url: string; branch: string; push?: boolean; provider: "github" | "azure" | "gitlab" | "bitbucket" | "other"; name: string; webUrl: string | null }
@@ -70,7 +71,9 @@ export interface WorkItem {
   out_of_scope: string; acceptance_criteria: string; tech_spec: string; how_to_test: string; manual_steps: string; solution_components: string;
   tags: string[]; depends_on: string[]; assigned_agent_id: string | null; rework_count: number;
   /** Who builds it: unset = AgentStudio, "agentstudio" = given to it, "person" = someone else; assignee = their name. */
-  owner?: "agentstudio" | "person" | null; assignee?: string | null; branch?: string | null; pr_url?: string | null; ado_id?: number | null; human_hours: number | null; created_by: string | null;
+  owner?: "agentstudio" | "person" | null; assignee?: string | null; iteration?: string | null;
+  /** From the items list: whether AgentStudio builds it (its owner, else the project's rule). */
+  ours?: boolean; branch?: string | null; pr_url?: string | null; ado_id?: number | null; human_hours: number | null; created_by: string | null;
   created_at: string; updated_at: string; costUsd?: number; phases?: Phase[]; tests?: { pass: number; fail: number; blocked: number } | null; activeAgent?: string | null; openQuestions?: number;
 }
 export interface Message { id: number; project_id: string; from_agent_id: string; to_agent_id: string; item_id: string | null; kind: string; content: string; created_at: string; item_code?: string }

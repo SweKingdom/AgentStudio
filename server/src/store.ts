@@ -41,6 +41,8 @@ export interface ProjectSettings {
   commands?: string[];
   /** Paths (globs) no story may add or change, on top of the built-in ones (env files, keys, credentials). */
   protectedPaths?: string[];
+  /** Which items AgentStudio builds when they aren't given to it or to someone explicitly (ownership.ts). */
+  workRule?: import("./ownership.js").WorkRule | null;
 }
 
 export interface Project {
@@ -197,6 +199,8 @@ export interface WorkItem {
   owner?: "agentstudio" | "person" | null;
   /** The person it's assigned to, when known (typed in, or from Azure DevOps). */
   assignee?: string | null;
+  /** The iteration as the team names it (e.g. "2026-23" from Azure DevOps); AgentStudio's own planning uses `sprint`. */
+  iteration?: string | null;
   human_hours: number | null;
   created_by: string | null;
   created_at: string;
