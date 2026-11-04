@@ -193,6 +193,10 @@ export interface WorkItem {
   ado_id?: number | null;
   /** The task's GitHub pull request, when the project pushes to a GitHub repository. */
   pr_url: string | null;
+  /** Who builds it: unset = AgentStudio, "agentstudio" = given to it explicitly, "person" = someone else (ownership.ts). */
+  owner?: "agentstudio" | "person" | null;
+  /** The person it's assigned to, when known (typed in, or from Azure DevOps). */
+  assignee?: string | null;
   human_hours: number | null;
   created_by: string | null;
   created_at: string;

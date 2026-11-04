@@ -11,6 +11,7 @@ import { useAgentLookup } from "../../lib/queries";
 import { money } from "../../lib/format";
 import { AgentAvatar, Empty, TestBadge, TypeIcon } from "../../components/ui";
 import { useItems, useOpenItem } from "./hooks";
+import { OwnerChip } from "../../components/Owner";
 
 export function WorkCard({ it, onOpen, onDragStart, onDragEnd, onDropOn, dragging, changed }: { it: WorkItem; onOpen: () => void; onDragStart?: () => void; onDragEnd?: () => void; onDropOn?: () => void; dragging?: boolean; changed?: boolean }) {
   const agent = useAgentLookup();
@@ -42,6 +43,7 @@ export function WorkCard({ it, onOpen, onDragStart, onDragEnd, onDropOn, draggin
       <div className="wcard-meta">
         {it.sprint != null && <span>S{it.sprint}</span>}
         {it.moscow && <span>· {it.moscow}</span>}
+        <OwnerChip item={it} />
         <TestBadge t={it.tests} />
         {it.rework_count > 0 && <span style={{ color: "var(--bad)" }} className="row"><RotateCcw size={11} />{it.rework_count}</span>}
         {(it.openQuestions ?? 0) > 0 && (

@@ -16,6 +16,7 @@ import { PageSkeleton } from "../../components/Skeleton";
 import { AdoChip } from "../../components/AdoSettings";
 import { ChangeCount, FileCode, FileDiff } from "../../components/CodeBlock";
 import { t } from "../../lib/i18n";
+import { OwnerField, isSomeoneElses } from "../../components/Owner";
 
 type Tab = "story" | "tests" | "timeline" | "conversation" | "files" | "cost";
 
@@ -168,6 +169,7 @@ export default function ItemDrawer({ id, project, onClose }: { id: string; proje
           <span className="small muted">{money(it.cost.costUsd)}</span>
         </div>
         <div className="row wrap" style={{ gap: 6 }}>
+          {isDeliverable && <OwnerField item={it} disabled={save.isPending || (it.busy && !isSomeoneElses(it))} onSave={(patch) => save.mutate(patch)} />}
           {it.busy && <span className="pill" style={{ color: "var(--info)", border: "1px solid var(--line-2)" }}><Loader2 size={12} className="spin" /> An agent is working on this item</span>}
           {isDeliverable && ["New", "Requires additional information", "Ready for Refinement", "Ready for Sprint", "To Do", "Blocked"].includes(it.state) && (
             <Hint text="Run every missing step for this item in pipeline order: refinement and planning if needed, then build → peer test → documentation. The right agents are called one after the other.">

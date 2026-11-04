@@ -30,6 +30,7 @@ import { registerAccuracy } from "./routes/accuracy.js";
 import { codeReviewMode } from "./review.js";
 import { CUSTOM_AGENTS_ENABLED } from "./team.js";
 import { itemSpend, projectSpend, projectTime } from "./timing.js";
+import { ownedByStudio } from "./ownership.js";
 import { registerTemplates } from "./routes/templates.js";
 import { audit } from "./auth.js";
 import { LESSONS_KIND, LESSONS_TITLE, lessonsProblem, parseLessons, renderLessons } from "./lessons.js";
@@ -487,7 +488,7 @@ api.post("/projects", wrap(async (req, res) => {
 /** Measured time and spend (timing.ts), with the human figure kept as what it is: an estimate from story points. */
 api.get("/projects/:pid/effort", (req, res) => {
   const p = getProject(String(req.params.pid))!;
-  const points = listItems(p.id).filter((i) => ["story", "task", "bug"].includes(i.type)).reduce((n, i) => n + (i.story_points ?? 0), 0);
+  const points = listItems(p.id).filter((i) => ["story", "task", "bug"].includes(i.type) && ownedByStudio(p, i)).reduce((n, i) => n + (i.story_points ?? 0), 0);
   const st = appSettings();
   res.json({
     time: projectTime(p.id),
@@ -502,7 +503,7 @@ api.get("/projects/:pid", (req, res) => {
   const p = getProject(String(req.params.pid));
   if (!p) return res.status(404).json({ error: "Project not found" });
   const team = teamOf(p);
-  const items = listItems(p.id).filter((i) => i.type === "story" || i.type === "task");
+  const items = listItems(p.id).filter((i) => (i.type === "story" || i.type === "task") && ownedByStudio(p, i));
   const liveEstimate =
     items.length > 0
       ? estimateProject({
@@ -798,16 +799,53 @@ api.patch("/items/:id", (req, res) => {
   ];
   const patch: Record<string, unknown> = {};
   for (const k of allowed) if (req.body?.[k] !== undefined) patch[k] = req.body[k];
+  const owner = req.body?.owner !== undefined || req.body?.assignee !== undefined ? ownerPatch(req.body) : {};
+  if ("error" in owner) return res.status(400).json({ error: owner.error });
+  Object.assign(patch, owner);
+  const p = getProject(it.project_id)!;
+  if (patch.owner === "person" && isWorkedOn(it)) return res.status(409).json({ error: `${it.code} is being worked on by an agent — wait until it finishes.` });
   if (patch.state && patch.state !== it.state) {
-    if (all("SELECT 1 FROM runs WHERE item_id = ? AND status = 'running'", it.id).length || listJobs(it.project_id).some((j) => j.itemId === it.id)) {
-      return res.status(409).json({ error: `${it.code} is being worked on by an agent — wait until it finishes.` });
-    }
-    const why = humanTransition(it.state, String(patch.state));
+    if (isWorkedOn(it)) return res.status(409).json({ error: `${it.code} is being worked on by an agent — wait until it finishes.` });
+    // Someone else's item follows their work, so any state is fine; AgentStudio's own follow the pipeline.
+    const why = humanTransition(it.state, String(patch.state), !ownedByStudio(p, { ...it, ...(patch as Partial<WorkItem>) }));
     if (why) return res.status(409).json({ error: why });
   }
   const saved = patchItem(it.id, patch as Partial<WorkItem>);
   logActivity({ projectId: it.project_id, agentId: "human", itemId: it.id, type: "item_updated", summary: `You edited ${it.code}: ${Object.keys(patch).join(", ")}` });
   res.json(saved);
+});
+
+const isWorkedOn = (it: WorkItem) => all("SELECT 1 FROM runs WHERE item_id = ? AND status = 'running'", it.id).length > 0 || listJobs(it.project_id).some((j) => j.itemId === it.id);
+
+/** owner: "agentstudio" | "person" | null (back to the default); assignee: a name, or empty to clear. */
+function ownerPatch(body: Record<string, unknown>): { owner?: WorkItem["owner"]; assignee?: string | null } | { error: string } {
+  const out: { owner?: WorkItem["owner"]; assignee?: string | null } = {};
+  if (body.owner !== undefined) {
+    if (body.owner !== null && body.owner !== "agentstudio" && body.owner !== "person") return { error: 'owner must be "agentstudio", "person" or null' };
+    out.owner = body.owner as WorkItem["owner"];
+  }
+  if (body.assignee !== undefined) {
+    const name = String(body.assignee ?? "").trim();
+    if (name.length > 120) return { error: "The assignee's name is at most 120 characters." };
+    out.assignee = name || null;
+  }
+  return out;
+}
+
+/** Give many items to AgentStudio or to a person at once (the backlog's bulk action). */
+api.post("/projects/:pid/items/owner", (req, res) => {
+  const pid = String(req.params.pid);
+  const ids: string[] = Array.isArray(req.body?.ids) ? req.body.ids.map(String) : [];
+  const owner = ownerPatch({ owner: req.body?.owner ?? null, ...(req.body?.assignee !== undefined ? { assignee: req.body.assignee } : {}) });
+  if ("error" in owner) return res.status(400).json({ error: owner.error });
+  const items = ids.map((id) => getItem(id)).filter((i): i is WorkItem => !!i && i.project_id === pid);
+  const busy = owner.owner === "person" ? items.filter(isWorkedOn) : [];
+  const changed = items.filter((i) => !busy.includes(i)).map((i) => patchItem(i.id, owner));
+  if (changed.length) {
+    const to = owner.owner === "person" ? owner.assignee || "someone else" : "AgentStudio";
+    logActivity({ projectId: pid, agentId: "human", type: "item_updated", summary: `You gave ${changed.length} item(s) to ${to}: ${changed.map((i) => i.code).join(", ").slice(0, 300)}` });
+  }
+  res.json({ changed: changed.length, skipped: busy.map((i) => ({ code: i.code, reason: "being worked on by an agent" })) });
 });
 
 

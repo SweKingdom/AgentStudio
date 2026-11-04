@@ -68,7 +68,9 @@ export interface WorkItem {
   category: string; state: string; priority: number | null; moscow: string | null; story_points: number | null; wsjf: number | null;
   sprint: number | null; rank: number | null; user_story: string; background: string; business_rules: string; dependencies: string;
   out_of_scope: string; acceptance_criteria: string; tech_spec: string; how_to_test: string; manual_steps: string; solution_components: string;
-  tags: string[]; depends_on: string[]; assigned_agent_id: string | null; rework_count: number; branch?: string | null; pr_url?: string | null; ado_id?: number | null; human_hours: number | null; created_by: string | null;
+  tags: string[]; depends_on: string[]; assigned_agent_id: string | null; rework_count: number;
+  /** Who builds it: unset = AgentStudio, "agentstudio" = given to it, "person" = someone else; assignee = their name. */
+  owner?: "agentstudio" | "person" | null; assignee?: string | null; branch?: string | null; pr_url?: string | null; ado_id?: number | null; human_hours: number | null; created_by: string | null;
   created_at: string; updated_at: string; costUsd?: number; phases?: Phase[]; tests?: { pass: number; fail: number; blocked: number } | null; activeAgent?: string | null; openQuestions?: number;
 }
 export interface Message { id: number; project_id: string; from_agent_id: string; to_agent_id: string; item_id: string | null; kind: string; content: string; created_at: string; item_code?: string }

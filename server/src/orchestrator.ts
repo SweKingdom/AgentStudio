@@ -10,6 +10,7 @@ import { appSettings, claudeBackend, effectiveMode } from "./settings.js";
 import { planUsageFor, usageLevel } from "./claudeAccounts.js";
 import { failedChecks, lessonsBlock } from "./agents/context.js";
 import { captureLessons, lessonsEnabled, type ReworkEntry } from "./lessons.js";
+import { ownedByStudio, ownerName } from "./ownership.js";
 import { baseNeedsSetup } from "./checks.js";
 import { attest, lastAttestation, verify } from "./attest.js";
 import { formatFindings, scanBranch } from "./scan.js";
@@ -277,7 +278,8 @@ async function loop(projectId: string, signal: AbortSignal) {
 
 function finishProject(projectId: string) {
   patchProject(projectId, { status: "completed", stage: null, finished_at: now(), stages: getProject(projectId)!.stages.filter((s) => s.key !== OPEN_ITEMS) });
-  const items = listItems(projectId).filter((i) => i.type === "story" || i.type === "task" || i.type === "bug");
+  const p = getProject(projectId)!;
+  const items = listItems(projectId).filter((i) => (i.type === "story" || i.type === "task" || i.type === "bug") && ownedByStudio(p, i));
   const delivered = items.filter((i) => DELIVERED_STATES.includes(i.state)).length;
   const cost = projectCost(projectId);
   logActivity({ projectId, agentId: "orchestrator", type: "pipeline", summary: `🏁 Project completed — ${delivered} of ${items.length} items delivered, $${cost.toFixed(2)}` });
@@ -358,19 +360,20 @@ export function dependenciesOf(it: WorkItem, items: WorkItem[]) {
 
 /** Stories, tasks and bugs that aren't delivered (merged and release-ready, released, or cancelled), with why. */
 export function undeliveredItems(projectId: string): UndeliveredItem[] {
+  const p = getProject(projectId);
   const items = listItems(projectId).filter((i) => i.type === "story" || i.type === "task" || i.type === "bug");
-  const open = items.filter((i) => !DELIVERED_STATES.includes(i.state));
+  const notDone = items.filter((i) => !DELIVERED_STATES.includes(i.state));
+  const open = notDone.filter((i) => !p || ownedByStudio(p, i));
   const why = (it: WorkItem) => {
     const q = openQuestionCount(it.id);
     if (q) return `${q} open question(s)`;
     if (it.state === "Blocked") return "Blocked";
     const deps = dependenciesOf(it, items);
-    const d = open.find((x) => deps.includes(x.code));
-    return d ? `Waits for ${d.code}` : "Not started";
+    const d = notDone.find((x) => deps.includes(x.code));
+    return d ? `Waits for ${d.code}${p && !ownedByStudio(p, d) ? ` (${ownerName(p, d)})` : ""}` : "Not started";
   };
   // With a release manager on the team, merged work isn't delivered until a release publishes it.
-  const p = getProject(projectId);
-  const unreleased = p && agentsFor(p, "release").length ? items.filter((i) => i.state === "Release Ready" || i.state === "Smoke Testing") : [];
+  const unreleased = p && agentsFor(p, "release").length ? items.filter((i) => ownedByStudio(p, i) && (i.state === "Release Ready" || i.state === "Smoke Testing")) : [];
   return [
     ...open.map((it) => ({ id: it.id, code: it.code, title: it.title, state: it.state, reason: why(it) })),
     ...unreleased.map((it) => ({ id: it.id, code: it.code, title: it.title, state: it.state, reason: "Not released" })),
@@ -527,7 +530,7 @@ async function stageArchitecture(p: Project, signal: AbortSignal) {
   let n = 0;
   await pool(p.id, groups, p.settings.parallelism, signal, async (feature) => {
     const agent = architects[n++ % architects.length];
-    const stories = listItems(p.id).filter((s) => (s.type === "story" || s.type === "task") && (!feature || s.parent_id === feature.id) && !waitingForAnswers(s));
+    const stories = listItems(p.id).filter((s) => (s.type === "story" || s.type === "task") && (!feature || s.parent_id === feature.id) && !waitingForAnswers(s) && ownedByStudio(p, s));
     if (!stories.length) return;
     const phaseIds = stories.map((s) => startPhase(p.id, s.id, "architecture", agent.id));
     await runAgent({
@@ -711,11 +714,12 @@ function normalisePlan(projectId: string) {
 async function stageDelivery(p: Project, signal: AbortSignal) {
   if (!agentsFor(p, "planner").length) normalisePlan(p.id);
   const all = () => listItems(p.id).filter((i) => i.type === "story" || i.type === "task" || i.type === "bug");
-  const waiting = all().filter((i) => !DELIVERED_STATES.includes(i.state) && waitingForAnswers(i));
+  const waiting = all().filter((i) => ownedByStudio(p, i) && !DELIVERED_STATES.includes(i.state) && waitingForAnswers(i));
   for (const w of waiting) {
     logActivity({ projectId: p.id, agentId: "orchestrator", itemId: w.id, type: "gate", summary: `⏸ ${w.code} stays in “${w.state}” — ${openQuestionCount(w.id)} open question(s) must be answered first` });
   }
-  const pending = all().filter((i) => !DELIVERED_STATES.includes(i.state) && !waitingForAnswers(i) && !["Blocked", "Cancelled"].includes(i.state));
+  const ours = (i: WorkItem) => ownedByStudio(getProject(p.id)!, i);
+  const pending = all().filter((i) => ours(i) && !DELIVERED_STATES.includes(i.state) && !waitingForAnswers(i) && !["Blocked", "Cancelled"].includes(i.state));
   const started = new Set<string>();
   const busy = new Map<string, number>();
   const inFlight = new Set<Promise<void>>();
@@ -756,7 +760,7 @@ async function stageDelivery(p: Project, signal: AbortSignal) {
       throw new PauseRequestedError("Paused");
     }
     // Questions answered while the stage runs: those items join the delivery.
-    for (const w of all().filter((i) => !DELIVERED_STATES.includes(i.state) && !["Blocked", "Cancelled"].includes(i.state) && !pending.some((x) => x.id === i.id) && !waitingForAnswers(i))) {
+    for (const w of all().filter((i) => ours(i) && !DELIVERED_STATES.includes(i.state) && !["Blocked", "Cancelled"].includes(i.state) && !pending.some((x) => x.id === i.id) && !waitingForAnswers(i))) {
       pending.push(w);
       logActivity({ projectId: p.id, agentId: "orchestrator", itemId: w.id, type: "pipeline", summary: `▶ ${w.code}'s questions are answered — it joins the delivery` });
     }
@@ -772,7 +776,8 @@ async function stageDelivery(p: Project, signal: AbortSignal) {
       const d = stuckDependency(it);
       if (d && !held.has(it.id)) {
         held.add(it.id);
-        logActivity({ projectId: p.id, agentId: "orchestrator", itemId: it.id, type: "gate", summary: `⏸ ${it.code} waits for ${d.code} (${waitingForAnswers(d) ? "open questions" : d.state}) — it builds on that code` });
+        const whose = ours(d) ? "" : `, which ${ownerName(getProject(p.id)!, d)} builds`;
+        logActivity({ projectId: p.id, agentId: "orchestrator", itemId: it.id, type: "gate", summary: `⏸ ${it.code} waits for ${d.code} (${waitingForAnswers(d) ? "open questions" : d.state}${whose}) — it builds on that code` });
       } else if (!d) held.delete(it.id);
     }
     const startable = fresh.filter((i) => !held.has(i.id));
@@ -1076,7 +1081,8 @@ export function stageEstimateUsd(projectId: string, stageKey: string): number | 
   if (!est?.agents?.length || !roles) return null;
   const total = est.agents.filter((a) => roles.includes(a.role)).reduce((n, a) => n + a.costUsd, 0);
   if (stageKey !== "delivery" || !est.storyPoints) return total || null;
-  const left = listItems(projectId).filter((i) => ["story", "task", "bug"].includes(i.type) && !DELIVERED_STATES.includes(i.state)).reduce((n, i) => n + (i.story_points ?? 3), 0);
+  const proj = getProject(projectId)!;
+  const left = listItems(projectId).filter((i) => ["story", "task", "bug"].includes(i.type) && !DELIVERED_STATES.includes(i.state) && ownedByStudio(proj, i)).reduce((n, i) => n + (i.story_points ?? 3), 0);
   return total ? (total * left) / est.storyPoints : null;
 }
 
@@ -1658,8 +1664,12 @@ function normaliseItem(itemId: string) {
 export function startItem(itemId: string) {
   const plan = startPlan(itemId);
   if (plan.blockedBy.length) throw new Error(plan.blockedBy.join(" "));
-  const it = getItem(itemId)!;
+  let it = getItem(itemId)!;
   const p = getProject(it.project_id)!;
+  if (!ownedByStudio(p, it)) {
+    it = patchItem(itemId, { owner: "agentstudio" });
+    logActivity({ projectId: p.id, agentId: "human", itemId, type: "item_updated", summary: `You gave ${it.code} to AgentStudio by starting it` });
+  }
   postMessage({ projectId: p.id, from: "human", to: "orchestrator", itemId, kind: "handoff", content: `Start work on ${it.code}: ${plan.steps.map((s) => `${s.agent} (${s.what})`).join(" → ")}` });
   startJob(p.id, `item:${it.id}`, `Start work on ${it.code}`, it.id, async (signal) => {
     await refineIfNeeded(p.id, itemId, signal, "start");
@@ -1683,8 +1693,8 @@ export function startItem(itemId: string) {
 }
 
 /** State changes a person may make by hand. Everything else moves only through the agents. */
-export function humanTransition(from: string, to: string): string | null {
-  if (to === from) return null;
+export function humanTransition(from: string, to: string, someoneElses = false): string | null {
+  if (to === from || someoneElses) return null;
   if (to === "Cancelled") return from === "Deployed (Done)" ? "A deployed item can't be cancelled — report a bug instead." : null;
   if (to === "Blocked") return STARTED.slice(3).includes(from) ? "Released items can't be put on hold." : null;
   if (to === "New" && (from === "Cancelled" || from === "Blocked")) return null;
