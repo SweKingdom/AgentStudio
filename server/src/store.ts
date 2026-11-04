@@ -45,6 +45,8 @@ export interface ProjectSettings {
   workRule?: import("./ownership.js").WorkRule | null;
   /** "auto" (default): AgentStudio merges finished stories. "review": it opens the PR and a person reviews and merges it. */
   mergeMode?: "auto" | "review";
+  /** When a reviewer requests changes: "ask" (default) waits with the comments for you to edit and send; "auto" sends them to the developer. */
+  reviewRework?: "ask" | "auto";
 }
 
 export interface Project {
@@ -205,6 +207,10 @@ export interface WorkItem {
   iteration?: string | null;
   /** How it is merged when done: unset = the project's setting; "review" = a PR a person merges (orchestrator.ts). */
   merge_mode?: "auto" | "review" | null;
+  /** The reviewer's requested changes, as text for the developer (state Changes Requested). */
+  review_feedback?: string | null;
+  /** When the last review whose changes were taken up was submitted (so each review is handled once). */
+  review_seen?: string | null;
   human_hours: number | null;
   created_by: string | null;
   created_at: string;

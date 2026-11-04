@@ -133,3 +133,54 @@ test("review mode without GitHub: the story waits, and its Merge button merges i
     process.env.ARM_FORCE_GITHUB = "1";
   }
 });
+
+test("changes requested: the review becomes editable feedback, goes to the developer, and the PR goes back to review", async () => {
+  const remote = path.join(TMP, "rvc-remote.git");
+  fs.mkdirSync(remote, { recursive: true });
+  sh(remote, "init", "-q", "--bare", "-b", "main");
+  const state = path.join(TMP, "RVC-gh.json");
+  Object.assign(process.env, { ARM_FAKE_GH_REMOTE: remote, ARM_FAKE_GH_STATE: state, ARM_FAKE_GH_LOG: path.join(TMP, "RVC-gh.log") });
+  const items = await project("RVC", fileUrl(remote), true);
+  const story = items.find((i) => i.state === "In Review")!;
+  assert.ok(story, "a story in review");
+  const devRuns = () => all<{ n: number }>("SELECT COUNT(*) n FROM runs WHERE item_id = ? AND stage = 'development'", story.id)[0].n;
+  const before = devRuns();
+  /** A reviewer on GitHub requests changes (the fake gh reads reviews from its state file). */
+  const review = (at: string, body: string, line?: string) => {
+    const s = JSON.parse(fs.readFileSync(state, "utf8"));
+    const pr = s.prs.find((x: any) => x.headRefName === story.branch);
+    pr.reviewDecision = "CHANGES_REQUESTED";
+    pr.reviews = [...(pr.reviews ?? []), { author: { login: "anna" }, state: "CHANGES_REQUESTED", body, submittedAt: at }];
+    if (line) pr.lineComments = [...(pr.lineComments ?? []), { user: { login: "anna" }, path: "src/bookings.ts", line: 3, body: line, created_at: at }];
+    fs.writeFileSync(state, JSON.stringify(s));
+    return pr.number as number;
+  };
+  const n = review("2026-11-04T10:00:00Z", "Rename the endpoint.", "Use the shared error type here.");
+  assert.equal((await api("POST", "/projects/RVC/reviews/check")).requested, 1);
+  let it = await api("GET", `/items/${story.id}`);
+  assert.equal(it.state, "Changes Requested");
+  assert.match(it.review_feedback, /Review by anna on PR #\d+:\nRename the endpoint\./);
+  assert.match(it.review_feedback, /- src\/bookings\.ts:3 \(anna\): Use the shared error type here\./);
+  assert.equal((await api("POST", "/projects/RVC/reviews/check")).requested, 0, "each review is taken up once");
+  assert.equal((await call("POST", `/items/${story.id}/review-feedback`, { feedback: "  " })).status, 409, "empty feedback is refused");
+
+  // You edit the feedback and send it: a rework round on the same branch, and the same PR waits in review again.
+  await api("POST", `/items/${story.id}/review-feedback`, { feedback: "Rename the endpoint to /bookings." });
+  await waitFor(async () => (await api("GET", `/items/${story.id}`)).state === "In Review" && (await stopped("RVC")), "the story back in review");
+  assert.ok(devRuns() > before, "the developer reworked it");
+  const pr = JSON.parse(fs.readFileSync(state, "utf8")).prs.filter((x: any) => x.headRefName === story.branch);
+  assert.equal(pr.length, 1, "the same PR, not a new one");
+  assert.equal(pr[0].number, n);
+  assert.equal(pr[0].state, "OPEN");
+  it = await api("GET", `/items/${story.id}`);
+  assert.ok(it.comments.some((c: any) => /Rename the endpoint to \/bookings\./.test(c.content)), "your edited feedback is on the story");
+  assert.equal((await call("POST", `/items/${story.id}/review-feedback`, { feedback: "x" })).status, 409, "nothing to send while it's in review");
+
+  // Set to send reviews to the developer by itself: a new review starts the rework without you.
+  await api("PATCH", "/projects/RVC", { settings: { reviewRework: "auto" } });
+  const runs = devRuns();
+  review("2026-11-04T12:00:00Z", "Also add a test for a full class.");
+  assert.equal((await api("POST", "/projects/RVC/reviews/check")).requested, 1);
+  await waitFor(async () => devRuns() > runs && (await api("GET", `/items/${story.id}`)).state === "In Review" && (await stopped("RVC")), "the automatic rework");
+  assert.equal((await call("PATCH", "/projects/RVC", { settings: { reviewRework: "sometimes" } })).status, 400);
+});

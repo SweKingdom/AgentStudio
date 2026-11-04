@@ -122,3 +122,22 @@ export async function mergePr(repo: string, n: number, o: { subject: string; bod
   if (pr.state !== "MERGED") throw new GhError(`PR #${n} is ${pr.state.toLowerCase()} after the merge request (it may wait for required checks or reviews).`);
   return pr;
 }
+
+export interface PrReviews {
+  /** APPROVED | CHANGES_REQUESTED | REVIEW_REQUIRED | "" */
+  decision: string;
+  reviews: { author: string; state: string; body: string; submittedAt: string }[];
+  /** Comments on lines of the diff. */
+  comments: { author: string; path: string; line: number | null; body: string; createdAt: string }[];
+}
+
+/** A PR's review decision, its reviews and its line comments: what a reviewer asked to change. */
+export async function prReviews(repo: string, n: number): Promise<PrReviews> {
+  const v = JSON.parse(await gh(["pr", "view", String(n), "--repo", repo, "--json", "reviewDecision,reviews"])) as { reviewDecision?: string; reviews?: any[] };
+  const raw = JSON.parse((await gh(["api", `repos/${repo}/pulls/${n}/comments`, "--paginate"])) || "[]") as any[];
+  return {
+    decision: String(v.reviewDecision ?? ""),
+    reviews: (v.reviews ?? []).map((r) => ({ author: String(r.author?.login ?? "reviewer"), state: String(r.state ?? ""), body: String(r.body ?? ""), submittedAt: String(r.submittedAt ?? "") })),
+    comments: raw.map((c) => ({ author: String(c.user?.login ?? "reviewer"), path: String(c.path ?? ""), line: typeof c.line === "number" ? c.line : typeof c.original_line === "number" ? c.original_line : null, body: String(c.body ?? ""), createdAt: String(c.created_at ?? "") })),
+  };
+}

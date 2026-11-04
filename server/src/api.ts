@@ -18,7 +18,7 @@ import { buildSystemPrompt, countPdfTokens } from "./agents/runner.js";
 import { deleteCustomKnowledge, listKnowledge, saveCustomKnowledge } from "./knowledge.js";
 import { estimateProject } from "./estimate.js";
 import { buildPlanFromText, readPdf } from "./agents/simplan.js";
-import { approveGate, buildStages, checkReviews, mergeReviewed, finishUndelivered, fixBug, humanTransition, isPausing, pauseAll, resumeAll, startItem, startPlan, isRunning, listJobs, pauseProject, pipelineRunning, releaseNow, reportBug, reopenProject, planFindings, rerunItem, startProject, teamOf, undeliveredItems, untestedAcs, type RerunRole } from "./orchestrator.js";
+import { approveGate, buildStages, checkReviews, mergeReviewed, sendReviewFeedback, finishUndelivered, fixBug, humanTransition, isPausing, pauseAll, resumeAll, startItem, startPlan, isRunning, listJobs, pauseProject, pipelineRunning, releaseNow, reportBug, reopenProject, planFindings, rerunItem, startProject, teamOf, undeliveredItems, untestedAcs, type RerunRole } from "./orchestrator.js";
 import { chat, chatHistory } from "./chat.js";
 import { autoResumeAllowed, globalPause, spendStatus } from "./pause.js";
 import { ensureRepo, gitLog, listBranches, providerOf, remoteStatus, repoName, testRemoteUrl, validateRepoUrl, webUrlOf } from "./git.js";
@@ -89,7 +89,7 @@ const wrap =
 
 const STATES = [
   "New", "Requires additional information", "Ready for Refinement", "Ready for Sprint", "To Do", "In Progress",
-  "In Peer Testing", "Ready for UAT", "In Review", "Release Ready", "Smoke Testing", "Deployed (Done)", "Blocked", "Cancelled",
+  "In Peer Testing", "Ready for UAT", "In Review", "Changes Requested", "Release Ready", "Smoke Testing", "Deployed (Done)", "Blocked", "Cancelled",
 ];
 
 // ---------------------------------------------------------------- meta & settings
@@ -564,6 +564,9 @@ api.patch("/projects/:pid", wrap(async (req, res) => {
   if (body.settings?.mergeMode !== undefined) {
     if (!["auto", "review"].includes(body.settings.mergeMode)) return res.status(400).json({ error: 'mergeMode must be "auto" or "review"' });
   }
+  if (body.settings?.reviewRework !== undefined) {
+    if (!["ask", "auto"].includes(body.settings.reviewRework)) return res.status(400).json({ error: 'reviewRework must be "ask" or "auto"' });
+  }
   if (body.settings?.modelBySize !== undefined) {
     const known = new Set(models().map((m) => m.id));
     const pick = (v: unknown) => (v ? String(v) : null);
@@ -862,6 +865,15 @@ api.post("/items/:id/merge-review", wrap(async (req, res) => {
     res.status(409).json({ error: e instanceof Error ? e.message : String(e) });
   }
 }));
+
+/** The reviewer's requested changes, as you edited them, go to the developer: a rework round on the same PR. */
+api.post("/items/:id/review-feedback", (req, res) => {
+  try {
+    res.json(sendReviewFeedback(String(req.params.id), String(req.body?.feedback ?? "")));
+  } catch (e) {
+    res.status(409).json({ error: e instanceof Error ? e.message : String(e) });
+  }
+});
 
 /** Check the project's reviews now instead of waiting for the next check. */
 api.post("/projects/:pid/reviews/check", wrap(async (req, res) => {

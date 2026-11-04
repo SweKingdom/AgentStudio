@@ -188,6 +188,7 @@ export function agileState(state: string, type: WorkItem["type"]): string {
     "In Peer Testing": "Active",
     "Ready for UAT": "Active",
     "In Review": "Resolved",
+    "Changes Requested": "Active",
     "Blocked": "Active",
     "Release Ready": "Resolved",
     "Smoke Testing": "Resolved",

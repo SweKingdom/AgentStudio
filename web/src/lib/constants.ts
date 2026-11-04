@@ -34,6 +34,7 @@ export const STATE_GROUP: Record<string, { lane: string; color: string }> = {
   "In Peer Testing": { lane: "Peer Testing", color: "#ef5b6b" },
   "Ready for UAT": { lane: "Documenting", color: "#3ecf8e" },
   "In Review": { lane: "In Review", color: "#c98500" },
+  "Changes Requested": { lane: "In Review", color: "#f2555a" },
   "Release Ready": { lane: "Release Ready", color: "#b2a792" },
   "Smoke Testing": { lane: "Releasing", color: "#e85aa8" },
   "Deployed (Done)": { lane: "Done", color: "#3ecf8e" },

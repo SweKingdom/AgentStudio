@@ -26,7 +26,7 @@ const cmd = args.slice(0, 2).join(" ");
 const failing = process.env.ARM_FAKE_GH_FAIL;
 if (failing === "all" || (failing && cmd === `pr ${failing}`)) fail("error connecting to api.github.com\ncheck your internet connection or https://githubstatus.com");
 
-const repo = flag("--repo");
+const repo = args[0] === "api" ? String(args[1] ?? "").split("/").slice(1, 3).join("/") : flag("--repo");
 if (!repo) fail("--repo is required by AgentStudio");
 const remote = process.env.ARM_FAKE_GH_REMOTE;
 const statePath = process.env.ARM_FAKE_GH_STATE;
@@ -48,7 +48,8 @@ const save = () => fs.writeFileSync(statePath, JSON.stringify(state, null, 2));
 const git = (cwd, ...a) => execFileSync("git", ["-c", "user.name=GitHub", "-c", "user.email=noreply@example.com", "-c", "commit.gpgsign=false", ...a], { cwd, encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] }).trim();
 const pick = (pr) => {
   const fields = (flag("--json") ?? "number,url,state,isDraft").split(",");
-  return Object.fromEntries(fields.map((f) => [f, pr[f]]));
+  const defaults = { reviewDecision: "", reviews: [] };
+  return Object.fromEntries(fields.map((f) => [f, pr[f] ?? defaults[f]]));
 };
 const find = (n) => state.prs.find((p) => p.number === Number(n)) ?? fail(`GraphQL: Could not resolve to a PullRequest with the number of ${n}.`);
 
@@ -78,6 +79,13 @@ if (cmd === "pr create") {
 }
 if (cmd === "pr view") {
   process.stdout.write(JSON.stringify(pick(find(args[2]))));
+  process.exit(0);
+}
+// Reviews a test added to the state file: `reviews` and `lineComments` on the PR, `reviewDecision` next to them.
+if (args[0] === "api") {
+  const m = String(args[1] ?? "").match(/^repos\/[^/]+\/[^/]+\/pulls\/(\d+)\/comments$/);
+  if (!m) fail(`fake gh: unsupported api ${args[1]}`);
+  process.stdout.write(JSON.stringify(find(m[1]).lineComments ?? []));
   process.exit(0);
 }
 if (cmd === "pr comment") {

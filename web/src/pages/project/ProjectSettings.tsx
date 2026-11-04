@@ -20,7 +20,7 @@ export function ProjectSettingsModal({ p, onClose }: { p: Project; onClose: () =
   const [name, setName] = useState(p.name);
   const [description, setDescription] = useState(p.description);
   const [repo, setRepo] = useState({ url: p.settings.repo?.url ?? "", branch: p.settings.repo?.branch ?? "main", push: p.settings.repo?.push ?? false });
-  const [s, setS] = useState({ gates: p.settings.gates, parallelism: p.settings.parallelism, budgetUsd: p.settings.budgetUsd, maxRework: p.settings.maxRework, codeReview: p.settings.codeReview ?? "off", designCritique: p.settings.designCritique !== false, lessons: p.settings.lessons !== false, claudeAccount: p.settings.claudeAccount ?? null, modelBySize: { small: p.settings.modelBySize?.small ?? null, large: p.settings.modelBySize?.large ?? null } , mergeMode: p.settings.mergeMode ?? "auto"});
+  const [s, setS] = useState({ gates: p.settings.gates, parallelism: p.settings.parallelism, budgetUsd: p.settings.budgetUsd, maxRework: p.settings.maxRework, codeReview: p.settings.codeReview ?? "off", designCritique: p.settings.designCritique !== false, lessons: p.settings.lessons !== false, claudeAccount: p.settings.claudeAccount ?? null, modelBySize: { small: p.settings.modelBySize?.small ?? null, large: p.settings.modelBySize?.large ?? null } , mergeMode: p.settings.mergeMode ?? "auto", reviewRework: p.settings.reviewRework ?? "ask"});
   const { data: meta } = useMeta();
   const sizeModel = (size: "small" | "large", label: string) => (
     <select className="input" aria-label={label} value={s.modelBySize[size] ?? ""} onChange={(e) => setS({ ...s, modelBySize: { ...s.modelBySize, [size]: e.target.value || null } })}>
@@ -75,6 +75,14 @@ export function ProjectSettingsModal({ p, onClose }: { p: Project; onClose: () =
               <option value="review">{t("Review PR: a person merges")}</option>
             </select>
           </Field>
+          {s.mergeMode === "review" && (
+            <Field label={t("When a reviewer requests changes")} help={t("Ask me: the story waits as Changes Requested with the reviewer's comments, which you can edit before sending them to the developer. Automatically: the comments go to the developer as soon as AgentStudio sees them.")}>
+              <select className="input" value={s.reviewRework} onChange={(e) => setS({ ...s, reviewRework: e.target.value as "ask" | "auto" })}>
+                <option value="ask">{t("Ask me (edit the feedback first)")}</option>
+                <option value="auto">{t("Send to the developer automatically")}</option>
+              </select>
+            </Field>
+          )}
           <CodeReviewField value={s.codeReview} onChange={(v) => setS({ ...s, codeReview: v })} />
           <Field label="Design critique" help={DESIGN_CRITIQUE_HELP}>
             <div className="row" style={{ height: 34 }}><Switch on={s.designCritique} onChange={(v) => setS({ ...s, designCritique: v })} label="Design critique" /><span className="small muted">{s.designCritique ? "On" : "Off"}</span></div>

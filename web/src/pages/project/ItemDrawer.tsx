@@ -17,6 +17,7 @@ import { AdoChip } from "../../components/AdoSettings";
 import { ChangeCount, FileCode, FileDiff } from "../../components/CodeBlock";
 import { t } from "../../lib/i18n";
 import { OwnerField, isSomeoneElses } from "../../components/Owner";
+import { ReviewFeedback } from "../../components/ReviewFeedback";
 
 type Tab = "story" | "tests" | "timeline" | "conversation" | "files" | "cost";
 
@@ -249,6 +250,7 @@ export default function ItemDrawer({ id, project, onClose }: { id: string; proje
             {it.bugs.map((b) => <Link key={b.id} to={`?item=${b.id}`} className="chip" style={{ background: "rgba(224,72,90,.12)", color: "#e0485a" }}><Bug size={11} /> {b.code} · {b.state}</Link>)}
           </div>
         )}
+        {it.state === "Changes Requested" && <ReviewFeedback item={it} />}
         <div className="row" style={{ justifyContent: "space-between", borderBottom: "1px solid var(--line)", paddingBottom: 10 }}>
           <Seg value={tab} onChange={setTab} options={[
             { value: "story", label: t("Story") },
