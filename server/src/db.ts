@@ -326,6 +326,13 @@ addColumn("runs", "attempt", "INTEGER");
 // Who builds an item: null = AgentStudio (the default), "agentstudio" = given to it explicitly, "person" = someone else.
 addColumn("work_items", "owner", "TEXT");
 addColumn("work_items", "assignee", "TEXT");
+// The iteration (sprint) an item belongs to, as the team names it (e.g. from Azure DevOps); AgentStudio's own use sprint.
+addColumn("work_items", "iteration", "TEXT");
+// How a finished item is merged: null = the project's setting, "auto", or "review" (a person merges its PR).
+addColumn("work_items", "merge_mode", "TEXT");
+// A reviewer asked for changes: their comments (editable before they go to the developer), and which review it was.
+addColumn("work_items", "review_feedback", "TEXT");
+addColumn("work_items", "review_seen", "TEXT");
 
 // Stretches of a project's time that weren't agents working: waiting for the product owner (an approval gate), paused
 // for a Claude plan or spend limit, or paused by hand. Written when the project's status changes (store.patchProject).

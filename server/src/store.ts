@@ -41,6 +41,12 @@ export interface ProjectSettings {
   commands?: string[];
   /** Paths (globs) no story may add or change, on top of the built-in ones (env files, keys, credentials). */
   protectedPaths?: string[];
+  /** Which items AgentStudio builds when they aren't given to it or to someone explicitly (ownership.ts). */
+  workRule?: import("./ownership.js").WorkRule | null;
+  /** "auto" (default): AgentStudio merges finished stories. "review": it opens the PR and a person reviews and merges it. */
+  mergeMode?: "auto" | "review";
+  /** When a reviewer requests changes: "ask" (default) waits with the comments for you to edit and send; "auto" sends them to the developer. */
+  reviewRework?: "ask" | "auto";
 }
 
 export interface Project {
@@ -197,6 +203,14 @@ export interface WorkItem {
   owner?: "agentstudio" | "person" | null;
   /** The person it's assigned to, when known (typed in, or from Azure DevOps). */
   assignee?: string | null;
+  /** The iteration as the team names it (e.g. "2026-23" from Azure DevOps); AgentStudio's own planning uses `sprint`. */
+  iteration?: string | null;
+  /** How it is merged when done: unset = the project's setting; "review" = a PR a person merges (orchestrator.ts). */
+  merge_mode?: "auto" | "review" | null;
+  /** The reviewer's requested changes, as text for the developer (state Changes Requested). */
+  review_feedback?: string | null;
+  /** When the last review whose changes were taken up was submitted (so each review is handled once). */
+  review_seen?: string | null;
   human_hours: number | null;
   created_by: string | null;
   created_at: string;

@@ -18,7 +18,7 @@ import { buildSystemPrompt, countPdfTokens } from "./agents/runner.js";
 import { deleteCustomKnowledge, listKnowledge, saveCustomKnowledge } from "./knowledge.js";
 import { estimateProject } from "./estimate.js";
 import { buildPlanFromText, readPdf } from "./agents/simplan.js";
-import { approveGate, buildStages, finishUndelivered, fixBug, humanTransition, isPausing, pauseAll, resumeAll, startItem, startPlan, isRunning, listJobs, pauseProject, pipelineRunning, releaseNow, reportBug, reopenProject, planFindings, rerunItem, startProject, teamOf, undeliveredItems, untestedAcs, type RerunRole } from "./orchestrator.js";
+import { approveGate, buildStages, checkReviews, mergeReviewed, sendReviewFeedback, finishUndelivered, fixBug, humanTransition, isPausing, pauseAll, resumeAll, startItem, startPlan, isRunning, listJobs, pauseProject, pipelineRunning, releaseNow, reportBug, reopenProject, planFindings, rerunItem, startProject, teamOf, undeliveredItems, untestedAcs, type RerunRole } from "./orchestrator.js";
 import { chat, chatHistory } from "./chat.js";
 import { autoResumeAllowed, globalPause, spendStatus } from "./pause.js";
 import { ensureRepo, gitLog, listBranches, providerOf, remoteStatus, repoName, testRemoteUrl, validateRepoUrl, webUrlOf } from "./git.js";
@@ -30,7 +30,7 @@ import { registerAccuracy } from "./routes/accuracy.js";
 import { codeReviewMode } from "./review.js";
 import { CUSTOM_AGENTS_ENABLED } from "./team.js";
 import { itemSpend, projectSpend, projectTime } from "./timing.js";
-import { ownedByStudio } from "./ownership.js";
+import { cleanWorkRule, ownedByStudio } from "./ownership.js";
 import { registerTemplates } from "./routes/templates.js";
 import { audit } from "./auth.js";
 import { LESSONS_KIND, LESSONS_TITLE, lessonsProblem, parseLessons, renderLessons } from "./lessons.js";
@@ -89,7 +89,7 @@ const wrap =
 
 const STATES = [
   "New", "Requires additional information", "Ready for Refinement", "Ready for Sprint", "To Do", "In Progress",
-  "In Peer Testing", "Ready for UAT", "Release Ready", "Smoke Testing", "Deployed (Done)", "Blocked", "Cancelled",
+  "In Peer Testing", "Ready for UAT", "In Review", "Changes Requested", "Release Ready", "Smoke Testing", "Deployed (Done)", "Blocked", "Cancelled",
 ];
 
 // ---------------------------------------------------------------- meta & settings
@@ -442,7 +442,12 @@ api.post("/projects", wrap(async (req, res) => {
     maxRework: Number(body.settings?.maxRework ?? s.maxRework),
     codeReview: codeReviewMode(body.settings?.codeReview),
     repo: { url: repoCheck.url, branch, push: body.settings?.repo?.push === true },
+    // Switches that are on unless turned off (the New project form sends them).
+    ...(body.settings?.designCritique === false ? { designCritique: false } : {}),
+    ...(body.settings?.lessons === false ? { lessons: false } : {}),
+    ...(body.settings?.mergeMode === "review" ? { mergeMode: "review" as const } : {}),
   };
+  if (body.settings?.mergeMode !== undefined && !["auto", "review"].includes(body.settings.mergeMode)) return res.status(400).json({ error: 'mergeMode must be "auto" or "review"' });
   const id = uid("prj");
   const key = body.key ? String(body.key).toUpperCase().replace(/[^A-Z0-9]/g, "").slice(0, 6) : uniqueProjectKey(name);
   if (get("SELECT 1 FROM projects WHERE key = ?", key)) return res.status(409).json({ error: `Project key ${key} already exists` });
@@ -548,6 +553,19 @@ api.patch("/projects/:pid", wrap(async (req, res) => {
     const list = Array.isArray(body.settings.protectedPaths) ? [...new Set(body.settings.protectedPaths.map((x: unknown) => String(x ?? "").trim()).filter(Boolean))] : null;
     if (!list || list.length > 30 || list.some((g) => (g as string).length > 200)) return res.status(400).json({ error: "Protected paths: at most 30 globs of at most 200 characters." });
     body.settings.protectedPaths = list;
+  }
+  if (body.settings?.workRule !== undefined) {
+    try {
+      body.settings.workRule = cleanWorkRule(body.settings.workRule);
+    } catch (e) {
+      return res.status(400).json({ error: e instanceof Error ? e.message : String(e) });
+    }
+  }
+  if (body.settings?.mergeMode !== undefined) {
+    if (!["auto", "review"].includes(body.settings.mergeMode)) return res.status(400).json({ error: 'mergeMode must be "auto" or "review"' });
+  }
+  if (body.settings?.reviewRework !== undefined) {
+    if (!["ask", "auto"].includes(body.settings.reviewRework)) return res.status(400).json({ error: 'reviewRework must be "ask" or "auto"' });
   }
   if (body.settings?.modelBySize !== undefined) {
     const known = new Set(models().map((m) => m.id));
@@ -722,6 +740,8 @@ api.get("/projects/:pid/items", (req, res) => {
       tests: tests.find((t) => t.item_id === it.id) ?? null,
       activeAgent: active.find((a) => a.item_id === it.id)?.agent_id ?? null,
       openQuestions: openQ.find((q) => q.item_id === it.id)?.n ?? 0,
+      /** Whether AgentStudio builds it: its owner, else the project's rule. */
+      ours: ownedByStudio(p, it),
     })),
   );
 });
@@ -780,6 +800,7 @@ api.get("/items/:id", (req, res) => {
     questions: all("SELECT * FROM questions WHERE item_id = ? OR also_items LIKE ? ORDER BY id", it.id, `%"${it.id}"%`),
     comments: all("SELECT * FROM comments WHERE item_id = ? ORDER BY id", it.id),
     spend: itemSpend(it.id),
+    ours: ownedByStudio(getProject(it.project_id)!, it),
     bugs: listItems(it.project_id).filter((b) => b.type === "bug" && b.parent_id === it.id).map((b) => ({ id: b.id, code: b.code, title: b.title, state: b.state })),
     busy: all("SELECT 1 FROM runs WHERE item_id = ? AND status = 'running'", it.id).length > 0 || listJobs(it.project_id).some((j) => j.itemId === it.id),
     cost: get(
@@ -795,10 +816,14 @@ api.patch("/items/:id", (req, res) => {
   if (!it) return res.status(404).json({ error: "Item not found" });
   const allowed = [
     "title", "category", "state", "priority", "moscow", "story_points", "sprint", "rank", "user_story", "background",
-    "business_rules", "dependencies", "out_of_scope", "acceptance_criteria", "tech_spec", "how_to_test", "manual_steps", "tags",
+    "business_rules", "dependencies", "out_of_scope", "acceptance_criteria", "tech_spec", "how_to_test", "manual_steps", "tags", "iteration",
   ];
   const patch: Record<string, unknown> = {};
   for (const k of allowed) if (req.body?.[k] !== undefined) patch[k] = req.body[k];
+  if (req.body?.merge_mode !== undefined) {
+    if (![null, "auto", "review"].includes(req.body.merge_mode)) return res.status(400).json({ error: 'merge_mode must be "auto", "review" or null' });
+    patch.merge_mode = req.body.merge_mode;
+  }
   const owner = req.body?.owner !== undefined || req.body?.assignee !== undefined ? ownerPatch(req.body) : {};
   if ("error" in owner) return res.status(400).json({ error: owner.error });
   Object.assign(patch, owner);
@@ -831,6 +856,29 @@ function ownerPatch(body: Record<string, unknown>): { owner?: WorkItem["owner"];
   }
   return out;
 }
+
+/** Review mode without GitHub: the reviewer merges the story's branch from the story. */
+api.post("/items/:id/merge-review", wrap(async (req, res) => {
+  try {
+    res.json(await mergeReviewed(String(req.params.id)));
+  } catch (e) {
+    res.status(409).json({ error: e instanceof Error ? e.message : String(e) });
+  }
+}));
+
+/** The reviewer's requested changes, as you edited them, go to the developer: a rework round on the same PR. */
+api.post("/items/:id/review-feedback", (req, res) => {
+  try {
+    res.json(sendReviewFeedback(String(req.params.id), String(req.body?.feedback ?? "")));
+  } catch (e) {
+    res.status(409).json({ error: e instanceof Error ? e.message : String(e) });
+  }
+});
+
+/** Check the project's reviews now instead of waiting for the next check. */
+api.post("/projects/:pid/reviews/check", wrap(async (req, res) => {
+  res.json(await checkReviews(String(req.params.pid)));
+}));
 
 /** Give many items to AgentStudio or to a person at once (the backlog's bulk action). */
 api.post("/projects/:pid/items/owner", (req, res) => {

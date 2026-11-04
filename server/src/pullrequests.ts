@@ -167,3 +167,24 @@ export async function integrateViaPr(projectId: string, itemId: string, body: st
   }
   return s;
 }
+
+/** Review mode: the story's branch is ready (up to date with the base branch, checks, scan and review attested), so
+ *  push it and open its PR ready for review, with QA's verdict, but don't merge: a person reviews and merges it.
+ *  Without a GitHub repository the branch simply waits, and the story's Merge button merges it locally. Returns the
+ *  PR's URL, or null without GitHub. Throws when GitHub is set up but the PR can't be opened, so nothing is lost. */
+export async function openForReview(projectId: string, itemId: string, body: string): Promise<string | null> {
+  const p = getProject(projectId)!;
+  const repo = prRepoFor(p);
+  const it = getItem(itemId)!;
+  if (!repo) return null;
+  const base = p.settings.repo?.branch || "main";
+  const pushed = await pushRefs(p, [it.branch!]);
+  if (!pushed.pushed) throw new Error(`push of ${it.branch} failed: ${firstLine(pushed.output)}`);
+  const pr = await findOrCreatePr(repo, { head: it.branch!, base, title: mergeSubjectFor(it), body });
+  if (it.pr_url !== pr.url) patchItem(itemId, { pr_url: pr.url });
+  if (pr.created) logActivity({ projectId, agentId: "orchestrator", itemId, type: "file", summary: `Opened PR #${pr.number} for ${it.code}`, detail: pr.url });
+  const verdict = verdictComment(itemId);
+  if (verdict) await comment(projectId, itemId, verdict, "QA's verdict");
+  if (pr.isDraft) await markReady(repo, pr.number);
+  return pr.url;
+}
