@@ -1,6 +1,17 @@
 import type { NextFunction, Request, Response, Router } from "express";
 import { adoConfigOf, cleanAdoConfig, hasAdoToken, lastSync, syncBacklog, syncRunning, testAdo } from "../ado.js";
-import { getProject } from "../store.js";
+import { getProject, patchProject } from "../store.js";
+import { fetchAdoItems, importBacklog, type AdoImportFilter } from "../adoimport.js";
+import { cleanWorkRule } from "../ownership.js";
+import { isRunning } from "../orchestrator.js";
+
+/** The import filter from a request: an area path, an iteration path and tags, all optional. */
+function cleanFilter(input: unknown): AdoImportFilter {
+  const o = (input && typeof input === "object" ? input : {}) as Record<string, unknown>;
+  const path = (v: unknown) => String(v ?? "").trim().replace(/\//g, "\\").slice(0, 400) || undefined;
+  const tags = Array.isArray(o.tags) ? [...new Set(o.tags.map((t) => String(t ?? "").trim()).filter(Boolean))].slice(0, 20) : [];
+  return { areaPath: path(o.areaPath), iterationPath: path(o.iterationPath), ...(tags.length ? { tags } : {}) };
+}
 
 const wrap =
   (fn: (req: Request, res: Response) => unknown) =>
@@ -43,6 +54,42 @@ export function registerAdo(api: Router) {
       if (syncRunning(p.id)) return res.status(409).json({ error: "An Azure DevOps sync is already running for this project" });
       try {
         res.json(await syncBacklog(p));
+      } catch (e) {
+        res.status(400).json({ error: e instanceof Error ? e.message : String(e) });
+      }
+    }),
+  );
+
+  /** What an import would bring, read from Azure DevOps without saving anything: counts by type, state and assignee. */
+  api.post(
+    "/projects/:pid/ado/import/preview",
+    wrap(async (req, res) => {
+      const p = getProject(String(req.params.pid));
+      if (!p) return res.status(404).json({ error: "Project not found" });
+      try {
+        const cfg = cleanAdoConfig(req.body?.config ?? p.settings.ado);
+        if (!cfg) return res.status(400).json({ error: "Enter the organization URL and the Azure DevOps project first" });
+        const items = await fetchAdoItems(cfg, cleanFilter(req.body?.filter));
+        const count = (key: (i: (typeof items)[number]) => string) => items.reduce<Record<string, number>>((m, i) => ((m[key(i)] = (m[key(i)] ?? 0) + 1), m), {});
+        res.json({ total: items.length, byType: count((i) => i.type), byState: count((i) => i.adoState), byAssignee: count((i) => i.assignee ?? ""), byIteration: count((i) => i.iteration ?? "") });
+      } catch (e) {
+        res.status(400).json({ error: e instanceof Error ? e.message : String(e) });
+      }
+    }),
+  );
+
+  /** Imports (or re-imports) the backlog from Azure DevOps. Optionally sets AgentStudio's rule at the same time. */
+  api.post(
+    "/projects/:pid/ado/import",
+    wrap(async (req, res) => {
+      const p = getProject(String(req.params.pid));
+      if (!p) return res.status(404).json({ error: "Project not found" });
+      if (isRunning(p.id)) return res.status(409).json({ error: "The project is running — pause it before importing." });
+      try {
+        const cfg = cleanAdoConfig(req.body?.config ?? p.settings.ado);
+        if (!cfg) return res.status(400).json({ error: "Enter the organization URL and the Azure DevOps project first" });
+        if (req.body?.rule !== undefined) patchProject(p.id, { settings: { ...p.settings, workRule: cleanWorkRule(req.body.rule) } });
+        res.json(await importBacklog(p.id, cfg, cleanFilter(req.body?.filter ?? p.settings.adoImport)));
       } catch (e) {
         res.status(400).json({ error: e instanceof Error ? e.message : String(e) });
       }

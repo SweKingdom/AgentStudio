@@ -147,6 +147,14 @@ Projektsidan visar hur många kontroller som gäller. **No checks** betyder att 
 
 **Begärda ändringar:** begär granskaren ändringar på PR:en blir storyn *Changes Requested*. I storylådan står granskningen och radkommentarerna i en ruta som du kan redigera eller skriva om. **Skicka till utvecklaren** startar en omarbetning på samma gren, QA testar igen och samma PR går tillbaka till granskning. Väljer du *Skicka till utvecklaren automatiskt* under **När en granskare begär ändringar** går kommentarerna till utvecklaren direkt.
 
+**Importera ett projekt som redan pågår (Azure DevOps):** kryssa i *Backloggen finns i Azure DevOps: importera den* när du skapar projektet, eller välj **Importera från Azure DevOps** i **Backlog**. Ange organisation, projekt och vid behov area path, iteration och taggar. **Förhandsgranska** visar vad som skulle komma in, utan att spara något.
+- Importen läser bara; inget i Azure DevOps ändras. Token är `AZURE_DEVOPS_PAT` i `.env`.
+- Epics, features, stories, tasks och buggar kommer in med koder som `US-12146`, status, tilldelad, iteration, taggar, föräldrar och beroenden (länkar och raden *Depends on*). En ny import uppdaterar det som redan importerats.
+- Klara item kommer in som levererade och byggs aldrig om. Någon annans pågående arbete visas som *In Progress*.
+- Under *AgentStudio bygger det som är tilldelat* anger du namn, till exempel ditt eget. Det sparas som AgentStudios regel.
+- Importerade stories mergas efter granskning. AgentStudios stories utan acceptanskriterier får en fråga till dig i stället för en gissning.
+- Kravsteget (som börjar med en tom backlog) körs aldrig för ett importerat projekt.
+
 **Tid och kostnad (Overview):** siffrorna är mätta, inte uppskattade.
 - **Vart tiden gick:** projektets förflutna tid delas upp i när agenterna arbetade, när projektet väntade på dig (grindar och frågor), pausade för gränser (Claude-planens fönster, utgiftstak eller budget), pausades av dig, och övrigt (kontroller, merge och väntan). Varje ögonblick räknas en gång, även när flera lanes körs samtidigt. Väntan och pauser registreras från och med den här versionen; tidigare hamnar de under *Övrigt*.
 - **Vart pengarna gick:** vad modellanropen kostade, uppdelat på levererade stories, pågående, stoppade (blockerade, avbrutna, borttagna) och arbete för hela projektet (analys, design, planering, release). Under det står hur mycket som gick till omarbetning, alltså rundor efter att QA, kodgranskningen eller kontrollerna skickat tillbaka en story, och hur stor andel av de testade storyerna som gick igenom första gången.

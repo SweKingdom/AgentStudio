@@ -14,6 +14,9 @@ import { toast } from "../../lib/toast";
 import { CategoryChip, Empty, StatePill, TestBadge, TypeIcon } from "../../components/ui";
 import { useItems, useOpenItem } from "./hooks";
 import { AdoSyncButton } from "../../components/AdoSettings";
+import { AdoImportModal } from "../../components/AdoImport";
+import { useSearchParams } from "react-router-dom";
+import { CloudDownload } from "lucide-react";
 
 const UNASSIGNED = "\u0000unassigned";
 const isDeliverable = (i: WorkItem) => i.type === "story" || i.type === "task" || i.type === "bug";
@@ -36,6 +39,10 @@ export default function Backlog({ p }: { p: Project }) {
   const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
   const [flat, setFlat] = useState(false);
   const [creating, setCreating] = useState(false);
+  // New project → "Import from Azure DevOps" lands here with the import open.
+  const [params, setParams] = useSearchParams();
+  const [importing, setImporting] = useState(params.get("import") === "ado");
+  const closeImport = () => { setImporting(false); if (params.has("import")) { params.delete("import"); setParams(params, { replace: true }); } };
   const changed = useFresh((items ?? []).map((i) => `${i.id}:${i.state}:${i.rank ?? ""}`), 2600);
   const rule = p.settings.workRule;
 
@@ -74,7 +81,12 @@ export default function Backlog({ p }: { p: Project }) {
   const options = (values: string[], label?: (v: string) => string) =>
     [...new Set(values)].sort((a, b) => a.localeCompare(b, undefined, { numeric: true })).map((v) => ({ value: v, label: label?.(v), count: values.filter((x) => x === v).length }));
 
-  if (items && !items.length) return <Empty title="No backlog yet">Start the project and the requirements analyst builds epics, features and stories from the PDF.</Empty>;
+  if (items && !items.length) return (
+    <>
+      {importing && <AdoImportModal p={p} onClose={closeImport} />}
+      <Empty title="No backlog yet">Start the project and the requirements analyst builds epics, features and stories from the PDF, or <button className="btn sm" onClick={() => setImporting(true)}><CloudDownload size={13} /> {t("Import from Azure DevOps")}</button></Empty>
+    </>
+  );
   const toggle = (id: string) => setCollapsed((s) => { const n = new Set(s); n.has(id) ? n.delete(id) : n.add(id); return n; });
   const points = (items ?? []).reduce((n, i) => n + (i.story_points ?? 0), 0);
   const shownWork = rows.map((r) => r.it).filter(isDeliverable);
@@ -114,6 +126,7 @@ export default function Backlog({ p }: { p: Project }) {
   return (
     <div className="card">
       {creating && <NewItemModal projectId={p.id} items={items ?? []} onClose={() => setCreating(false)} />}
+      {importing && <AdoImportModal p={p} onClose={closeImport} />}
       <div className="card-head" style={{ flexWrap: "wrap", gap: 8 }}>
         <div className="row wrap" style={{ gap: 8, flex: 1 }}>
           <Hint text={t("Search codes, titles, story text, acceptance criteria, tags, assignees and iterations. Parents of matching items stay visible.")}>
@@ -143,6 +156,7 @@ export default function Backlog({ p }: { p: Project }) {
           <Hint text="Hierarchy = Epic → Feature → Story tree. Ranked list = stories and tasks in build order (rank).">
             <button className={`btn sm ${flat ? "" : "ghost"}`} onClick={() => setFlat(!flat)}>{flat ? "Ranked list" : "Hierarchy"}</button>
           </Hint>
+          <button className="btn sm" onClick={() => setImporting(true)} title={t("Bring in (or update) the backlog that is already in Azure DevOps")}><CloudDownload size={13} /> {t("Import from Azure DevOps")}</button>
           <AdoSyncButton p={p} />
           <button className="btn sm" onClick={() => setCreating(true)}><Plus size={13} /> New item</button>
         </div>

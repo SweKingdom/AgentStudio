@@ -150,6 +150,8 @@ export default function NewProject() {
   const [maxRework, setMaxRework] = useState(2);
   const [codeReview, setCodeReview] = useState<CodeReviewMode>("complex"); // build plan step 4: reviewed before merge by default
   const [designCritique, setDesignCritique] = useState(true);
+  /** The backlog already exists in Azure DevOps: create the project, then import it (no requirements needed). */
+  const [fromAdo, setFromAdo] = useState(false);
   const [repo, setRepo] = useState({ url: "", branch: "main", push: false });
   const [est, setEst] = useState<EstimateResponse | null>(null);
   const [loading, setLoading] = useState(false);
@@ -226,7 +228,7 @@ export default function NewProject() {
       }),
     onSuccess: (p) => {
       qc.invalidateQueries({ queryKey: ["projects"] });
-      nav(`/p/${p.key}`);
+      nav(fromAdo ? `/p/${p.key}/backlog?import=ado` : `/p/${p.key}`);
     },
     onError: (e: Error) => toast(e.message, "bad"),
   });
@@ -258,7 +260,7 @@ export default function NewProject() {
   // What still blocks "Create" — listed under the buttons so it's never a mystery.
   const missing = [
     !name.trim() && "a project name",
-    !(file || description.trim().length > 20) && "the requirements (a PDF, or a description of at least a few sentences)",
+    !fromAdo && !(file || description.trim().length > 20) && "the requirements (a PDF, or a description of at least a few sentences)",
     repoUrlError(repo.url) && (repo.url.trim() ? "a valid git repository URL" : "the git repository URL"),
     team.length === 0 && "at least one agent",
   ].filter(Boolean) as string[];
@@ -380,7 +382,10 @@ export default function NewProject() {
           {meta?.mode === "live" && meta.backend === "subscription" && <div className="banner accent tiny">{t("Live on your Claude plan: no API charges. The estimate shows what the same run would cost on the API — a measure of how much of the plan's usage it takes.")}</div>}
           {est?.estimate && budget > 0 && est.estimate.highUsd > budget && <div className="banner warn tiny"><TriangleAlert size={13} /> The high estimate exceeds your {money(budget)} budget — the run may pause before finishing.</div>}
           <div className="col" style={{ gap: 8 }}>
-            <button className="btn primary" style={{ justifyContent: "center", height: 38 }} disabled={!canCreate || create.isPending} onClick={() => submit(true)}><Play size={15} /> {t("Create & start")}</button>
+            <label className="row small" style={{ gap: 8, cursor: "pointer" }} title={t("For a project people are already working on: create it, then import its epics, features and stories from Azure DevOps instead of writing requirements.")}>
+              <input type="checkbox" checked={fromAdo} onChange={(e) => setFromAdo(e.target.checked)} /> {t("The backlog is in Azure DevOps: import it")}
+            </label>
+            <button className="btn primary" style={{ justifyContent: "center", height: 38 }} disabled={!canCreate || create.isPending || fromAdo} onClick={() => submit(true)}><Play size={15} /> {t("Create & start")}</button>
             <button className="btn" style={{ justifyContent: "center" }} disabled={!canCreate || create.isPending} onClick={() => submit(false)}>{t("Create without starting")}</button>
             {missing.length > 0 && <div className="tiny" style={{ color: "var(--muted)" }}><Req /> {t("Still needed:")} {missing.join(" · ")}</div>}
           </div>
