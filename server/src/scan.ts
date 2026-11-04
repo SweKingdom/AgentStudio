@@ -35,6 +35,14 @@ function globRe(glob: string) {
   return new RegExp(`^${esc}$`);
 }
 
+/** Why an agent may not write this path, or null. Checked when a file is written and again before every merge. */
+export function protectedPath(project: Pick<Project, "settings">, rel: string): string | null {
+  const p = rel.replace(/\\/g, "/").replace(/^(\.\/)+/, "");
+  if (PROTECTED.some((re) => re.test(p)) && !ENV_TEMPLATE.test(p)) return "environment files with real values, keys, certificates and credential files";
+  const hit = (project.settings.protectedPaths ?? []).filter(Boolean).find((g) => globRe(g).test(p));
+  return hit ? `the project's protected paths: ${hit}` : null;
+}
+
 const REGISTRY = /^https:\/\/registry\.(npmjs\.org|yarnpkg\.com)\//;
 /** npm/yarn/pnpm version specs that pull code from somewhere other than the registry. */
 const NON_REGISTRY_SPEC = /^(git\+|git:|github:|gitlab:|bitbucket:|https?:|file:|link:|portal:)|^[\w.-]+\/[\w.-]+(#.*)?$/;
@@ -69,11 +77,10 @@ function dependencyFindings(file: string, added: string[]): ScanFinding[] {
 /** Scan what a story's branch changes. An empty list means it may be merged as far as security goes. */
 export async function scanBranch(project: Pick<Project, "key" | "settings">, code: string): Promise<ScanFinding[]> {
   const { files, added, symlinks } = await branchChanges(project, code);
-  const own = (project.settings.protectedPaths ?? []).filter(Boolean).map(globRe);
   const findings: ScanFinding[] = [];
   for (const f of files) {
     if (f.status === "D") continue;
-    if ((PROTECTED.some((re) => re.test(f.path)) && !ENV_TEMPLATE.test(f.path)) || own.some((re) => re.test(f.path))) {
+    if (protectedPath(project, f.path)) {
       findings.push({ kind: "protected path", path: f.path, detail: "a protected file is added or changed" });
     }
   }
