@@ -156,9 +156,10 @@ export function projectContext(project: Project) {
 
 /** Tools a developer gets from the project rather than from its own definition: asking for a manual step always, and
  *  running commands when the project allows some. */
-function withProjectTools(agent: Agent, project: Project): Agent {
-  if (agent.role !== "developer") return agent;
-  const extra = ["request_manual_step", ...(allowedCommands(project).length ? ["run_command"] : [])].filter((t) => !agent.tools.includes(t));
+export function withProjectTools(agent: Agent, project: Project): Agent {
+  // Whoever writes files can also edit them (agents saved before edit_file existed get it too).
+  if (agent.role !== "developer") return agent.tools.includes("write_file") && !agent.tools.includes("edit_file") ? { ...agent, tools: [...agent.tools, "edit_file"] } : agent;
+  const extra = ["edit_file", "request_manual_step", ...(allowedCommands(project).length ? ["run_command"] : [])].filter((t) => !agent.tools.includes(t));
   return extra.length ? { ...agent, tools: [...agent.tools, ...extra] } : agent;
 }
 

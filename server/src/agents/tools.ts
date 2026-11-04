@@ -557,7 +557,7 @@ const TOOLS: Record<string, ToolSpec> = {
     def: {
       name: "write_file",
       description:
-        "Create or overwrite a file in the project workspace, at the path the repository keeps that kind of code (e.g. src/services/orders.ts). Always send the complete file.",
+        "Create a new file in the project workspace, at the path the repository keeps that kind of code (e.g. src/services/orders.ts), or replace a file completely. Always send the complete file. To change part of an existing file, use edit_file instead.",
       input_schema: {
         type: "object",
         properties: { path: { type: "string" }, content: { type: "string" } },
@@ -579,6 +579,53 @@ const TOOLS: Record<string, ToolSpec> = {
         summary: `Wrote ${rel} (${i.content.split("\n").length} lines)`,
       });
       return `Wrote ${rel}`;
+    },
+  },
+
+  edit_file: {
+    label: "Edit part of a source file",
+    def: {
+      name: "edit_file",
+      description:
+        "Change part of an existing file: replace old_string with new_string. old_string must match the file exactly, including indentation, and appear once (or set replace_all). Include enough surrounding lines to make it unique. Cheaper than write_file for any change to an existing file; several edits to one file are several calls.",
+      input_schema: {
+        type: "object",
+        properties: {
+          path: { type: "string" },
+          old_string: { type: "string", description: "The exact text to replace." },
+          new_string: { type: "string", description: "The text to put in its place (empty to delete it)." },
+          replace_all: { type: "boolean", description: "Replace every occurrence instead of requiring exactly one." },
+        },
+        required: ["path", "old_string", "new_string"],
+      },
+    },
+    handler: (i, ctx) => {
+      req(i, "path", "old_string");
+      if (typeof i.new_string !== "string") throw new Error("Missing required field(s): new_string");
+      const why = protectedPath(ctx.project, String(i.path));
+      if (why) throw new Error(`${i.path} is protected (${why}), so no agent may write it. If the story really needs this change, ask the product owner with request_manual_step.`);
+      const current = readWorkspaceFile(ctx.project, i.path, ctx.item?.code);
+      if (current === null) throw new Error(`File not found: ${i.path}. Create it with write_file.`);
+      if (i.old_string === i.new_string) throw new Error("old_string and new_string are the same: nothing to change.");
+      // Files checked out with Windows line endings: match what the agent copied with plain newlines too.
+      const crlf = !current.includes(i.old_string) && current.includes("\r\n");
+      const oldS: string = crlf ? i.old_string.replace(/\r?\n/g, "\r\n") : i.old_string;
+      const newS: string = crlf ? i.new_string.replace(/\r?\n/g, "\r\n") : i.new_string;
+      const count = current.split(oldS).length - 1;
+      if (!count) throw new Error(`old_string wasn't found in ${i.path}. Read those lines again with read_file and copy them exactly, including indentation.`);
+      if (count > 1 && !i.replace_all) throw new Error(`old_string appears ${count} times in ${i.path}. Add surrounding lines so it matches once, or set replace_all.`);
+      const next = i.replace_all ? current.split(oldS).join(newS) : current.replace(oldS, () => newS);
+      const rel = recordFile(ctx.project.id, i.path, next, ctx.agent.id, ctx.item?.id ?? null);
+      const lines = (s: string) => (s ? s.split("\n").length : 0);
+      logActivity({
+        projectId: ctx.project.id,
+        agentId: ctx.agent.id,
+        runId: ctx.runId,
+        itemId: ctx.item?.id,
+        type: "file",
+        summary: `Edited ${rel} (−${lines(i.old_string) * (i.replace_all ? count : 1)} +${lines(i.new_string) * (i.replace_all ? count : 1)} lines)`,
+      });
+      return `Edited ${rel}${count > 1 ? ` (${count} places)` : ""}`;
     },
   },
 
