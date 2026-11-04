@@ -162,11 +162,29 @@ function withProjectTools(agent: Agent, project: Project): Agent {
   return extra.length ? { ...agent, tools: [...agent.tools, ...extra] } : agent;
 }
 
+/** Story points at or below which a story counts as small, and at or above which it counts as large. */
+export const SMALL_STORY_POINTS = 2;
+export const LARGE_STORY_POINTS = 8;
+
+/** The model a run uses: the project's choice for this story's size (developer and QA only), else the agent's own. */
+export function modelForRun(project: Pick<Project, "settings">, agent: Pick<Agent, "role" | "model">, item?: Pick<WorkItem, "story_points"> | null) {
+  const sized = project.settings.modelBySize;
+  const pts = item?.story_points;
+  if (!sized || !pts || (agent.role !== "developer" && agent.role !== "qa")) return agent.model;
+  if (pts <= SMALL_STORY_POINTS && sized.small) return sized.small;
+  if (pts >= LARGE_STORY_POINTS && sized.large) return sized.large;
+  return agent.model;
+}
+
 export async function runAgent(o: RunOptions): Promise<RunResult> {
   const runId = startRun(o);
+  const model = modelForRun(o.project, o.agent, o.item);
+  if (model !== o.agent.model) {
+    logActivity({ projectId: o.project.id, agentId: o.agent.id, runId, itemId: o.item?.id, type: "note", summary: `${o.agent.name} uses ${model} for ${o.item?.code} (${o.item?.story_points} points)` });
+  }
   const ctx: ToolContext = {
     project: o.project,
-    agent: withProjectTools(o.agent, o.project),
+    agent: withProjectTools(model === o.agent.model ? o.agent : { ...o.agent, model }, o.project),
     runId,
     item: o.item,
     iteration: o.iteration ?? 1,
