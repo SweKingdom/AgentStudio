@@ -7,6 +7,7 @@ import { getSetting, setSetting, update } from "./db.js";
 import { emit } from "./events.js";
 import { getItem, listItems, listProjects, logActivity, type Project, type WorkItem } from "./store.js";
 import { teamSettings } from "./team.js";
+import { ownedByStudio } from "./ownership.js";
 
 export type AdoStateMode = "same" | "agile";
 
@@ -20,7 +21,13 @@ export interface AdoConfig {
   iterationRoot?: string;
   /** "same": send the ARM state names as-is (processes that use the same states). "agile": map onto the Agile process. */
   stateMode: AdoStateMode;
+  /** What AgentStudio may change in Azure DevOps. "full" (default): create and update items and their fields.
+   *  "state": only move AgentStudio's own imported User Stories between states — nothing created, no other field.
+   *  "none": read only. Imported projects start at "state". */
+  writeMode?: AdoWriteMode;
 }
+
+export type AdoWriteMode = "full" | "state" | "none";
 
 const API = "api-version=7.1";
 export const ADO_TYPE: Record<WorkItem["type"], string> = { epic: "Epic", feature: "Feature", story: "User Story", task: "Task", bug: "Bug" };
@@ -50,6 +57,7 @@ export function cleanAdoConfig(input: unknown): AdoConfig | null {
   if (u.search || u.hash) throw new Error("Azure DevOps organization URL must not have a query string");
   if (/[\\/?#]/.test(project)) throw new Error("Azure DevOps project name can't contain / \\ ? or #");
   const mode = o.stateMode === "agile" ? "agile" : "same";
+  const write = o.writeMode === "state" || o.writeMode === "none" ? o.writeMode : o.writeMode === "full" ? "full" : undefined;
   const text = (v: unknown) => String(v ?? "").trim().replace(/\//g, "\\").replace(/^\\+|\\+$/g, "");
   return {
     orgUrl: `${u.origin}${u.pathname.replace(/\/+$/, "")}`,
@@ -57,6 +65,7 @@ export function cleanAdoConfig(input: unknown): AdoConfig | null {
     ...(text(o.areaPath) ? { areaPath: text(o.areaPath) } : {}),
     ...(text(o.iterationRoot) ? { iterationRoot: text(o.iterationRoot) } : {}),
     stateMode: mode,
+    ...(write ? { writeMode: write } : {}),
   };
 }
 
@@ -364,6 +373,8 @@ export async function syncBacklog(p: Project): Promise<AdoSyncSummary> {
   const cfg = cleanAdoConfig(p.settings.ado);
   if (!cfg) throw new Error("Azure DevOps isn't configured for this project (Project settings → Azure DevOps)");
   if (!hasAdoToken()) throw new Error(NO_TOKEN);
+  if (cfg.writeMode === "none") throw new Error("Azure DevOps is read only for this project: AgentStudio changes nothing there (Project settings → Azure DevOps → Write back).");
+  if (cfg.writeMode === "state") return syncStates(p, cfg);
   if (running.has(p.id)) throw new Error("An Azure DevOps sync is already running for this project");
   running.add(p.id);
   const t0 = Date.now();
@@ -476,4 +487,69 @@ async function syncItem(
 /** For the system check: projects that have Azure DevOps configured. */
 export function adoProjects() {
   return listProjects().filter((p) => adoConfigOf(p));
+}
+
+// ---------------------------------------------------------------- state-only write-back
+
+/** Azure DevOps state categories, in workflow order. */
+const CATEGORY_ORDER = ["Proposed", "InProgress", "Resolved", "Completed"];
+
+/** The board's state for where AgentStudio's story is, from the states the process defines for User Story (in
+ *  workflow order, with their category). Null: leave it as it is (not started, Blocked, Cancelled). */
+export function boardState(state: string, states: { name: string; category: string }[]): string | null {
+  const inProgress = states.filter((s) => s.category === "InProgress");
+  const pick = (list: { name: string }[], re: RegExp) => list.find((s) => re.test(s.name))?.name;
+  if (state === "In Progress") return pick(inProgress, /develop|active|in progress|committed|doing/i) ?? inProgress[0]?.name ?? null;
+  if (["In Peer Testing", "Ready for UAT", "In Review", "Changes Requested"].includes(state)) {
+    return pick(inProgress, /test|review|verif/i) ?? states.find((s) => s.category === "Resolved")?.name ?? inProgress.at(-1)?.name ?? null;
+  }
+  if (["Release Ready", "Smoke Testing", "Deployed (Done)"].includes(state)) return states.find((s) => s.category === "Completed")?.name ?? null;
+  return null;
+}
+
+/** Moves AgentStudio's own imported User Stories to the board state that matches their progress, and nothing else:
+ *  never creates an item, never changes another field, never moves an item back, never touches someone else's. */
+export async function syncStates(p: Project, cfg: AdoConfig): Promise<AdoSyncSummary> {
+  if (running.has(p.id)) throw new Error("An Azure DevOps sync is already running for this project");
+  running.add(p.id);
+  const t0 = Date.now();
+  const s: AdoSyncSummary = { at: new Date().toISOString(), ok: true, total: 0, created: 0, updated: 0, recreated: 0, failed: 0, errors: [], warnings: [], stateFallbacks: [], durationMs: 0 };
+  try {
+    const stories = listItems(p.id).filter((i) => i.type === "story" && i.ado_id && ownedByStudio(p, i));
+    s.total = stories.length;
+    if (stories.length) {
+      const r = await adoFetch("GET", `${cfg.orgUrl}/${encodeURIComponent(cfg.project)}/_apis/wit/workitemtypes/${encodeURIComponent("User Story")}/states?${API}`);
+      if (!ok(r)) throw new Error(`Couldn't read the User Story states: ${r.message}`);
+      const states: { name: string; category: string }[] = (r.body?.value ?? []).map((x: any) => ({ name: String(x.name), category: String(x.category) }));
+      const rank = (name: string) => CATEGORY_ORDER.indexOf(states.find((x) => x.name === name)?.category ?? "") * 100 + states.findIndex((x) => x.name === name);
+      for (const i of stories) {
+        const target = boardState(i.state, states);
+        if (!target) continue;
+        try {
+          const cur = await adoFetch("GET", `${cfg.orgUrl}/_apis/wit/workitems/${i.ado_id}?${API}`);
+          if (!ok(cur)) throw new Error(cur.message);
+          const now = String(cur.body?.fields?.["System.State"] ?? "");
+          if (now === target || rank(now) >= rank(target)) continue; // forward only
+          const w = await adoFetch("PATCH", `${cfg.orgUrl}/_apis/wit/workitems/${i.ado_id}?${API}`, [{ op: "add", path: "/fields/System.State", value: target }], "application/json-patch+json");
+          if (!ok(w)) throw new Error(w.message);
+          s.updated++;
+        } catch (e) {
+          s.failed++;
+          s.errors.push({ code: i.code, error: redact(e instanceof Error ? e.message : String(e)).slice(0, 500) });
+        }
+      }
+    }
+  } catch (e) {
+    s.error = redact(e instanceof Error ? e.message : String(e));
+  } finally {
+    running.delete(p.id);
+  }
+  s.ok = !s.failed && !s.error;
+  s.durationMs = Date.now() - t0;
+  setSetting(SUMMARY_KEY(p.id), { ...s, errors: s.errors.slice(0, 50) });
+  if (s.updated || s.failed || s.error) {
+    logActivity({ projectId: p.id, type: "ado_sync", summary: `Azure DevOps: moved ${s.updated} stor${s.updated === 1 ? "y" : "ies"} to their state${s.failed ? `, ${s.failed} failed` : ""}${s.error ? ` — ${s.error}` : ""}`, detail: { updated: s.updated, failed: s.failed, errors: s.errors.slice(0, 10), error: s.error } });
+  }
+  emit({ type: "project", projectId: p.id });
+  return s;
 }

@@ -181,7 +181,7 @@ export default function ItemDrawer({ id, project, onClose }: { id: string; proje
             : <button className="btn sm primary" disabled={mergeReview.isPending} title={t("Merge the reviewed branch into the base branch.")} onClick={() => mergeReview.mutate()}><GitBranch size={13} /> {t("Merge")}</button>)}
           {isDeliverable && (
             <Hint text={t("How this story is merged when it's done. Project default follows the project's Merging setting.")}>
-              <select className="select" style={{ width: 170, height: 28, padding: "2px 8px" }} aria-label={t("Merging")} disabled={save.isPending} value={it.merge_mode ?? ""} onChange={(e) => save.mutate({ merge_mode: e.target.value || null })}>
+              <select className="select" style={{ width: 215, height: 28, padding: "2px 8px" }} aria-label={t("Merging")} disabled={save.isPending} value={it.merge_mode ?? ""} onChange={(e) => save.mutate({ merge_mode: e.target.value || null })}>
                 <option value="">{t("Merge: project default")}</option>
                 <option value="auto">{t("Merge: AgentStudio")}</option>
                 <option value="review">{t("Merge: review PR")}</option>

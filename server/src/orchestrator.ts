@@ -18,6 +18,8 @@ import { fill, teamSettings } from "./team.js";
 import { branchChanges, currentTree, ensureItemBranch, finishMerge, mergeIntoBase, mergeItemBranch, pushRefs, syncBaseAfterPr, treeDiff } from "./git.js";
 import { PrConflictError, commentQaFindings, integrateViaPr, openDraftPr, openForReview, prRepoFor } from "./pullrequests.js";
 import { githubRepoOf, prNumberOf, prReviews, prStatus, type PrReviews } from "./github.js";
+import { adoConfigOf, hasAdoToken, syncRunning, syncStates } from "./ado.js";
+import { importBacklog } from "./adoimport.js";
 import { needsCodeReview, runCodeReview } from "./review.js";
 import { acceptedAnswers, priorAcDecision } from "./questions.js";
 import {
@@ -258,7 +260,31 @@ function closeOpenPhases(projectId: string, outcome: string) {
   run("UPDATE item_phases SET ended_at = ?, outcome = ? WHERE project_id = ? AND ended_at IS NULL", now(), outcome, projectId);
 }
 
+/** An imported project: take what changed in Azure DevOps (new, edited, reassigned, finished items) before the run,
+ *  the way a story branch first takes what was pushed, and write AgentStudio's states back. Never stops the run. */
+async function refreshFromAdo(projectId: string) {
+  const p = getProject(projectId);
+  const cfg = p ? adoConfigOf(p) : null;
+  if (!p?.settings.adoImport || !cfg || !hasAdoToken()) return;
+  try {
+    const r = await importBacklog(projectId, cfg, p.settings.adoImport);
+    if (r.created || r.updated) logActivity({ projectId, agentId: "orchestrator", type: "pipeline", summary: `↻ Azure DevOps: ${r.created} new, ${r.updated} updated before the run` });
+  } catch (e) {
+    logActivity({ projectId, agentId: "orchestrator", type: "tool_error", summary: `⚠ Couldn't refresh from Azure DevOps: ${e instanceof Error ? e.message : e} — continuing with the backlog as it is` });
+  }
+  await writeStatesBack(projectId);
+}
+
+/** State-only write-back for an imported project; nothing when it's set to read only or full sync. Never throws. */
+export async function writeStatesBack(projectId: string) {
+  const p = getProject(projectId);
+  const cfg = p ? adoConfigOf(p) : null;
+  if (!p || !cfg || cfg.writeMode !== "state" || !hasAdoToken() || syncRunning(projectId)) return;
+  await syncStates(p, cfg).catch(() => undefined);
+}
+
 async function loop(projectId: string, signal: AbortSignal) {
+  await refreshFromAdo(projectId);
   for (;;) {
     checkpoint(projectId);
     const p = getProject(projectId)!;
@@ -521,10 +547,12 @@ function continueAfterReview(projectId: string) {
   continueUndelivered(projectId, { retryBlocked: false });
 }
 
-/** Every few minutes: check the reviews of every project that has stories in review. */
+/** Every few minutes: check the reviews of every project that has stories in review, and write imported projects'
+ *  states back to Azure DevOps. */
 export function reviewTick() {
   for (const p of listProjects()) {
     if (listItems(p.id).some((i) => i.state === IN_REVIEW)) void checkReviews(p.id);
+    if (p.settings.adoImport) void writeStatesBack(p.id);
   }
 }
 

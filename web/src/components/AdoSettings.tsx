@@ -6,9 +6,10 @@ import { ago, dateTime } from "../lib/format";
 import { toast } from "../lib/toast";
 import { Field, Hint } from "./Hint";
 import { Seg } from "./ui";
+import { t } from "../lib/i18n";
 
 /** Form state: every field a string so inputs stay controlled. */
-export interface AdoValue { orgUrl: string; project: string; areaPath: string; iterationRoot: string; stateMode: AdoConfig["stateMode"] }
+export interface AdoValue { orgUrl: string; project: string; areaPath: string; iterationRoot: string; stateMode: AdoConfig["stateMode"]; writeMode: NonNullable<AdoConfig["writeMode"]> }
 
 interface AdoSyncSummary {
   at: string; ok: boolean; total: number; created: number; updated: number; recreated: number; failed: number;
@@ -19,13 +20,13 @@ interface AdoStatus { configured: boolean; config: AdoConfig | null; tokenPresen
 interface AdoTestResult { ok: boolean; project?: string; process?: string | null; error?: string }
 
 export function adoFormValue(cfg?: AdoConfig | null): AdoValue {
-  return { orgUrl: cfg?.orgUrl ?? "", project: cfg?.project ?? "", areaPath: cfg?.areaPath ?? "", iterationRoot: cfg?.iterationRoot ?? "", stateMode: cfg?.stateMode ?? "same" };
+  return { orgUrl: cfg?.orgUrl ?? "", project: cfg?.project ?? "", areaPath: cfg?.areaPath ?? "", iterationRoot: cfg?.iterationRoot ?? "", stateMode: cfg?.stateMode ?? "same", writeMode: cfg?.writeMode ?? "full" };
 }
 
 /** What the project PATCH stores: null switches the sync off (both URL and project empty). */
 export function adoSettingsOf(v: AdoValue): AdoConfig | null {
   if (!v.orgUrl.trim() && !v.project.trim()) return null;
-  return { orgUrl: v.orgUrl.trim(), project: v.project.trim(), areaPath: v.areaPath.trim() || undefined, iterationRoot: v.iterationRoot.trim() || undefined, stateMode: v.stateMode };
+  return { orgUrl: v.orgUrl.trim(), project: v.project.trim(), areaPath: v.areaPath.trim() || undefined, iterationRoot: v.iterationRoot.trim() || undefined, stateMode: v.stateMode, writeMode: v.writeMode };
 }
 
 /** Same rules as the server: https only, no credentials in the URL, both fields or neither. */
@@ -87,6 +88,9 @@ export function AdoSettings({ projectId, value, onChange }: { projectId: string;
       </div>
       <Field label="States" help="Same names: send AgentStudio's states as they are — for a process that uses the same states (Ready for Sprint, In Peer Testing…). Agile mapping: New / Active / Resolved / Closed / Removed, Blocked becomes Active with a Blocked tag. If Azure DevOps refuses a state name, that item is sent with the Agile mapping and the sync reports it.">
         <Seg value={value.stateMode} onChange={(v) => set({ stateMode: v })} options={[{ value: "same", label: "Same names" }, { value: "agile", label: "Agile mapping" }]} />
+      </Field>
+      <Field label={t("Write back")} help={t("What AgentStudio may change in Azure DevOps. Full sync: create and update every item and its fields. State only: move AgentStudio's own imported User Stories to the board state that matches their progress (forward only), and nothing else; this is the default for an imported backlog. Read only: change nothing.")}>
+        <Seg value={value.writeMode} onChange={(v) => set({ writeMode: v })} options={[{ value: "full", label: t("Full sync") }, { value: "state", label: t("State only") }, { value: "none", label: t("Read only") }]} />
       </Field>
       <div className="row wrap" style={{ gap: 10, alignItems: "flex-start" }}>
         <Hint text="Reads the Azure DevOps project with the token from .env. Nothing is created or changed.">
