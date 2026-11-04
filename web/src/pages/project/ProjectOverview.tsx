@@ -34,7 +34,7 @@ export default function ProjectOverview({ p }: { p: Project }) {
         <Kpi label={t("Deployed")} icon={<CheckCircle2 size={13} />} value={`${p.counts.done}/${p.counts.stories}`} foot={`${p.counts.releaseReady} release-ready · ${p.counts.inProgress} in flight`} />
         <Kpi label={plan ? t("API value") : t("AI cost")} icon={<Coins size={13} />} value={<Count value={p.costUsd} format={(n) => money(n)} />} accent foot={plan ? t("covered by your Claude plan") : p.estimate ? `estimated ${money(p.estimate.totalUsd)} up front` : undefined} />
         <Kpi label={t("Agents working")} icon={<Clock size={13} />} value={duration(effort?.time.workingSeconds ?? 0)} foot={t("of {e} elapsed", { e: duration(effort?.time.elapsedSeconds ?? elapsed) })} />
-        <Kpi label={t("Human estimate")} icon={<Zap size={13} />} value={<Count value={humanH} format={(n) => hours(n)} />} foot={t("{p} points × {h} h, not measured", { p: p.counts.points, h: meta?.settings.hoursPerStoryPoint ?? 6 })} />
+        <Kpi label={t("Human estimate")} icon={<Zap size={13} />} value={<Count value={effort?.human.hours ?? humanH} format={(n) => hours(n)} />} foot={t("{p} points × {h} h, not measured", { p: effort?.human.points ?? p.counts.points, h: meta?.settings.hoursPerStoryPoint ?? 6 })} />
         <Kpi label={t("Open questions")} icon={<HelpCircle size={13} />} value={p.openQuestions} foot={p.openQuestions ? <Link to={`/p/${p.key}/questions`} style={{ color: "var(--accent)" }}>Answer them →</Link> : "nothing pending"} />
       </div>
 
