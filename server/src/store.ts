@@ -47,6 +47,9 @@ export interface ProjectSettings {
   mergeMode?: "auto" | "review";
   /** When a reviewer requests changes: "ask" (default) waits with the comments for you to edit and send; "auto" sends them to the developer. */
   reviewRework?: "ask" | "auto";
+  /** The backlog came from Azure DevOps (adoimport.ts): which items, and when they were last imported. The requirements
+   *  stage, which starts from an empty backlog, never runs for such a project. */
+  adoImport?: (import("./adoimport.js").AdoImportFilter & { lastImport?: string }) | null;
 }
 
 export interface Project {

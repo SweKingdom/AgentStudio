@@ -613,6 +613,11 @@ Agents only write files in the repository and run the project's checks and allow
 - In the project brief, list them under "Manual steps".`;
 
 async function stageRequirements(p: Project, signal: AbortSignal) {
+  // An imported backlog is the project's: this stage starts by deleting the backlog, so it never runs then.
+  if (p.settings.adoImport) {
+    logActivity({ projectId: p.id, agentId: "orchestrator", type: "pipeline", summary: "Requirements skipped: the backlog was imported from Azure DevOps" });
+    return;
+  }
   const agent = agentsFor(p, "requirements")[0];
   const started = now();
   // A restarted requirements stage starts from a clean backlog.

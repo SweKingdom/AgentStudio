@@ -102,7 +102,7 @@ interface AdoResponse {
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
-async function adoFetch(method: string, url: string, body?: unknown, contentType = "application/json"): Promise<AdoResponse> {
+export async function adoFetch(method: string, url: string, body?: unknown, contentType = "application/json"): Promise<AdoResponse> {
   const token = adoToken();
   if (!token) throw new Error(NO_TOKEN);
   for (let attempt = 0; ; attempt++) {
@@ -147,7 +147,7 @@ async function adoFetch(method: string, url: string, body?: unknown, contentType
   }
 }
 
-const ok = (r: AdoResponse) => r.status >= 200 && r.status < 300 && r.status !== 203;
+export const ok = (r: AdoResponse) => r.status >= 200 && r.status < 300 && r.status !== 203;
 
 // ---------------------------------------------------------------- test connection
 
