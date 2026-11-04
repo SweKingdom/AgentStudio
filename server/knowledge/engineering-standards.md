@@ -20,6 +20,14 @@ Write the least code that meets the acceptance criteria, in as few files as read
 - No abstraction, option or extension point the story doesn't need now.
 - Count before hand-over: if the story added more than a handful of files, merge the ones that belong together.
 
+## Shared files: other stories change them at the same time
+
+Stories are built in parallel on their own branches, and every line two stories both change becomes a merge conflict that costs another development run.
+
+- Keep a feature's wiring in its own module: it exports one function that registers its routes or services, and the startup file (`Program.cs`, `app.ts`, `main.py`) gets one line to call it. Never put a feature's endpoints, options or mappings inline in the startup file.
+- In `package.json` and other manifests, change only the lines the story needs: add a dependency or a script, never reorder, reformat or bump unrelated entries. Don't edit the lock file by hand; let the install regenerate it.
+- Add to the end of shared lists (README sections, `.gitignore`, `.env.example`) rather than rewriting them.
+
 ## Correctness
 
 - Handle the failure path, not only the happy path: invalid input, missing data, timeouts, partial failure.

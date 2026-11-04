@@ -102,6 +102,10 @@ async function remoteGit(dir: string, args: string[], timeout = 120_000) {
 // Isolated from the user's global git config: no signing, no hooks.
 const ARM_IDENTITY = ["-c", "user.name=AgentStudio", "-c", "user.email=arm@agentstudio.local", "-c", "commit.gpgsign=false", "-c", "tag.gpgsign=false", "-c", "core.hooksPath=/dev/null"];
 
+/** Merged with git's union driver (both sides' lines kept): stories mostly add to these, rarely change the same line. */
+export const UNION_MERGE = ["README.md", "CHANGELOG.md", ".gitignore", ".dockerignore", ".env.example"];
+const UNION_MARKER = "# AgentStudio: merge list-like files by keeping both sides";
+
 export function ensureRepo(project: Pick<Project, "key" | "settings">) {
   return serial(project.key, async () => {
     const dir = workspaceDir(project);
@@ -121,6 +125,13 @@ export function ensureRepo(project: Pick<Project, "key" | "settings">) {
     if (!(fs.existsSync(exclude) && /^\/?node_modules\/?$/m.test(fs.readFileSync(exclude, "utf8")))) {
       fs.mkdirSync(path.dirname(exclude), { recursive: true });
       fs.appendFileSync(exclude, "\nnode_modules/\n");
+    }
+    // Files that are lists of lines merge by keeping both sides' lines, so two stories adding to them in parallel don't
+    // leave a conflict for the developer. Local only (info/attributes, shared by all worktrees), never committed.
+    const attributes = path.join(dir, ".git", "info", "attributes");
+    if (!(fs.existsSync(attributes) && fs.readFileSync(attributes, "utf8").includes(UNION_MARKER))) {
+      fs.mkdirSync(path.dirname(attributes), { recursive: true });
+      fs.appendFileSync(attributes, `\n${UNION_MARKER}\n${UNION_MERGE.map((f) => `${f} merge=union`).join("\n")}\n`);
     }
     const url = project.settings.repo?.url;
     const remotes = (await git(dir, ["remote"])).split("\n").filter(Boolean);
