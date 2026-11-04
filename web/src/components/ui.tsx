@@ -1,3 +1,4 @@
+import { createPortal } from "react-dom";
 import { useEffect, useState, type ReactNode } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
@@ -148,11 +149,13 @@ export function Drawer({ onClose, children }: { onClose: () => void; children: R
     window.addEventListener("keydown", k);
     return () => window.removeEventListener("keydown", k);
   }, [onClose]);
-  return (
+  // At the top of the document, like Modal: inside an animated page it would sit under the sidebar.
+  return createPortal(
     <>
       <div className="overlay" onClick={onClose} />
       <aside className="drawer" role="dialog">{children}</aside>
-    </>
+    </>,
+    document.body,
   );
 }
 
@@ -162,7 +165,9 @@ export function Modal({ onClose, title, children, footer, wide }: { onClose: () 
     window.addEventListener("keydown", k);
     return () => window.removeEventListener("keydown", k);
   }, [onClose]);
-  return (
+  // Rendered at the top of the document: a page's entrance animation leaves a transform on it, which would otherwise
+  // position the fixed overlay and dialog relative to the page instead of the window.
+  return createPortal(
     <>
       <div className="overlay" onClick={onClose} />
       <div className={`modal ${wide ? "wide" : ""}`} role="dialog">
@@ -173,7 +178,8 @@ export function Modal({ onClose, title, children, footer, wide }: { onClose: () 
         <div className="card-pad">{children}</div>
         {footer && <div className="card-head" style={{ borderTop: "1px solid var(--line)", borderBottom: 0, justifyContent: "flex-end" }}>{footer}</div>}
       </div>
-    </>
+    </>,
+    document.body,
   );
 }
 

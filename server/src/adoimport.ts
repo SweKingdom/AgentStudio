@@ -7,6 +7,7 @@
  * AgentStudio's rule (ownership.ts) decides which ones it builds. Imported stories are merged after review.
  */
 import { adoFetch, ok, type AdoConfig } from "./ado.js";
+import { insert, now } from "./db.js";
 import { ownedByStudio } from "./ownership.js";
 import { addQuestion, createItem, getProject, listItems, logActivity, openQuestionCount, patchItem, patchProject, type Project, type WorkItem } from "./store.js";
 
@@ -167,6 +168,12 @@ export async function importBacklog(projectId: string, cfg: AdoConfig, filter: A
       const changed = (Object.keys(fields) as (keyof WorkItem)[]).filter((k) => JSON.stringify(cur[k] ?? null) !== JSON.stringify(fields[k] ?? null));
       byAdo.set(a.adoId, changed.length ? patchItem(cur.id, fields) : cur);
       if (changed.length) updated++;
+      // Someone changed what AgentStudio is already building: it goes to the developer as the product owner's comment.
+      const spec = changed.filter((k) => k === "title" || k === "user_story" || k === "acceptance_criteria");
+      if (spec.length && ownedByStudio(p, cur) && !["New", "Deployed (Done)", "Cancelled"].includes(cur.state)) {
+        const label: Record<string, string> = { title: "title", user_story: "description", acceptance_criteria: "acceptance criteria" };
+        insert("comments", { project_id: projectId, item_id: cur.id, author_id: "human", content: `Changed in Azure DevOps (${spec.map((k) => label[k]).join(", ")}):${spec.map((k) => `\n\n${label[k]}:\n${String(fields[k] ?? "")}`).join("")}`, created_at: now() });
+      }
       continue;
     }
     const code = codes.has(`${PREFIX[a.type]}-${a.adoId}`) ? undefined : `${PREFIX[a.type]}-${a.adoId}`;
@@ -198,7 +205,7 @@ export async function importBacklog(projectId: string, cfg: AdoConfig, filter: A
   // An imported backlog replaces the analyst's: the requirements stage (which starts from an empty backlog) never runs.
   const proj = getProject(projectId)!;
   patchProject(projectId, {
-    settings: { ...proj.settings, ado: cfg, adoImport: { ...filter, lastImport: new Date().toISOString() } },
+    settings: { ...proj.settings, ado: { ...cfg, writeMode: cfg.writeMode ?? "state" }, adoImport: { ...filter, lastImport: new Date().toISOString() } },
     stages: proj.stages.map((s) => (s.key === "requirements" && s.status === "pending" ? { ...s, status: "skipped" } : s)),
   });
   const done = [...byAdo.values()].filter((i) => i.state === "Deployed (Done)").length;
