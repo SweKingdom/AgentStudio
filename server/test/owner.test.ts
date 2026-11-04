@@ -112,3 +112,48 @@ test("owners are validated, and AgentStudio's own items still follow the pipelin
   assert.equal(cleared.owner, null);
   assert.equal(cleared.assignee, null);
 });
+
+test("assigning doesn't decide who builds; a rule on the assignee makes AgentStudio build exactly those", async () => {
+  const agents = await api<any[]>("GET", "/agents");
+  await api("POST", "/projects", {
+    name: "Assigned",
+    key: "ASG",
+    description: "Members book classes. Members cancel a booking. Trainers see who booked their class.",
+    agentIds: agents.map((a) => a.id),
+    settings: { gates: true, parallelism: 2, budgetUsd: 0, maxRework: 2, repo: { url: "https://github.com/demo/asg.git", branch: "main" } },
+    start: true,
+  });
+  await waitFor(async () => (await project("ASG")).stage === "review_backlog", "the backlog review gate");
+  const pid = (await project("ASG")).id;
+  answerAll(pid);
+  await api("POST", "/projects/ASG/approve");
+  await waitFor(async () => (await project("ASG")).stage === "approve_plan", "the plan gate");
+  answerAll(pid);
+  run("UPDATE work_items SET depends_on = '[]' WHERE project_id = ?", pid);
+  const [a1, a2, other] = stories(pid);
+  assert.equal((await call("POST", "/projects/ASG/items/owner", { ids: [a1.id] })).status, 400, "owner or assignee is needed");
+  const assigned = await api("POST", "/projects/ASG/items/owner", { ids: [a1.id, a2.id], assignee: "Anna" });
+  assert.equal(assigned.changed, 2);
+  const items = await api<any[]>("GET", "/projects/ASG/items");
+  for (const id of [a1.id, a2.id]) {
+    const it = items.find((i) => i.id === id);
+    assert.equal(it.assignee, "Anna");
+    assert.equal(it.owner, null, "assigning didn't take it from AgentStudio");
+    assert.equal(it.ours, true);
+  }
+
+  // A rule nobody matches leaves AgentStudio nothing: delivery stops and says why instead of finishing empty.
+  await api("PATCH", "/projects/ASG", { settings: { workRule: { assignees: ["Nobody"] } } });
+  await api("POST", "/projects/ASG/approve");
+  await waitFor(async () => { const p = await project("ASG"); return !p.running && p.status === "paused"; }, "the pause");
+  assert.ok(all<{ summary: string }>("SELECT summary FROM activity WHERE project_id = ? AND summary LIKE '%rule leaves it nothing to build%'", pid).length);
+  assert.ok([a1, a2, other].every((s) => builtCount(s.id) === 0), "nothing was built");
+
+  // "Assigned to Anna": AgentStudio builds Anna's two stories, and the third is left out (not built, not blocking).
+  await api("PATCH", "/projects/ASG", { settings: { workRule: { assignees: ["Anna"] } } });
+  await api("POST", "/projects/ASG/start");
+  const end = await runToEnd("ASG");
+  assert.ok(builtCount(a1.id) > 0 && builtCount(a2.id) > 0, "Anna's stories are built");
+  assert.equal(builtCount(other.id), 0, "the story outside the rule isn't");
+  assert.equal(end.status, "completed");
+});

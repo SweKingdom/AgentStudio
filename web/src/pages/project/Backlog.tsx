@@ -4,7 +4,7 @@ import { Bot, ChevronDown, ChevronRight, Filter, Plus, Search, User, X } from "l
 import { Hint } from "../../components/Hint";
 import { NewItemModal } from "../../components/Modals";
 import { MultiFilter } from "../../components/MultiFilter";
-import { isSomeoneElses, ownerLabel } from "../../components/Owner";
+import { isSomeoneElses, outsideRule, ownerLabel } from "../../components/Owner";
 import { useFresh } from "../../lib/motion";
 import { api, type Project, type WorkItem, type WorkRule } from "../../lib/api";
 import { CATEGORY } from "../../lib/constants";
@@ -22,6 +22,14 @@ const UNASSIGNED = "\u0000unassigned";
 const isDeliverable = (i: WorkItem) => i.type === "story" || i.type === "task" || i.type === "bug";
 /** The imported iteration, else AgentStudio's own sprint (as ownership.ts on the server). */
 const iterationOf = (i: WorkItem) => i.iteration?.trim() || (i.sprint ? `Sprint ${i.sprint}` : "");
+/** Who builds it, for the Built by filter: AgentStudio, someone it was given to, or nobody because the rule leaves it out. */
+const ownerKind = (i: WorkItem) => (i.owner === "person" ? "person" : outsideRule(i) ? "rule" : "agentstudio");
+const same = (a: string | null | undefined, b: string) => !!a && a.trim().toLowerCase() === b.trim().toLowerCase();
+/** The rule as the server checks it (ownership.ts): any value within a field, every field it sets. */
+const matchesRule = (r: WorkRule, i: WorkItem) =>
+  (!r.assignees?.length || r.assignees.some((a) => same(i.assignee, a))) &&
+  (!r.iterations?.length || r.iterations.some((x) => same(iterationOf(i), x))) &&
+  (!r.tags?.length || r.tags.some((x) => i.tags.some((tag) => same(tag, x))));
 
 interface Filters { owners: string[]; assignees: string[]; iterations: string[]; states: string[]; tags: string[]; types: string[] }
 const NO_FILTERS: Filters = { owners: [], assignees: [], iterations: [], states: [], tags: [], types: [] };
@@ -49,7 +57,7 @@ export default function Backlog({ p }: { p: Project }) {
   const filtering = Object.values(f).some((v) => v.length > 0);
   const text = (i: WorkItem) => `${i.code} ${i.title} ${i.user_story} ${i.acceptance_criteria} ${i.tags.join(" ")} ${i.assignee ?? ""} ${iterationOf(i)}`.toLowerCase();
   const passes = (i: WorkItem) =>
-    (!f.owners.length || f.owners.includes(isSomeoneElses(i) ? "person" : "agentstudio")) &&
+    (!f.owners.length || f.owners.includes(ownerKind(i))) &&
     (!f.assignees.length || f.assignees.includes(i.assignee?.trim() || UNASSIGNED)) &&
     (!f.iterations.length || f.iterations.includes(iterationOf(i))) &&
     (!f.states.length || f.states.includes(i.state)) &&
@@ -93,10 +101,12 @@ export default function Backlog({ p }: { p: Project }) {
   const allShownSelected = shownWork.length > 0 && shownWork.every((i) => selected.has(i.id));
   const select = (id: string, on: boolean) => setSelected((s) => { const n = new Set(s); on ? n.add(id) : n.delete(id); return n; });
 
-  const give = async (owner: "agentstudio" | "person") => {
+  /** "assign": only who it's assigned to; "agentstudio" / "person": who builds it (the person = the name typed). */
+  const give = async (what: "assign" | "agentstudio" | "person") => {
     setBusy(true);
     try {
-      const r = await api.post<{ changed: number; skipped: { code: string; reason: string }[] }>(`/projects/${p.id}/items/owner`, { ids: [...selected], owner, ...(owner === "person" ? { assignee: person.trim() || null } : {}) });
+      const body = what === "assign" ? { assignee: person.trim() || null } : { owner: what, ...(what === "person" && person.trim() ? { assignee: person.trim() } : {}) };
+      const r = await api.post<{ changed: number; skipped: { code: string; reason: string }[] }>(`/projects/${p.id}/items/owner`, { ids: [...selected], ...body });
       await qc.invalidateQueries({ queryKey: ["items", p.id] });
       toast(r.skipped.length ? t("{n} item(s) changed; {s} skipped because an agent is working on them", { n: r.changed, s: r.skipped.length }) : t("{n} item(s) changed", { n: r.changed }));
       setSelected(new Set());
@@ -107,6 +117,12 @@ export default function Backlog({ p }: { p: Project }) {
     }
   };
   const saveRule = async (next: WorkRule | null) => {
+    if (next) {
+      // Say what the rule means before it takes effect: a rule that leaves AgentStudio nothing is easy to save by accident.
+      const n = work.filter((i) => i.owner === "agentstudio" || (i.owner == null && matchesRule(next, i))).length;
+      const msg = t("AgentStudio will build {n} of {m} stories, tasks and bugs: the ones that match the rule, plus those given to it by hand. The others are left to people.", { n, m: work.length });
+      if (!confirm(n === 0 ? `${t("AgentStudio would build nothing.")} ${msg}` : msg)) return;
+    }
     setBusy(true);
     try {
       await api.patch(`/projects/${p.id}`, { settings: { workRule: next } });
@@ -136,7 +152,7 @@ export default function Backlog({ p }: { p: Project }) {
             </div>
           </Hint>
           <Filter size={14} className="faint" aria-hidden />
-          <MultiFilter label={t("Built by")} value={f.owners} onChange={(v) => setF({ ...f, owners: v })} options={options(work.map((i) => (isSomeoneElses(i) ? "person" : "agentstudio")), (v) => (v === "person" ? t("Someone else") : "AgentStudio"))} />
+          <MultiFilter label={t("Built by")} value={f.owners} onChange={(v) => setF({ ...f, owners: v })} options={options(work.map(ownerKind), (v) => (v === "person" ? t("Someone else") : v === "rule" ? t("Not in the rule") : "AgentStudio"))} />
           <MultiFilter label={t("Assigned to")} value={f.assignees} onChange={(v) => setF({ ...f, assignees: v })} options={options(work.map((i) => i.assignee?.trim() || UNASSIGNED), (v) => (v === UNASSIGNED ? t("Unassigned") : v))} />
           <MultiFilter label={t("Iteration")} value={f.iterations} onChange={(v) => setF({ ...f, iterations: v })} options={options(work.map(iterationOf).filter(Boolean))} />
           <MultiFilter label={t("State")} value={f.states} onChange={(v) => setF({ ...f, states: v })} options={options(work.map((i) => i.state))} />
@@ -172,11 +188,17 @@ export default function Backlog({ p }: { p: Project }) {
       {selected.size > 0 && (
         <div className="row wrap small" style={{ gap: 8, padding: "8px 16px", borderBottom: "1px solid var(--line)", background: "color-mix(in srgb, var(--accent) 8%, transparent)" }}>
           <span className="strong">{t("{n} selected", { n: selected.size })}</span>
-          <button className="btn sm" disabled={busy} onClick={() => give("agentstudio")}><Bot size={13} /> {t("Give to AgentStudio")}</button>
           <span className="row" style={{ gap: 4 }}>
-            <input className="input" style={{ width: 150, height: 28 }} placeholder={t("Name (optional)")} aria-label={t("Assigned to")} maxLength={120} value={person} onChange={(e) => setPerson(e.target.value)} />
-            <button className="btn sm" disabled={busy} onClick={() => give("person")}><User size={13} /> {t("Give to someone else")}</button>
+            <input className="input" style={{ width: 150, height: 28 }} placeholder={t("Name")} aria-label={t("Name")} maxLength={120} value={person} onChange={(e) => setPerson(e.target.value)} />
+            <Hint text={t("Set who they're assigned to, without changing who builds them. Empty clears it.")}>
+              <button className="btn sm" disabled={busy} onClick={() => give("assign")}><User size={13} /> {t("Assign")}</button>
+            </Hint>
           </span>
+          <span className="faint">·</span>
+          <button className="btn sm" disabled={busy} onClick={() => give("agentstudio")}><Bot size={13} /> {t("AgentStudio builds them")}</button>
+          <Hint text={t("A person builds them, not AgentStudio. With a name, they're also assigned to that person.")}>
+            <button className="btn sm" disabled={busy} onClick={() => give("person")}><User size={13} /> {person.trim() ? t("{n} builds them", { n: person.trim() }) : t("Someone else builds them")}</button>
+          </Hint>
           <span className="spacer" />
           <button className="btn sm ghost" onClick={() => setSelected(new Set())}>{t("Clear selection")}</button>
         </div>
@@ -209,7 +231,7 @@ export default function Backlog({ p }: { p: Project }) {
                       <span className={container ? "strong" : ""} style={{ whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", maxWidth: 480 }}>{it.title}</span>
                     </div>
                   </td>
-                  <td className="small nowrap">{!container && <span className="row" style={{ gap: 4 }}>{theirs ? <User size={12} /> : <Bot size={12} />}{ownerLabel(it)}</span>}</td>
+                  <td className="small nowrap">{!container && <span className="row" style={{ gap: 4 }}>{outsideRule(it) ? <Filter size={12} /> : theirs ? <User size={12} /> : <Bot size={12} />}{ownerLabel(it)}</span>}</td>
                   <td>{!container && <CategoryChip value={it.category} small />}</td>
                   <td>{!container && <StatePill state={it.state} />}</td>
                   <td className="num">{it.story_points ?? ""}</td>

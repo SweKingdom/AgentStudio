@@ -10,7 +10,7 @@ import { appSettings, claudeBackend, effectiveMode } from "./settings.js";
 import { planUsageFor, usageLevel } from "./claudeAccounts.js";
 import { failedChecks, lessonsBlock } from "./agents/context.js";
 import { captureLessons, lessonsEnabled, type ReworkEntry } from "./lessons.js";
-import { ownedByStudio, ownerName } from "./ownership.js";
+import { ownedByStudio, ownerName, ruleIsSet } from "./ownership.js";
 import { baseNeedsSetup } from "./checks.js";
 import { attest, lastAttestation, verify } from "./attest.js";
 import { formatFindings, scanBranch } from "./scan.js";
@@ -893,6 +893,16 @@ async function stageDelivery(p: Project, signal: AbortSignal) {
     logActivity({ projectId: p.id, agentId: "orchestrator", itemId: w.id, type: "gate", summary: `⏸ ${w.code} stays in “${w.state}” — ${openQuestionCount(w.id)} open question(s) must be answered first` });
   }
   const ours = (i: WorkItem) => ownedByStudio(getProject(p.id)!, i);
+  // A rule that leaves AgentStudio nothing at all is almost always a mistake: say so and stop, instead of finishing a
+  // delivery that built nothing.
+  const rule = getProject(p.id)!.settings.workRule;
+  const leftOut = all().filter((i) => i.owner == null && !ours(i) && !DELIVERED_STATES.includes(i.state));
+  if (ruleIsSet(rule) && leftOut.length && !all().some(ours)) {
+    const why = `AgentStudio's rule leaves it nothing to build: ${leftOut.length} item(s) don't match it (${leftOut.map((i) => i.code).join(", ").slice(0, 200)}). Change or remove the rule in the Backlog, or give items to AgentStudio, then press Resume.`;
+    postMessage({ projectId: p.id, from: "orchestrator", to: "human", kind: "question", content: why });
+    logActivity({ projectId: p.id, agentId: "orchestrator", type: "gate", summary: `⏸ ${why}` });
+    throw new PauseRequestedError("Nothing to build under AgentStudio's rule");
+  }
   // Reviews merged (or closed) since the last run first: what they unblock joins this delivery.
   await checkReviews(p.id, { continueGate: false });
   const pending = all().filter((i) => ours(i) && !DELIVERED_STATES.includes(i.state) && !waitingForAnswers(i) && !["Blocked", "Cancelled", ...WAITING_FOR_REVIEW].includes(i.state));
