@@ -1,7 +1,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import { diffLines } from "diff";
-import { DATA_DIR, all, db, get, insert, now, parseJson, run, uid, update } from "./db.js";
+import { DATA_DIR, all, db, get, getSetting, insert, now, parseJson, run, uid, update } from "./db.js";
 import { emit } from "./events.js";
 
 // ---------- Projects ----------
@@ -94,10 +94,22 @@ export function getProject(id: string): Project | undefined {
 }
 
 export function patchProject(id: string, patch: Partial<Project>) {
+  const before = patch.status ? get<{ status: string }>("SELECT status FROM projects WHERE id = ?", id)?.status : undefined;
   update("projects", id, { ...patch, updated_at: now() });
+  if (patch.status && before !== patch.status) recordWait(id, patch.status, patch.error);
   const p = getProject(id);
   emit({ type: "project", projectId: id, data: p });
   return p;
+}
+
+/** A status change ends the project's current wait, and starts one when the new status is a wait: an approval gate is
+ *  waiting for the product owner; a pause is a limit (Claude plan, spend or budget) when one caused it, else by hand. */
+function recordWait(projectId: string, status: string, error?: string | null) {
+  const ts = now();
+  run("UPDATE project_waits SET ended_at = ? WHERE project_id = ? AND ended_at IS NULL", ts, projectId);
+  const pause = getSetting<{ kind?: string } | null>("globalPause", null);
+  const kind = status === "awaiting_approval" ? "you" : status === "paused" ? ((pause && pause.kind !== "user") || error ? "limit" : "paused") : null;
+  if (kind) insert("project_waits", { project_id: projectId, kind, started_at: ts, ended_at: null });
 }
 
 export function projectDir(p: Pick<Project, "key">) {

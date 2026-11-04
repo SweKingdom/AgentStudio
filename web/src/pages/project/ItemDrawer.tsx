@@ -413,7 +413,7 @@ export default function ItemDrawer({ id, project, onClose }: { id: string; proje
         {tab === "cost" && (
           <>
             <div className="grid g3" style={{ marginBottom: 16 }}>
-              <div className="card kpi"><div className="kpi-label">{t("Direct cost")}</div><div className="kpi-value accent" style={{ fontSize: 20 }}>{money(it.cost.costUsd)}</div></div>
+              <div className="card kpi"><div className="kpi-label">{t("Direct cost")}</div><div className="kpi-value accent" style={{ fontSize: 20 }}>{money(it.cost.costUsd)}</div>{it.spend && it.spend.reworkUsd > 0 && <div className="kpi-foot">{t("{r} of it on rework", { r: money(it.spend.reworkUsd) })}</div>}</div>
               <div className="card kpi"><div className="kpi-label">{t("Model calls")}</div><div className="kpi-value" style={{ fontSize: 20 }}>{it.cost.calls}</div></div>
               <div className="card kpi"><div className="kpi-label">{t("Per story point")}</div><div className="kpi-value" style={{ fontSize: 20 }}>{it.story_points ? money(it.cost.costUsd / it.story_points) : "—"}</div></div>
             </div>

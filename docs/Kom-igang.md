@@ -138,6 +138,12 @@ Projektsidan visar hur många kontroller som gäller. **No checks** betyder att 
 
 **Vid en grind** står projektet på *Awaiting approval*. Svara på öppna frågor (**Questions**), granska och godkänn för att gå vidare.
 
+**Tid och kostnad (Overview):** siffrorna är mätta, inte uppskattade.
+- **Vart tiden gick:** projektets förflutna tid delas upp i när agenterna arbetade, när projektet väntade på dig (grindar och frågor), pausade för gränser (Claude-planens fönster, utgiftstak eller budget), pausades av dig, och övrigt (kontroller, merge och väntan). Varje ögonblick räknas en gång, även när flera lanes körs samtidigt. Väntan och pauser registreras från och med den här versionen; tidigare hamnar de under *Övrigt*.
+- **Vart pengarna gick:** vad modellanropen kostade, uppdelat på levererade stories, pågående, stoppade (blockerade, avbrutna, borttagna) och arbete för hela projektet (analys, design, planering, release). Under det står hur mycket som gick till omarbetning, alltså rundor efter att QA, kodgranskningen eller kontrollerna skickat tillbaka en story, och hur stor andel av de testade storyerna som gick igenom första gången.
+- **På Claude-planen** heter kostnaden **API-värde**: vad samma arbete hade kostat med API-priser. Själva planen betalar du som en fast avgift.
+- **Mänsklig uppskattning** räknas från storypoängen (timmar per poäng under Settings, plus 35 %). Den är en uppskattning, inte en mätning.
+
 **Stories som inte blev levererade:** projektet blir inte *Completed* så länge stories står kvar. När alla steg har körts stannar det i stället vid grinden **Undelivered items**, som listar varje story med orsaken: öppna frågor, *Blocked* eller att den väntar på en annan story. En story startar inte förrän de stories den bygger på är levererade.
 - **Continue:** blockerade stories får ett nytt försök, och stories vars frågor har besvarats tas med. Därefter körs leverans och release igen.
 - **Finish anyway:** projektet avslutas utan dem.

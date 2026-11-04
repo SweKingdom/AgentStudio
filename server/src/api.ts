@@ -29,6 +29,7 @@ import { registerAuth } from "./routes/auth.js";
 import { registerAccuracy } from "./routes/accuracy.js";
 import { codeReviewMode } from "./review.js";
 import { CUSTOM_AGENTS_ENABLED } from "./team.js";
+import { itemSpend, projectSpend, projectTime } from "./timing.js";
 import { registerTemplates } from "./routes/templates.js";
 import { audit } from "./auth.js";
 import { LESSONS_KIND, LESSONS_TITLE, lessonsProblem, parseLessons, renderLessons } from "./lessons.js";
@@ -483,6 +484,20 @@ api.post("/projects", wrap(async (req, res) => {
   res.json(projectSummary(getProject(id)!));
 }));
 
+/** Measured time and spend (timing.ts), with the human figure kept as what it is: an estimate from story points. */
+api.get("/projects/:pid/effort", (req, res) => {
+  const p = getProject(String(req.params.pid))!;
+  const points = listItems(p.id).filter((i) => ["story", "task", "bug"].includes(i.type)).reduce((n, i) => n + (i.story_points ?? 0), 0);
+  const st = appSettings();
+  res.json({
+    time: projectTime(p.id),
+    spend: projectSpend(p.id),
+    // On the plan the cost is what the same work would cost at API prices; the subscription is what was paid.
+    planBackend: p.mode === "live" && claudeBackend() === "subscription",
+    human: { points, hoursPerPoint: st.hoursPerStoryPoint, hours: points * st.hoursPerStoryPoint * 1.35 },
+  });
+});
+
 api.get("/projects/:pid", (req, res) => {
   const p = getProject(String(req.params.pid));
   if (!p) return res.status(404).json({ error: "Project not found" });
@@ -763,6 +778,7 @@ api.get("/items/:id", (req, res) => {
     documents: all("SELECT id, kind, title, version, updated_at FROM documents WHERE item_id = ?", it.id),
     questions: all("SELECT * FROM questions WHERE item_id = ? OR also_items LIKE ? ORDER BY id", it.id, `%"${it.id}"%`),
     comments: all("SELECT * FROM comments WHERE item_id = ? ORDER BY id", it.id),
+    spend: itemSpend(it.id),
     bugs: listItems(it.project_id).filter((b) => b.type === "bug" && b.parent_id === it.id).map((b) => ({ id: b.id, code: b.code, title: b.title, state: b.state })),
     busy: all("SELECT 1 FROM runs WHERE item_id = ? AND status = 'running'", it.id).length > 0 || listJobs(it.project_id).some((j) => j.itemId === it.id),
     cost: get(
@@ -1131,8 +1147,9 @@ api.get(
         // Only items that can't start yet: open questions on work already under way don't hold it back.
         held: deliverables.filter((i) => ["New", "Ready for Refinement", "Ready for Sprint", "To Do"].includes(i.state) && openQ.some((q) => q.item_id === i.id)).length,
         blocked: deliverables.filter((i) => i.state === "Blocked").length,
-        costUsd: totals.cost, calls: totals.calls, tokens: totals.tokens, aiBusySeconds: totals.ms / 1000, simulated: totals.simulated > 0,
-        elapsedSeconds: elapsed, humanHours, humanCostUsd: humanHours * st.humanHourlyRateUsd, speedup: elapsed > 0 ? (humanHours * 3600) / 4 / elapsed : null,
+        costUsd: totals.cost, calls: totals.calls, tokens: totals.tokens, simulated: totals.simulated > 0,
+        elapsedSeconds: elapsed, humanHours, humanCostUsd: humanHours * st.humanHourlyRateUsd,
+        time: projectTime(p.id), spend: projectSpend(p.id), planBackend: p.mode === "live" && claudeBackend() === "subscription",
         reworkLoops: deliverables.reduce((n, i) => n + i.rework_count, 0),
         firstPassYield: tested.length ? tested.filter((i) => i.rework_count === 0).length / tested.length : null,
         qaChecks: { pass: qaAll.filter((x) => x.result === "pass").length, fail: qaAll.filter((x) => x.result === "fail").length, blocked: qaAll.filter((x) => x.result === "blocked").length },
