@@ -149,6 +149,10 @@ Projektsidan visar hur många kontroller som gäller. **No checks** betyder att 
 
 **Importera ett projekt som redan pågår (Azure DevOps):** kryssa i *Backloggen finns i Azure DevOps: importera den* när du skapar projektet, eller välj **Importera från Azure DevOps** i **Backlog**. Ange organisation, projekt och vid behov area path, iteration och taggar. **Förhandsgranska** visar vad som skulle komma in, utan att spara något.
 - Importen läser bara; inget i Azure DevOps ändras. Token är `AZURE_DEVOPS_PAT` i `.env`.
+- **En token per person eller projekt.** Under *Tokenvariabel* anger du vilken variabel i `.env` projektet läser sin token från, t.ex. `AZURE_DEVOPS_PAT_ANNA`. Då kan flera personer arbeta på olika saker samtidigt, var och en med sin egen token, och tokenens behörighet sätter gränsen för vad AgentStudio får göra. AgentStudio sparar bara variabelns namn, aldrig själva token.
+  - *Testa anslutningen* visar vems token det är och vilken behörighet som behövs: Work Items (Read) för *Bara läsa*, Work Items (Read & write) för *Bara status* och *Full synk*.
+  - Om Azure DevOps nekar en skrivning (token kan bara läsa) byter projektet till *Bara läsa*, stoppar synken och skriver varför i aktiviteten. Ge token skrivbehörighet och välj *Skriv tillbaka* igen för att ändra tillbaka.
+  - Azure DevOps-token skickas aldrig vidare till agenterna eller till kommandon de kör.
 - Epics, features, stories, tasks och buggar kommer in med koder som `US-12146`, status, tilldelad, iteration, taggar, föräldrar och beroenden (länkar och raden *Depends on*). En ny import uppdaterar det som redan importerats.
 - Klara item kommer in som levererade och byggs aldrig om. Någon annans pågående arbete visas som *In Progress*.
 - Under *AgentStudio bygger det som är tilldelat* anger du namn, till exempel ditt eget. Det sparas som AgentStudios regel.

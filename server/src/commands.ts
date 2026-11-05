@@ -13,7 +13,7 @@ const OUTPUT_TAIL = 6000;
 /** Chaining, redirection, substitution and variables: an allowed prefix can't be turned into another command. */
 const SHELL_OPERATORS = /[;&|<>`$\r\n]|\$\(/;
 /** Never handed to a command an agent runs. */
-const SECRETS = /^(ANTHROPIC_|CLAUDE_CODE_OAUTH|AZURE_DEVOPS_PAT$|GH_TOKEN$|GITHUB_TOKEN$|NPM_TOKEN$|ARM_)/;
+const SECRETS = /^(ANTHROPIC_|CLAUDE_CODE_OAUTH|AZURE_DEVOPS_PAT|GH_TOKEN$|GITHUB_TOKEN$|NPM_TOKEN$|ARM_)/;
 
 const words = (s: string) => s.trim().split(/\s+/).filter(Boolean);
 

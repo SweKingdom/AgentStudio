@@ -1,11 +1,13 @@
 /**
  * Azure DevOps sync: pushes the backlog (epics → features → stories → tasks/bugs) to an Azure DevOps project as work items,
- * through the REST API (api-version 7.1). The Personal Access Token lives ONLY in the user's `.env` as AZURE_DEVOPS_PAT:
- * it is read from the environment at call time, sent only in the Authorization header, and never stored, logged or returned.
+ * through the REST API (api-version 7.1). The Personal Access Token lives ONLY in the user's `.env`: AZURE_DEVOPS_PAT, or
+ * the variable a project names (AZURE_DEVOPS_PAT_<NAME>), so each person or project can use its own token with its own
+ * scopes. It is read from the environment at call time, sent only in the Authorization header, and never stored, logged
+ * or returned. AgentStudio stores only the variable's name.
  */
 import { getSetting, setSetting, update } from "./db.js";
 import { emit } from "./events.js";
-import { getItem, listItems, listProjects, logActivity, type Project, type WorkItem } from "./store.js";
+import { getItem, getProject, listItems, listProjects, logActivity, patchProject, type Project, type WorkItem } from "./store.js";
 import { teamSettings } from "./team.js";
 import { ownedByStudio } from "./ownership.js";
 
@@ -25,6 +27,8 @@ export interface AdoConfig {
    *  "state": only move AgentStudio's own imported User Stories between states — nothing created, no other field.
    *  "none": read only. Imported projects start at "state". */
   writeMode?: AdoWriteMode;
+  /** The .env variable that holds this project's token: AZURE_DEVOPS_PAT_<NAME>. Empty: AZURE_DEVOPS_PAT. */
+  tokenVar?: string;
 }
 
 export type AdoWriteMode = "full" | "state" | "none";
@@ -58,6 +62,8 @@ export function cleanAdoConfig(input: unknown): AdoConfig | null {
   if (/[\\/?#]/.test(project)) throw new Error("Azure DevOps project name can't contain / \\ ? or #");
   const mode = o.stateMode === "agile" ? "agile" : "same";
   const write = o.writeMode === "state" || o.writeMode === "none" ? o.writeMode : o.writeMode === "full" ? "full" : undefined;
+  const tokenVar = String(o.tokenVar ?? "").trim().toUpperCase();
+  if (tokenVar && !TOKEN_VAR.test(tokenVar)) throw new Error(`The token variable must be ${DEFAULT_TOKEN_VAR} or start with ${DEFAULT_TOKEN_VAR}_ (letters, digits and _), e.g. ${DEFAULT_TOKEN_VAR}_ANNA`);
   const text = (v: unknown) => String(v ?? "").trim().replace(/\//g, "\\").replace(/^\\+|\\+$/g, "");
   return {
     orgUrl: `${u.origin}${u.pathname.replace(/\/+$/, "")}`,
@@ -66,6 +72,7 @@ export function cleanAdoConfig(input: unknown): AdoConfig | null {
     ...(text(o.iterationRoot) ? { iterationRoot: text(o.iterationRoot) } : {}),
     stateMode: mode,
     ...(write ? { writeMode: write } : {}),
+    ...(tokenVar && tokenVar !== DEFAULT_TOKEN_VAR ? { tokenVar } : {}),
   };
 }
 
@@ -78,22 +85,46 @@ export function adoConfigOf(p: Project): AdoConfig | null {
   }
 }
 
-function adoToken() {
-  return process.env.AZURE_DEVOPS_PAT?.trim() || null;
+export const DEFAULT_TOKEN_VAR = "AZURE_DEVOPS_PAT";
+/** Only variables with this prefix can be named, so a project can never point AgentStudio at another secret. */
+export const TOKEN_VAR = /^AZURE_DEVOPS_PAT(_[A-Z0-9]+)*$/;
+
+type TokenOf = Pick<AdoConfig, "tokenVar" | "writeMode"> | null | undefined;
+
+/** The .env variable a project's token is read from. */
+export const tokenVarOf = (cfg?: TokenOf) => cfg?.tokenVar || DEFAULT_TOKEN_VAR;
+
+function adoToken(cfg?: TokenOf) {
+  return process.env[tokenVarOf(cfg)]?.trim() || null;
 }
 
-export function hasAdoToken() {
-  return Boolean(adoToken());
+export function hasAdoToken(cfg?: TokenOf) {
+  return Boolean(adoToken(cfg));
 }
 
-export const NO_TOKEN = "No Azure DevOps token. Add AZURE_DEVOPS_PAT=… (a Personal Access Token with Work Items read & write) to the .env file in the project folder and restart.";
+/** The scope the token needs for what the project lets AgentStudio do. */
+export function scopeNeeded(cfg?: TokenOf) {
+  return cfg?.writeMode === "none" ? "Work Items (Read)" : "Work Items (Read & write)";
+}
 
-/** Strips the token (raw or base64) from any text that might end up in a response or log. */
+export function noToken(cfg?: TokenOf) {
+  return `No Azure DevOps token. Add ${tokenVarOf(cfg)}=… (a Personal Access Token with ${scopeNeeded(cfg)}) to the .env file in the project folder and restart.`;
+}
+
+export const NO_TOKEN = noToken();
+
+/** Strips every Azure DevOps token (raw or base64) from any text that might end up in a response or log. */
 function redact(text: string) {
-  const t = adoToken();
-  if (!t) return text;
-  return text.split(t).join("***").split(Buffer.from(`:${t}`).toString("base64")).join("***");
+  for (const [k, v] of Object.entries(process.env)) {
+    const t = v?.trim();
+    if (!t || !TOKEN_VAR.test(k)) continue;
+    text = text.split(t).join("***").split(Buffer.from(`:${t}`).toString("base64")).join("***");
+  }
+  return text;
 }
+
+/** A write Azure DevOps refused with 403: the token can read but not write. */
+export class WriteRefused extends Error {}
 
 /** Link to a work item in the Azure DevOps web UI. */
 export function adoWebUrl(cfg: Pick<AdoConfig, "orgUrl" | "project">, id: number) {
@@ -111,9 +142,10 @@ interface AdoResponse {
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
-export async function adoFetch(method: string, url: string, body?: unknown, contentType = "application/json"): Promise<AdoResponse> {
-  const token = adoToken();
-  if (!token) throw new Error(NO_TOKEN);
+export async function adoFetch(cfg: TokenOf, method: string, url: string, body?: unknown, contentType = "application/json"): Promise<AdoResponse> {
+  const token = adoToken(cfg);
+  if (!token) throw new Error(noToken(cfg));
+  const name = tokenVarOf(cfg);
   for (let attempt = 0; ; attempt++) {
     let res: Response;
     try {
@@ -147,9 +179,9 @@ export async function adoFetch(method: string, url: string, body?: unknown, cont
     }
     const message = redact(
       res.status === 401 || res.status === 203 || (res.status >= 300 && res.status < 400)
-        ? "Azure DevOps rejected the token (AZURE_DEVOPS_PAT) — it may be expired or for another organization"
+        ? `Azure DevOps rejected the token (${name}) — it may be expired or for another organization`
         : res.status === 403
-          ? "The token isn't allowed to do this — give the PAT the Work Items (read & write) and Project (read) scopes"
+          ? `The token (${name}) isn't allowed to do this — it needs ${scopeNeeded(cfg)}`
           : String(json?.message ?? (res.ok ? "" : `HTTP ${res.status} ${res.statusText}`)),
     );
     return { status: res.status, body: json, message };
@@ -164,22 +196,32 @@ export interface AdoTestResult {
   ok: boolean;
   project?: string;
   process?: string | null;
+  /** Who the token belongs to (Azure DevOps' display name), so you can tell whose token the project uses. */
+  identity?: string | null;
+  /** The .env variable the token was read from, and the scope it needs for the project's write-back. */
+  tokenVar?: string;
+  scope?: string;
   error?: string;
 }
 
 /** Reads the project (nothing is changed). */
 export async function testAdo(cfg: AdoConfig): Promise<AdoTestResult> {
-  if (!hasAdoToken()) return { ok: false, error: NO_TOKEN };
+  const token = { tokenVar: tokenVarOf(cfg), scope: scopeNeeded(cfg) };
+  if (!hasAdoToken(cfg)) return { ok: false, error: noToken(cfg), ...token };
   try {
-    const r = await adoFetch("GET", `${cfg.orgUrl}/_apis/projects/${encodeURIComponent(cfg.project)}?includeCapabilities=true&${API}`);
+    const r = await adoFetch(cfg, "GET", `${cfg.orgUrl}/_apis/projects/${encodeURIComponent(cfg.project)}?includeCapabilities=true&${API}`);
     if (ok(r)) {
-      return { ok: true, project: String(r.body?.name ?? cfg.project), process: r.body?.capabilities?.processTemplate?.templateName ?? null };
+      // Whose token it is. Not fatal: the project could be read, which is what the test is about.
+      const who = await adoFetch(cfg, "GET", `${cfg.orgUrl}/_apis/connectionData`).catch(() => null);
+      const u = who && ok(who) ? who.body?.authenticatedUser : null;
+      const identity = u ? String(u.providerDisplayName ?? u.customDisplayName ?? "") || null : null;
+      return { ok: true, project: String(r.body?.name ?? cfg.project), process: r.body?.capabilities?.processTemplate?.templateName ?? null, identity, ...token };
     }
-    if (r.status === 401 || r.status === 203 || (r.status >= 300 && r.status < 400)) return { ok: false, error: "Azure DevOps rejected the token — check AZURE_DEVOPS_PAT in .env (expired, or created for another organization)" };
-    if (r.status === 404) return { ok: false, error: `Azure DevOps project not found: "${cfg.project}" in ${cfg.orgUrl}` };
-    return { ok: false, error: r.message };
+    if (r.status === 401 || r.status === 203 || (r.status >= 300 && r.status < 400)) return { ok: false, error: `Azure DevOps rejected the token — check ${token.tokenVar} in .env (expired, or created for another organization)`, ...token };
+    if (r.status === 404) return { ok: false, error: `Azure DevOps project not found: "${cfg.project}" in ${cfg.orgUrl}`, ...token };
+    return { ok: false, error: r.message, ...token };
   } catch (e) {
-    return { ok: false, error: e instanceof Error ? e.message : String(e) };
+    return { ok: false, error: e instanceof Error ? e.message : String(e), ...token };
   }
 }
 
@@ -372,7 +414,7 @@ function parentsFirst(items: WorkItem[]) {
 export async function syncBacklog(p: Project): Promise<AdoSyncSummary> {
   const cfg = cleanAdoConfig(p.settings.ado);
   if (!cfg) throw new Error("Azure DevOps isn't configured for this project (Project settings → Azure DevOps)");
-  if (!hasAdoToken()) throw new Error(NO_TOKEN);
+  if (!hasAdoToken(cfg)) throw new Error(noToken(cfg));
   if (cfg.writeMode === "none") throw new Error("Azure DevOps is read only for this project: AgentStudio changes nothing there (Project settings → Azure DevOps → Write back).");
   if (cfg.writeMode === "state") return syncStates(p, cfg);
   if (running.has(p.id)) throw new Error("An Azure DevOps sync is already running for this project");
@@ -391,12 +433,14 @@ export async function syncBacklog(p: Project): Promise<AdoSyncSummary> {
         const id = await syncItem(cfg, i, i.parent_id ? (adoIds.get(i.parent_id) ?? null) : null, s, skipByType, sameRefused);
         adoIds.set(i.id, id);
       } catch (e) {
+        if (e instanceof WriteRefused) throw e; // the token can't write: stop, the other items would be refused too
         s.failed++;
         s.errors.push({ code: i.code, error: redact(e instanceof Error ? e.message : String(e)).slice(0, 500) });
       }
     }
   } catch (e) {
     s.error = redact(e instanceof Error ? e.message : String(e));
+    if (e instanceof WriteRefused) s.error = readOnlyAfterRefusal(p, cfg);
   } finally {
     running.delete(p.id);
   }
@@ -431,7 +475,7 @@ async function syncItem(
   // Update path first: the stored id must still exist (it may have been deleted in ADO).
   let existing: any = null;
   if (i.ado_id) {
-    const r = await adoFetch("GET", `${cfg.orgUrl}/_apis/wit/workitems/${i.ado_id}?$expand=relations&${API}`);
+    const r = await adoFetch(cfg, "GET", `${cfg.orgUrl}/_apis/wit/workitems/${i.ado_id}?$expand=relations&${API}`);
     if (ok(r)) existing = r.body;
     else if (r.status !== 404) throw new Error(r.message);
   }
@@ -441,9 +485,8 @@ async function syncItem(
     const state = agile ? agileState(i.state, i.type) : i.state;
     const ops = fieldOps(cfg, i, state, skip);
     const r = existing
-      ? await adoFetch("PATCH", `${cfg.orgUrl}/_apis/wit/workitems/${i.ado_id}?${API}`, [...ops, ...parentOps(cfg, existing, parentAdoId)], "application/json-patch+json")
-      : await adoFetch(
-          "POST",
+      ? await adoFetch(cfg, "PATCH", `${cfg.orgUrl}/_apis/wit/workitems/${i.ado_id}?${API}`, [...ops, ...parentOps(cfg, existing, parentAdoId)], "application/json-patch+json")
+      : await adoFetch(cfg, "POST",
           `${cfg.orgUrl}/${encodeURIComponent(cfg.project)}/_apis/wit/workitems/$${encodeURIComponent(type)}?${API}`,
           [...ops, ...(parentAdoId != null ? [{ op: "add", path: "/relations/-", value: { rel: PARENT, url: itemApiUrl(cfg, parentAdoId) } }] : [])],
           "application/json-patch+json",
@@ -468,6 +511,7 @@ async function syncItem(
       existing = null;
       continue;
     }
+    if (r.status === 403) throw new WriteRefused(r.message);
     if (!agile && invalidState(r)) {
       agile = true;
       sameRefused.add(`${type}|${i.state}`);
@@ -482,6 +526,18 @@ async function syncItem(
     throw new Error(r.message || `HTTP ${r.status}`);
   }
   throw new Error("Azure DevOps kept refusing this item");
+}
+
+/**
+ * Azure DevOps refused a write (403): the project's token can read but not write — a token made read only on purpose,
+ * or one missing the scope. The project switches to Read only so nothing more is sent, and says how to change it back.
+ */
+function readOnlyAfterRefusal(p: Project, cfg: AdoConfig) {
+  const cur = getProject(p.id);
+  if (cur?.settings.ado) patchProject(p.id, { settings: { ...cur.settings, ado: { ...cur.settings.ado, writeMode: "none" } } });
+  const why = `Azure DevOps refused a write with ${tokenVarOf(cfg)}: the token can read but not write. AgentStudio switched ${p.key} to Read only, so nothing more is sent. To write back, give the token Work Items (Read & write) and choose Write back again in Project settings → Azure DevOps.`;
+  logActivity({ projectId: p.id, type: "ado_sync", summary: `⚠ ${why}`, detail: { tokenVar: tokenVarOf(cfg), writeMode: cfg.writeMode ?? "full" } });
+  return why;
 }
 
 /** For the system check: projects that have Azure DevOps configured. */
@@ -518,7 +574,7 @@ export async function syncStates(p: Project, cfg: AdoConfig): Promise<AdoSyncSum
     const stories = listItems(p.id).filter((i) => i.type === "story" && i.ado_id && ownedByStudio(p, i));
     s.total = stories.length;
     if (stories.length) {
-      const r = await adoFetch("GET", `${cfg.orgUrl}/${encodeURIComponent(cfg.project)}/_apis/wit/workitemtypes/${encodeURIComponent("User Story")}/states?${API}`);
+      const r = await adoFetch(cfg, "GET", `${cfg.orgUrl}/${encodeURIComponent(cfg.project)}/_apis/wit/workitemtypes/${encodeURIComponent("User Story")}/states?${API}`);
       if (!ok(r)) throw new Error(`Couldn't read the User Story states: ${r.message}`);
       const states: { name: string; category: string }[] = (r.body?.value ?? []).map((x: any) => ({ name: String(x.name), category: String(x.category) }));
       const rank = (name: string) => CATEGORY_ORDER.indexOf(states.find((x) => x.name === name)?.category ?? "") * 100 + states.findIndex((x) => x.name === name);
@@ -528,14 +584,16 @@ export async function syncStates(p: Project, cfg: AdoConfig): Promise<AdoSyncSum
         const target = saved && Object.keys(saved).length ? saved[i.state] ?? null : boardState(i.state, states);
         if (!target) continue;
         try {
-          const cur = await adoFetch("GET", `${cfg.orgUrl}/_apis/wit/workitems/${i.ado_id}?${API}`);
+          const cur = await adoFetch(cfg, "GET", `${cfg.orgUrl}/_apis/wit/workitems/${i.ado_id}?${API}`);
           if (!ok(cur)) throw new Error(cur.message);
           const now = String(cur.body?.fields?.["System.State"] ?? "");
           if (now === target || rank(now) >= rank(target)) continue; // forward only
-          const w = await adoFetch("PATCH", `${cfg.orgUrl}/_apis/wit/workitems/${i.ado_id}?${API}`, [{ op: "add", path: "/fields/System.State", value: target }], "application/json-patch+json");
+          const w = await adoFetch(cfg, "PATCH", `${cfg.orgUrl}/_apis/wit/workitems/${i.ado_id}?${API}`, [{ op: "add", path: "/fields/System.State", value: target }], "application/json-patch+json");
+          if (w.status === 403) throw new WriteRefused(w.message);
           if (!ok(w)) throw new Error(w.message);
           s.updated++;
         } catch (e) {
+          if (e instanceof WriteRefused) throw e;
           s.failed++;
           s.errors.push({ code: i.code, error: redact(e instanceof Error ? e.message : String(e)).slice(0, 500) });
         }
@@ -543,6 +601,7 @@ export async function syncStates(p: Project, cfg: AdoConfig): Promise<AdoSyncSum
     }
   } catch (e) {
     s.error = redact(e instanceof Error ? e.message : String(e));
+    if (e instanceof WriteRefused) s.error = readOnlyAfterRefusal(p, cfg);
   } finally {
     running.delete(p.id);
   }

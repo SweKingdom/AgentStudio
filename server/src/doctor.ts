@@ -11,7 +11,7 @@ import Anthropic from "@anthropic-ai/sdk";
 import { DATA_DIR } from "./db.js";
 import { appSettings, claudeBackend, effectiveMode, hasApiKey } from "./settings.js";
 import { listAgents } from "./agents/store.js";
-import { adoConfigOf, adoProjects, hasAdoToken, NO_TOKEN, testAdo } from "./ado.js";
+import { adoConfigOf, adoProjects, hasAdoToken, noToken, testAdo, tokenVarOf } from "./ado.js";
 
 const pexec = promisify(execFile);
 
@@ -149,28 +149,37 @@ export async function runChecks(o: { network?: boolean } = {}): Promise<Check[]>
   }
   // ---------------------------------------------------------------- Azure DevOps
   const adoUsers = adoProjects();
-  const adoToken = hasAdoToken();
   if (!adoUsers.length) {
-    add({ id: "ado-token", group: "Azure DevOps", label: "Token (AZURE_DEVOPS_PAT)", status: "info", detail: `${adoToken ? "Set (not shown)" : "Not set"} — no project syncs to Azure DevOps` });
+    add({ id: "ado-token", group: "Azure DevOps", label: "Token (AZURE_DEVOPS_PAT)", status: "info", detail: `${hasAdoToken() ? "Set (not shown)" : "Not set"} — no project syncs to Azure DevOps` });
   } else {
-    add({
-      id: "ado-token",
-      group: "Azure DevOps",
-      label: "Token (AZURE_DEVOPS_PAT)",
-      status: adoToken ? "ok" : "warn",
-      detail: adoToken ? `Set (not shown) · used by ${adoUsers.map((p) => p.key).join(", ")}` : `Not set — ${adoUsers.map((p) => p.key).join(", ")} can't sync`,
-      fix: adoToken ? undefined : NO_TOKEN,
-    });
-    if (o.network && adoToken) {
-      // One read per distinct ADO project (nothing is changed).
+    // One check per token variable: projects can each name their own (AZURE_DEVOPS_PAT_<NAME>).
+    const byVar = new Map<string, string[]>();
+    for (const p of adoUsers) {
+      const v = tokenVarOf(adoConfigOf(p));
+      byVar.set(v, [...(byVar.get(v) ?? []), p.key]);
+    }
+    for (const [v, keys] of byVar) {
+      const set = hasAdoToken({ tokenVar: v });
+      add({
+        id: v === "AZURE_DEVOPS_PAT" ? "ado-token" : `ado-token-${v}`,
+        group: "Azure DevOps",
+        label: `Token (${v})`,
+        status: set ? "ok" : "warn",
+        detail: set ? `Set (not shown) · used by ${keys.join(", ")}` : `Not set — ${keys.join(", ")} can't sync`,
+        fix: set ? undefined : noToken({ tokenVar: v }),
+      });
+    }
+    if (o.network) {
+      // One read per distinct ADO project and token (nothing is changed).
       const seen = new Set<string>();
       for (const p of adoUsers) {
         const cfg = adoConfigOf(p)!;
-        const k = `${cfg.orgUrl}|${cfg.project}`;
+        if (!hasAdoToken(cfg)) continue;
+        const k = `${cfg.orgUrl}|${cfg.project}|${tokenVarOf(cfg)}`;
         if (seen.has(k)) continue;
         seen.add(k);
         const r = await testAdo(cfg);
-        add({ id: `ado-${p.key}`, group: "Azure DevOps", label: `Project ${cfg.project}`, status: r.ok ? "ok" : "fail", detail: r.ok ? `Connected${r.process ? ` · process ${r.process}` : ""}` : r.error ?? "Failed", fix: r.ok ? undefined : "Check the Azure DevOps settings of the project and AZURE_DEVOPS_PAT in .env." });
+        add({ id: `ado-${p.key}`, group: "Azure DevOps", label: `Project ${cfg.project}`, status: r.ok ? "ok" : "fail", detail: r.ok ? `Connected${r.identity ? ` as ${r.identity}` : ""}${r.process ? ` · process ${r.process}` : ""}` : r.error ?? "Failed", fix: r.ok ? undefined : `Check the Azure DevOps settings of the project and ${tokenVarOf(cfg)} in .env.` });
       }
     }
   }

@@ -22,6 +22,7 @@ export function AdoImportModal({ p, onClose }: { p: Project; onClose: () => void
   const filter = p.settings.adoImport;
   const [orgUrl, setOrgUrl] = useState(saved?.orgUrl ?? "https://dev.azure.com/");
   const [adoProject, setAdoProject] = useState(saved?.project ?? "");
+  const [tokenVar, setTokenVar] = useState(saved?.tokenVar ?? "");
   const [areaPath, setAreaPath] = useState(filter?.areaPath ?? saved?.areaPath ?? "");
   const [iterationPath, setIterationPath] = useState(filter?.iterationPath ?? "");
   const [tags, setTags] = useState((filter?.tags ?? []).join(", "));
@@ -31,7 +32,7 @@ export function AdoImportModal({ p, onClose }: { p: Project; onClose: () => void
   const [mapping, setMapping] = useState<AdoMapping | null>(p.settings.adoMapping ?? null);
   const [busy, setBusy] = useState(false);
   const body = () => ({
-    config: { orgUrl: orgUrl.trim(), project: adoProject.trim(), areaPath: saved?.areaPath, iterationRoot: saved?.iterationRoot, stateMode: saved?.stateMode ?? "same" },
+    config: { orgUrl: orgUrl.trim(), project: adoProject.trim(), areaPath: saved?.areaPath, iterationRoot: saved?.iterationRoot, stateMode: saved?.stateMode ?? "same", writeMode: filter ? saved?.writeMode : undefined, tokenVar: tokenVar.trim().toUpperCase() || undefined },
     filter: { areaPath: areaPath.trim(), iterationPath: iterationPath.trim(), tags: list(tags) },
   });
   const run = async (what: "preview" | "import") => {
@@ -90,10 +91,11 @@ export function AdoImportModal({ p, onClose }: { p: Project; onClose: () => void
       }
     >
       <div className="col" style={{ gap: 12 }}>
-        <div className="small muted">{t("Brings in the epics, features, stories, tasks and bugs that are already in Azure DevOps, with their state, who they're assigned to, iteration and tags. Only reads: nothing in Azure DevOps changes. Importing again updates what was imported before. The token is AZURE_DEVOPS_PAT in .env.")}</div>
+        <div className="small muted">{t("Brings in the epics, features, stories, tasks and bugs that are already in Azure DevOps, with their state, who they're assigned to, iteration and tags. Only reads: nothing in Azure DevOps changes. Importing again updates what was imported before. The token is AZURE_DEVOPS_PAT in .env, or the variable you name below.")}</div>
         <div className="grid g2" style={{ gap: 12 }}>
           <Field label={t("Organization URL")} help={t("https://dev.azure.com/ and your organization's name.")}><input className="input" value={orgUrl} onChange={(e) => setOrgUrl(e.target.value)} placeholder="https://dev.azure.com/org" /></Field>
           <Field label={t("Azure DevOps project")} help={t("The project the work items are in.")}><input className="input" value={adoProject} onChange={(e) => setAdoProject(e.target.value)} placeholder="Sirocco SAFe" /></Field>
+          <Field label={t("Token variable (optional)")} help={t("The .env variable with your own Personal Access Token, e.g. AZURE_DEVOPS_PAT_ANNA. Empty: AZURE_DEVOPS_PAT.")}><input className="input mono" value={tokenVar} onChange={(e) => setTokenVar(e.target.value)} placeholder="AZURE_DEVOPS_PAT" spellCheck={false} /></Field>
           <Field label={t("Area path (optional)")} help={t("Only items under this area, e.g. Sirocco SAFe\\Team Capybaras.")}><input className="input" value={areaPath} onChange={(e) => setAreaPath(e.target.value)} /></Field>
           <Field label={t("Iteration path (optional)")} help={t("Only items in this iteration or under it, e.g. Sirocco SAFe\\2026-23.")}><input className="input" value={iterationPath} onChange={(e) => setIterationPath(e.target.value)} /></Field>
           <Field label={t("Tags (optional)")} help={t("Only items with these tags, separated by commas.")}><input className="input" value={tags} onChange={(e) => setTags(e.target.value)} placeholder="Zephyr" /></Field>

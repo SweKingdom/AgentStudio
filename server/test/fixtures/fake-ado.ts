@@ -10,6 +10,8 @@ export interface FakeState { name: string; category: string }
 export interface FakeAdo {
   url: string;
   items: Map<number, FakeItem>;
+  /** Whose token each request carried, in order. */
+  seenTokens: string[];
   queries: string[];
   batches: { ids: number[]; fields: string[] }[];
   writes: { method: string; path: string; body: any }[];
@@ -18,9 +20,13 @@ export interface FakeAdo {
 
 const idOf = (url: string) => Number(url.match(/\/workItems\/(\d+)$/i)?.[1]);
 
-export async function startFakeAdo(o: { token: string; project: string; states: FakeState[]; storyFields?: string[] }): Promise<FakeAdo> {
+/** A token the stand-in accepts: whose it is (connectionData) and whether it may write (else 403 on writes). */
+export interface FakeToken { name: string; write: boolean }
+
+export async function startFakeAdo(o: { token: string; project: string; states: FakeState[]; storyFields?: string[]; tokens?: Record<string, FakeToken> }): Promise<FakeAdo> {
+  const tokens: Record<string, FakeToken> = { [o.token]: { name: "Test User", write: true }, ...o.tokens };
   const items = new Map<number, FakeItem>();
-  const fake = { items, queries: [] as string[], batches: [] as { ids: number[]; fields: string[] }[], writes: [] as { method: string; path: string; body: any }[] };
+  const fake = { items, seenTokens: [] as string[], queries: [] as string[], batches: [] as { ids: number[]; fields: string[] }[], writes: [] as { method: string; path: string; body: any }[] };
   const base = `/fakeorg/${o.project}/_apis/wit`;
   const server = http.createServer((req, res) => {
     let raw = "";
@@ -33,7 +39,14 @@ export async function startFakeAdo(o: { token: string; project: string; states: 
         res.writeHead(status, { "content-type": "application/json" });
         res.end(JSON.stringify(json));
       };
-      if (req.headers.authorization !== `Basic ${Buffer.from(`:${o.token}`).toString("base64")}`) return send(401, { message: "Unauthorized" });
+      const token = Buffer.from(String(req.headers.authorization ?? "").replace(/^Basic /, ""), "base64").toString().replace(/^:/, "");
+      const who = tokens[token];
+      if (!who) return send(401, { message: "Unauthorized" });
+      fake.seenTokens.push(who.name);
+      if (req.method === "GET" && path === `/fakeorg/_apis/projects/${o.project}`) return send(200, { name: o.project, capabilities: { processTemplate: { templateName: "Agile" } } });
+      if (req.method === "GET" && path === "/fakeorg/_apis/connectionData") return send(200, { authenticatedUser: { providerDisplayName: who.name } });
+      // A read-only token: Azure DevOps answers every write with 403.
+      if ((req.method === "PATCH" || (req.method === "POST" && /\/workitems\/\$/.test(path))) && !who.write) return send(403, { message: "TF237111: The current user does not have permissions to save work items under the specified area path." });
       let m: RegExpMatchArray | null;
       if (req.method === "POST" && path === `${base}/wiql`) {
         fake.queries.push(body.query);
