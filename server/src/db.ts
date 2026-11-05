@@ -346,6 +346,18 @@ db.exec(`CREATE TABLE IF NOT EXISTS project_waits (
 CREATE INDEX IF NOT EXISTS idx_waits_project ON project_waits(project_id);
 CREATE INDEX IF NOT EXISTS idx_calls_run ON llm_calls(run_id);`);
 
+// The buffer between Azure DevOps and the backlog: each imported work item as Azure DevOps last sent it (only the
+// fields the mapping reads). Refreshes compare against it, so only what changed is passed on.
+db.exec(`CREATE TABLE IF NOT EXISTS ado_raw (
+  project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+  ado_id INTEGER NOT NULL,
+  rev INTEGER,
+  fields TEXT NOT NULL,
+  depends_on TEXT NOT NULL DEFAULT '[]',
+  fetched_at TEXT NOT NULL,
+  PRIMARY KEY (project_id, ado_id)
+);`);
+
 /** The plan backend used to give every model of a run the run's whole duration (Sonnet and the SDK's own Haiku calls
  *  alike), so the time was counted once per model. Keeps it on the run's main (costliest) model only; runs at startup. */
 export function keepRunTimeOnMainModel() {

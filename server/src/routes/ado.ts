@@ -1,7 +1,8 @@
 import type { NextFunction, Request, Response, Router } from "express";
 import { adoConfigOf, cleanAdoConfig, hasAdoToken, lastSync, syncBacklog, syncRunning, testAdo } from "../ado.js";
 import { getProject, patchProject } from "../store.js";
-import { fetchAdoItems, importBacklog, type AdoImportFilter } from "../adoimport.js";
+import { fetchAdoItems, importBacklog, mappingFor, type AdoImportFilter } from "../adoimport.js";
+import { cleanMapping, computeMapping, defaultMapping } from "../adomapping.js";
 import { cleanWorkRule } from "../ownership.js";
 import { isRunning } from "../orchestrator.js";
 
@@ -69,9 +70,11 @@ export function registerAdo(api: Router) {
       try {
         const cfg = cleanAdoConfig(req.body?.config ?? p.settings.ado);
         if (!cfg) return res.status(400).json({ error: "Enter the organization URL and the Azure DevOps project first" });
-        const items = await fetchAdoItems(cfg, cleanFilter(req.body?.filter));
+        // The saved mapping, or the one worked out from the project's process now: shown so it can be checked first.
+        const mapping = req.body?.mapping ? cleanMapping(req.body.mapping, await mappingFor(p.id, cfg)) : await mappingFor(p.id, cfg);
+        const items = await fetchAdoItems(cfg, cleanFilter(req.body?.filter), mapping);
         const count = (key: (i: (typeof items)[number]) => string) => items.reduce<Record<string, number>>((m, i) => ((m[key(i)] = (m[key(i)] ?? 0) + 1), m), {});
-        res.json({ total: items.length, byType: count((i) => i.type), byState: count((i) => i.adoState), byAssignee: count((i) => i.assignee ?? ""), byIteration: count((i) => i.iteration ?? "") });
+        res.json({ total: items.length, byType: count((i) => i.type), byState: count((i) => i.adoState), byAssignee: count((i) => i.assignee ?? ""), byIteration: count((i) => i.iteration ?? ""), mapping, mappingSaved: !!p.settings.adoMapping });
       } catch (e) {
         res.status(400).json({ error: e instanceof Error ? e.message : String(e) });
       }
@@ -89,7 +92,39 @@ export function registerAdo(api: Router) {
         const cfg = cleanAdoConfig(req.body?.config ?? p.settings.ado);
         if (!cfg) return res.status(400).json({ error: "Enter the organization URL and the Azure DevOps project first" });
         if (req.body?.rule !== undefined) patchProject(p.id, { settings: { ...p.settings, workRule: cleanWorkRule(req.body.rule) } });
-        res.json(await importBacklog(p.id, cfg, cleanFilter(req.body?.filter ?? p.settings.adoImport)));
+        const mapping = req.body?.mapping ? cleanMapping(req.body.mapping, await mappingFor(p.id, cfg)) : undefined;
+        res.json(await importBacklog(p.id, cfg, cleanFilter(req.body?.filter ?? p.settings.adoImport), mapping));
+      } catch (e) {
+        res.status(400).json({ error: e instanceof Error ? e.message : String(e) });
+      }
+    }),
+  );
+
+  /** Save a corrected mapping (fields, types, what each state means, where write-back moves stories). */
+  api.put("/projects/:pid/ado/mapping", (req, res) => {
+    const p = getProject(String(req.params.pid));
+    if (!p) return res.status(404).json({ error: "Project not found" });
+    try {
+      const mapping = cleanMapping(req.body?.mapping, p.settings.adoMapping ?? defaultMapping());
+      patchProject(p.id, { settings: { ...p.settings, adoMapping: mapping } });
+      res.json(mapping);
+    } catch (e) {
+      res.status(400).json({ error: e instanceof Error ? e.message : String(e) });
+    }
+  });
+
+  /** Work the mapping out again from the project's process (after the board's states or fields changed). */
+  api.post(
+    "/projects/:pid/ado/mapping/refresh",
+    wrap(async (req, res) => {
+      const p = getProject(String(req.params.pid));
+      if (!p) return res.status(404).json({ error: "Project not found" });
+      try {
+        const cfg = cleanAdoConfig(req.body?.config ?? p.settings.ado);
+        if (!cfg) return res.status(400).json({ error: "Enter the organization URL and the Azure DevOps project first" });
+        const mapping = await computeMapping(cfg);
+        if (p.settings.adoMapping) patchProject(p.id, { settings: { ...p.settings, adoMapping: mapping } });
+        res.json(mapping);
       } catch (e) {
         res.status(400).json({ error: e instanceof Error ? e.message : String(e) });
       }

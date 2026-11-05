@@ -155,6 +155,9 @@ Projektsidan visar hur många kontroller som gäller. **No checks** betyder att 
 - Importerade stories mergas efter granskning. AgentStudios stories utan acceptanskriterier får en fråga till dig i stället för en gissning.
 - Kravsteget (som börjar med en tom backlog) körs aldrig för ett importerat projekt.
 - **Vid varje körning** hämtar AgentStudio först det som ändrats i Azure DevOps: nya, ändrade, omfördelade och klara item. Ändras en story som AgentStudio redan arbetar med får utvecklaren ändringen som en kommentar.
+- **Bara det som ändrats i Azure DevOps** förs vidare. Varje work item sparas som Azure DevOps skickade det (en buffert), och nästa hämtning jämförs mot den. AgentStudios egna förfiningar skrivs därför inte över, och utvecklaren får bara de rader som ändrats (`+` och `-`), inte hela texten igen.
+- **Bara de fält som behövs** hämtas: titel, beskrivning, acceptanskriterier, poäng, tilldelad, iteration, taggar, status och förälder. Historik och liknande laddas aldrig ned.
+- **Mappningen** räknas ut en gång från er tavla och sparas med projektet: vad varje status betyder (inte påbörjad, pågår, klar, struken), vart återskrivningen flyttar stories, och vilka fält som läses. Den visas under **Så mappas det** i importdialogen, där du kan rätta den eller låta den räknas ut igen.
 - **Skriv tillbaka** (projektinställningar → Azure DevOps) är *Bara status* för ett importerat projekt: AgentStudio flyttar bara sina egna importerade user stories till motsvarande status på tavlan (till exempel Develop, Test, Done), bara framåt, var 2:e minut och vid varje körning. Inget skapas och inga andra fält ändras. *Bara läsa* ändrar ingenting; *Full synk* är den gamla synken.
 
 **Tid och kostnad (Overview):** siffrorna är mätta, inte uppskattade.

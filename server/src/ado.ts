@@ -523,7 +523,9 @@ export async function syncStates(p: Project, cfg: AdoConfig): Promise<AdoSyncSum
       const states: { name: string; category: string }[] = (r.body?.value ?? []).map((x: any) => ({ name: String(x.name), category: String(x.category) }));
       const rank = (name: string) => CATEGORY_ORDER.indexOf(states.find((x) => x.name === name)?.category ?? "") * 100 + states.findIndex((x) => x.name === name);
       for (const i of stories) {
-        const target = boardState(i.state, states);
+        // The saved mapping decides (it can be corrected in the import dialog); worked out from the board otherwise.
+        const saved = p.settings.adoMapping?.writeBack;
+        const target = saved && Object.keys(saved).length ? saved[i.state] ?? null : boardState(i.state, states);
         if (!target) continue;
         try {
           const cur = await adoFetch("GET", `${cfg.orgUrl}/_apis/wit/workitems/${i.ado_id}?${API}`);

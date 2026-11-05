@@ -1,13 +1,14 @@
 import { useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
-import { CloudDownload, Eye } from "lucide-react";
-import { api, type Project } from "../lib/api";
+import { CloudDownload, Eye, RefreshCw, Save } from "lucide-react";
+import { api, type AdoMapping, type Project } from "../lib/api";
+import { AdoMappingEditor } from "./AdoMappingEditor";
 import { t } from "../lib/i18n";
 import { toast } from "../lib/toast";
 import { Field } from "./Hint";
 import { Modal } from "./ui";
 
-interface Preview { total: number; byType: Record<string, number>; byState: Record<string, number>; byAssignee: Record<string, number>; byIteration: Record<string, number> }
+interface Preview { total: number; byType: Record<string, number>; byState: Record<string, number>; byAssignee: Record<string, number>; byIteration: Record<string, number>; mapping: AdoMapping; mappingSaved: boolean }
 interface Result { created: number; updated: number; done: number; questions: number; total: number }
 
 const list = (s: string) => s.split(/[,;\n]/).map((x) => x.trim()).filter(Boolean);
@@ -26,6 +27,8 @@ export function AdoImportModal({ p, onClose }: { p: Project; onClose: () => void
   const [tags, setTags] = useState((filter?.tags ?? []).join(", "));
   const [mine, setMine] = useState((p.settings.workRule?.assignees ?? []).join(", "));
   const [preview, setPreview] = useState<Preview | null>(null);
+  /** The saved mapping, or the one the preview worked out from the board; sent with the import, which saves it. */
+  const [mapping, setMapping] = useState<AdoMapping | null>(p.settings.adoMapping ?? null);
   const [busy, setBusy] = useState(false);
   const body = () => ({
     config: { orgUrl: orgUrl.trim(), project: adoProject.trim(), areaPath: saved?.areaPath, iterationRoot: saved?.iterationRoot, stateMode: saved?.stateMode ?? "same" },
@@ -34,14 +37,40 @@ export function AdoImportModal({ p, onClose }: { p: Project; onClose: () => void
   const run = async (what: "preview" | "import") => {
     setBusy(true);
     try {
-      if (what === "preview") setPreview(await api.post<Preview>(`/projects/${p.id}/ado/import/preview`, body()));
-      else {
+      if (what === "preview") {
+        const pv = await api.post<Preview>(`/projects/${p.id}/ado/import/preview`, { ...body(), ...(mapping ? { mapping } : {}) });
+        setPreview(pv);
+        setMapping(pv.mapping);
+      } else {
         const names = list(mine);
-        const r = await api.post<Result>(`/projects/${p.id}/ado/import`, { ...body(), ...(names.length ? { rule: { ...(p.settings.workRule ?? {}), assignees: names } } : {}) });
+        const r = await api.post<Result>(`/projects/${p.id}/ado/import`, { ...body(), ...(mapping ? { mapping } : {}), ...(names.length ? { rule: { ...(p.settings.workRule ?? {}), assignees: names } } : {}) });
         await Promise.all([qc.invalidateQueries({ queryKey: ["items", p.id] }), qc.invalidateQueries({ queryKey: ["project", p.key] })]);
         toast(t("Imported {n} item(s): {c} new, {u} updated, {d} already done", { n: r.total, c: r.created, u: r.updated, d: r.done }) + (r.questions ? ` · ${t("{q} question(s) about unclear stories", { q: r.questions })}` : ""));
         onClose();
       }
+    } catch (e) {
+      toast(e instanceof Error ? e.message : String(e), "bad");
+    } finally {
+      setBusy(false);
+    }
+  };
+  const recompute = async () => {
+    setBusy(true);
+    try {
+      setMapping(await api.post<AdoMapping>(`/projects/${p.id}/ado/mapping/refresh`, { config: body().config }));
+      toast(t("Mapping worked out again from the board"));
+    } catch (e) {
+      toast(e instanceof Error ? e.message : String(e), "bad");
+    } finally {
+      setBusy(false);
+    }
+  };
+  const saveMapping = async () => {
+    setBusy(true);
+    try {
+      setMapping(await api.put<AdoMapping>(`/projects/${p.id}/ado/mapping`, { mapping }));
+      await qc.invalidateQueries({ queryKey: ["project", p.key] });
+      toast(t("Mapping saved"));
     } catch (e) {
       toast(e instanceof Error ? e.message : String(e), "bad");
     } finally {
@@ -77,6 +106,17 @@ export function AdoImportModal({ p, onClose }: { p: Project; onClose: () => void
             <div className="muted">{t("States")}: {counts(preview.byState, "—")}</div>
             <div className="muted">{t("Assigned to")}: {counts(preview.byAssignee, t("Unassigned"))}</div>
             <div className="muted">{t("Iterations")}: {counts(preview.byIteration, "—")}</div>
+          </div>
+        )}
+        {mapping && (
+          <div className="card card-pad col" style={{ gap: 10 }}>
+            <div className="row" style={{ gap: 8 }}>
+              <span className="strong" style={{ flex: 1 }}>{t("How it maps")}</span>
+              <button className="btn sm ghost" disabled={busy || !adoProject.trim()} onClick={recompute} title={t("Read the board's states and fields again, e.g. after the process changed")}><RefreshCw size={13} /> {t("Work out again")}</button>
+              {p.settings.adoMapping && <button className="btn sm" disabled={busy} onClick={saveMapping}><Save size={13} /> {t("Save mapping")}</button>}
+            </div>
+            <div className="small muted">{t("Worked out once from your board and saved with the project, so it isn't guessed again on every import. Correct it here if your board means something else.")}</div>
+            <AdoMappingEditor value={mapping} onChange={setMapping} />
           </div>
         )}
         <div className="hint">{t("Imported stories are merged after review (a person merges each PR). Done items come in as delivered and are never rebuilt. Stories without acceptance criteria get a question instead of a guess.")}</div>
