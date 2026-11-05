@@ -70,7 +70,7 @@ export function defaultMapping(): AdoMapping {
 
 /** Works the mapping out from the project's process: one call for every work item type with its states and fields. */
 export async function computeMapping(cfg: AdoConfig): Promise<AdoMapping> {
-  const r = await adoFetch("GET", `${cfg.orgUrl}/${encodeURIComponent(cfg.project)}/_apis/wit/workitemtypes?api-version=7.1`);
+  const r = await adoFetch(cfg, "GET", `${cfg.orgUrl}/${encodeURIComponent(cfg.project)}/_apis/wit/workitemtypes?api-version=7.1`);
   if (!ok(r)) throw new Error(`Couldn't read the work item types: ${r.message}`);
   const all: { name: string; states?: { name: string; category: string }[]; fields?: { referenceName: string }[] }[] = r.body?.value ?? [];
   const m = defaultMapping();

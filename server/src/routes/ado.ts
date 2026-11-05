@@ -1,5 +1,5 @@
 import type { NextFunction, Request, Response, Router } from "express";
-import { adoConfigOf, cleanAdoConfig, hasAdoToken, lastSync, syncBacklog, syncRunning, testAdo } from "../ado.js";
+import { adoConfigOf, cleanAdoConfig, hasAdoToken, lastSync, scopeNeeded, syncBacklog, syncRunning, testAdo, tokenVarOf } from "../ado.js";
 import { getProject, patchProject } from "../store.js";
 import { fetchAdoItems, importBacklog, mappingFor, type AdoImportFilter } from "../adoimport.js";
 import { cleanMapping, computeMapping, defaultMapping } from "../adomapping.js";
@@ -19,14 +19,15 @@ const wrap =
   (req: Request, res: Response, next: NextFunction) =>
     Promise.resolve(fn(req, res)).catch(next);
 
-/** Azure DevOps backlog sync. The token comes from .env (AZURE_DEVOPS_PAT) and never appears in any response. */
+/** Azure DevOps backlog sync. The token comes from .env (AZURE_DEVOPS_PAT or the project's own variable) and never
+ *  appears in any response — only the variable's name does. */
 export function registerAdo(api: Router) {
   /** Is ADO set up for this project, is the token there, and how did the last sync go? */
   api.get("/projects/:pid/ado/status", (req, res) => {
     const p = getProject(String(req.params.pid));
     if (!p) return res.status(404).json({ error: "Project not found" });
     const cfg = adoConfigOf(p);
-    res.json({ configured: !!cfg, config: cfg, tokenPresent: hasAdoToken(), running: syncRunning(p.id), lastSync: lastSync(p.id) });
+    res.json({ configured: !!cfg, config: cfg, tokenPresent: hasAdoToken(cfg), tokenVar: tokenVarOf(cfg), scope: scopeNeeded(cfg), running: syncRunning(p.id), lastSync: lastSync(p.id) });
   });
 
   /** Reads the ADO project (nothing is changed). Tests the config in the body when given (unsaved form), else the saved one. */

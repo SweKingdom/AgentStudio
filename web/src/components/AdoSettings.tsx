@@ -9,24 +9,29 @@ import { Seg } from "./ui";
 import { t } from "../lib/i18n";
 
 /** Form state: every field a string so inputs stay controlled. */
-export interface AdoValue { orgUrl: string; project: string; areaPath: string; iterationRoot: string; stateMode: AdoConfig["stateMode"]; writeMode: NonNullable<AdoConfig["writeMode"]> }
+export interface AdoValue { orgUrl: string; project: string; areaPath: string; iterationRoot: string; stateMode: AdoConfig["stateMode"]; writeMode: NonNullable<AdoConfig["writeMode"]>; tokenVar: string }
 
 interface AdoSyncSummary {
   at: string; ok: boolean; total: number; created: number; updated: number; recreated: number; failed: number;
   errors: { code: string; error: string }[]; warnings: { code: string; message: string }[];
   stateFallbacks: { code: string; state: string; sent: string }[]; durationMs: number; error?: string;
 }
-interface AdoStatus { configured: boolean; config: AdoConfig | null; tokenPresent: boolean; running: boolean; lastSync: AdoSyncSummary | null }
-interface AdoTestResult { ok: boolean; project?: string; process?: string | null; error?: string }
+interface AdoStatus { configured: boolean; config: AdoConfig | null; tokenPresent: boolean; tokenVar?: string; scope?: string; running: boolean; lastSync: AdoSyncSummary | null }
+interface AdoTestResult { ok: boolean; project?: string; process?: string | null; identity?: string | null; tokenVar?: string; scope?: string; error?: string }
+
+export const DEFAULT_TOKEN_VAR = "AZURE_DEVOPS_PAT";
+const TOKEN_VAR = /^AZURE_DEVOPS_PAT(_[A-Z0-9]+)*$/;
+/** The scope the token needs for what the project lets AgentStudio do (same as the server). */
+const scopeFor = (writeMode: AdoValue["writeMode"]) => (writeMode === "none" ? "Work Items (Read)" : "Work Items (Read & write)");
 
 export function adoFormValue(cfg?: AdoConfig | null): AdoValue {
-  return { orgUrl: cfg?.orgUrl ?? "", project: cfg?.project ?? "", areaPath: cfg?.areaPath ?? "", iterationRoot: cfg?.iterationRoot ?? "", stateMode: cfg?.stateMode ?? "same", writeMode: cfg?.writeMode ?? "full" };
+  return { orgUrl: cfg?.orgUrl ?? "", project: cfg?.project ?? "", areaPath: cfg?.areaPath ?? "", iterationRoot: cfg?.iterationRoot ?? "", stateMode: cfg?.stateMode ?? "same", writeMode: cfg?.writeMode ?? "full", tokenVar: cfg?.tokenVar ?? "" };
 }
 
 /** What the project PATCH stores: null switches the sync off (both URL and project empty). */
 export function adoSettingsOf(v: AdoValue): AdoConfig | null {
   if (!v.orgUrl.trim() && !v.project.trim()) return null;
-  return { orgUrl: v.orgUrl.trim(), project: v.project.trim(), areaPath: v.areaPath.trim() || undefined, iterationRoot: v.iterationRoot.trim() || undefined, stateMode: v.stateMode, writeMode: v.writeMode };
+  return { orgUrl: v.orgUrl.trim(), project: v.project.trim(), areaPath: v.areaPath.trim() || undefined, iterationRoot: v.iterationRoot.trim() || undefined, stateMode: v.stateMode, writeMode: v.writeMode, tokenVar: v.tokenVar.trim().toUpperCase() || undefined };
 }
 
 /** Same rules as the server: https only, no credentials in the URL, both fields or neither. */
@@ -45,6 +50,8 @@ export function adoConfigError(v: AdoValue): string | null {
   const local = u.hostname === "127.0.0.1" || u.hostname === "localhost";
   if (u.protocol !== "https:" && !(u.protocol === "http:" && local)) return "The organization URL must use https://";
   if (u.username || u.password) return "Don't put a user or token in the URL — the token goes in .env as AZURE_DEVOPS_PAT.";
+  const tv = v.tokenVar.trim().toUpperCase();
+  if (tv && !TOKEN_VAR.test(tv)) return t("The token variable must be AZURE_DEVOPS_PAT or start with AZURE_DEVOPS_PAT_ (letters, digits and _), e.g. AZURE_DEVOPS_PAT_ANNA.");
   return null;
 }
 
@@ -92,6 +99,9 @@ export function AdoSettings({ projectId, value, onChange }: { projectId: string;
       <Field label={t("Write back")} help={t("What AgentStudio may change in Azure DevOps. Full sync: create and update every item and its fields. State only: move AgentStudio's own imported User Stories to the board state that matches their progress (forward only), and nothing else; this is the default for an imported backlog. Read only: change nothing.")}>
         <Seg value={value.writeMode} onChange={(v) => set({ writeMode: v })} options={[{ value: "full", label: t("Full sync") }, { value: "state", label: t("State only") }, { value: "none", label: t("Read only") }]} />
       </Field>
+      <Field label={t("Token variable")} help={t("The .env variable that holds this project's Personal Access Token. Empty: AZURE_DEVOPS_PAT. Give each person or project its own, e.g. AZURE_DEVOPS_PAT_ANNA, so everyone works with their own token and its own limits. A token with only Work Items (Read) keeps AgentStudio from changing anything: if Azure DevOps refuses a write, the project switches to Read only.")}>
+        <input className="input mono" value={value.tokenVar} onChange={(e) => { set({ tokenVar: e.target.value }); setR(null); }} placeholder={DEFAULT_TOKEN_VAR} spellCheck={false} />
+      </Field>
       <div className="row wrap" style={{ gap: 10, alignItems: "flex-start" }}>
         <Hint text="Reads the Azure DevOps project with the token from .env. Nothing is created or changed.">
           <button type="button" className="btn sm" disabled={!filled || !!err || test.isPending} onClick={() => test.mutate()}>
@@ -101,7 +111,10 @@ export function AdoSettings({ projectId, value, onChange }: { projectId: string;
         {r && (
           <div className="small" style={{ lineHeight: 1.45, minWidth: 0, flex: 1, color: r.ok ? "var(--good)" : "var(--bad)" }} role="status">
             {r.ok ? (
-              <span className="row" style={{ gap: 5 }}><CheckCircle2 size={13} /> Connected to {r.project}{r.process ? ` · ${r.process} process` : ""}</span>
+              <span className="col" style={{ gap: 2 }}>
+                <span className="row" style={{ gap: 5 }}><CheckCircle2 size={13} /> Connected to {r.project}{r.identity ? ` ${t("as")} ${r.identity}` : ""}{r.process ? ` · ${r.process} process` : ""}</span>
+                {r.tokenVar && <span className="tiny muted">{t("Token")} <code className="code-tag">{r.tokenVar}</code> · {t("needs")} {r.scope}</span>}
+              </span>
             ) : (
               <span className="row" style={{ gap: 5, alignItems: "flex-start" }}><XCircle size={13} style={{ flexShrink: 0, marginTop: 2 }} /> {r.error}</span>
             )}
@@ -111,8 +124,8 @@ export function AdoSettings({ projectId, value, onChange }: { projectId: string;
       <div className="ado-token-note tiny">
         <KeyRound size={12} />
         <span>
-          The Personal Access Token is never stored by AgentStudio. Put it in <code className="code-tag">.env</code> as <code className="code-tag">AZURE_DEVOPS_PAT=…</code> (scope: Work Items read &amp; write) and restart.
-          {status && (status.tokenPresent ? <b style={{ color: "var(--good)" }}> Token found.</b> : <b style={{ color: "var(--warn)" }}> No token yet.</b>)}
+          {t("The Personal Access Token is never stored by AgentStudio. Put it in")} <code className="code-tag">.env</code> {t("as")} <code className="code-tag">{(value.tokenVar.trim().toUpperCase() || DEFAULT_TOKEN_VAR)}=…</code> ({t("scope")}: {scopeFor(value.writeMode)}) {t("and restart.")}
+          {status && status.tokenVar === (value.tokenVar.trim().toUpperCase() || DEFAULT_TOKEN_VAR) && (status.tokenPresent ? <b style={{ color: "var(--good)" }}> {t("Token found.")}</b> : <b style={{ color: "var(--warn)" }}> {t("No token yet.")}</b>)}
         </span>
       </div>
     </div>
@@ -146,7 +159,7 @@ export function AdoSyncButton({ p }: { p: Project }) {
   const last = status?.lastSync;
   const busy = sync.isPending || status?.running;
   const help = !status?.tokenPresent
-    ? "Add AZURE_DEVOPS_PAT=… to .env and restart to enable the sync. The token is never stored by AgentStudio."
+    ? `Add ${status?.tokenVar ?? DEFAULT_TOKEN_VAR}=… to .env and restart to enable the sync. The token is never stored by AgentStudio.`
     : `Creates or updates every epic, feature, story, task and bug in ${p.settings.ado!.project}. Parents first; items deleted in Azure DevOps are created again.${last ? ` Last sync ${dateTime(last.at)}: ${summaryText(last)}.` : ""}`;
   return (
     <div className="row ado-sync" style={{ gap: 6 }}>

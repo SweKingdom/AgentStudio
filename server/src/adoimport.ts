@@ -126,17 +126,17 @@ export const dependencyWiql = (ids: number[]) =>
 /** Fetches the matching work items (at most 2,000): only the mapped fields, in batches of 200. Changes nothing. */
 export async function fetchRawItems(cfg: AdoConfig, filter: AdoImportFilter, m: AdoMapping): Promise<{ items: RawItem[]; warnings: string[] }> {
   const base = `${cfg.orgUrl}/${encodeURIComponent(cfg.project)}/_apis/wit`;
-  const q = await adoFetch("POST", `${base}/wiql?api-version=7.1&$top=2000`, { query: wiqlFor(cfg, filter, m) });
+  const q = await adoFetch(cfg, "POST", `${base}/wiql?api-version=7.1&$top=2000`, { query: wiqlFor(cfg, filter, m) });
   if (!ok(q)) throw new Error(`Azure DevOps query failed: ${q.message}`);
   const ids: number[] = (q.body?.workItems ?? []).map((w: { id: number }) => w.id);
   const items: RawItem[] = [];
   const warnings: string[] = [];
   for (let i = 0; i < ids.length; i += 200) {
     const batch = ids.slice(i, i + 200);
-    const r = await adoFetch("POST", `${base}/workitemsbatch?api-version=7.1`, { ids: batch, fields: fieldsToRead(m) });
+    const r = await adoFetch(cfg, "POST", `${base}/workitemsbatch?api-version=7.1`, { ids: batch, fields: fieldsToRead(m) });
     if (!ok(r)) throw new Error(`Reading work items from Azure DevOps failed: ${r.message}`);
     const links = new Map<number, number[]>();
-    const l = await adoFetch("POST", `${base}/wiql?api-version=7.1`, { query: dependencyWiql(batch) });
+    const l = await adoFetch(cfg, "POST", `${base}/wiql?api-version=7.1`, { query: dependencyWiql(batch) });
     if (ok(l)) {
       for (const rel of l.body?.workItemRelations ?? []) {
         if (!rel?.rel || !rel.source?.id || !rel.target?.id) continue;

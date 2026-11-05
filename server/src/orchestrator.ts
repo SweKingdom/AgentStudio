@@ -265,7 +265,7 @@ function closeOpenPhases(projectId: string, outcome: string) {
 async function refreshFromAdo(projectId: string) {
   const p = getProject(projectId);
   const cfg = p ? adoConfigOf(p) : null;
-  if (!p?.settings.adoImport || !cfg || !hasAdoToken()) return;
+  if (!p?.settings.adoImport || !cfg || !hasAdoToken(cfg)) return;
   try {
     const r = await importBacklog(projectId, cfg, p.settings.adoImport);
     if (r.created || r.updated) logActivity({ projectId, agentId: "orchestrator", type: "pipeline", summary: `↻ Azure DevOps: ${r.created} new, ${r.updated} updated before the run` });
@@ -279,7 +279,7 @@ async function refreshFromAdo(projectId: string) {
 export async function writeStatesBack(projectId: string) {
   const p = getProject(projectId);
   const cfg = p ? adoConfigOf(p) : null;
-  if (!p || !cfg || cfg.writeMode !== "state" || !hasAdoToken() || syncRunning(projectId)) return;
+  if (!p || !cfg || cfg.writeMode !== "state" || !hasAdoToken(cfg) || syncRunning(projectId)) return;
   await syncStates(p, cfg).catch(() => undefined);
 }
 

@@ -87,6 +87,8 @@ export function claudeEnv(configDir?: string) {
   for (const [k, v] of Object.entries(process.env)) if (v !== undefined) env[k] = v;
   delete env.ANTHROPIC_API_KEY;
   delete env.ANTHROPIC_AUTH_TOKEN;
+  // Azure DevOps is reached by AgentStudio itself, never by a model: its tokens don't go to the claude process.
+  for (const k of Object.keys(env)) if (/^AZURE_DEVOPS_PAT/.test(k)) delete env[k];
   if (configDir) env.CLAUDE_CONFIG_DIR = configDir;
   else delete env.CLAUDE_CONFIG_DIR;
   return env;

@@ -169,7 +169,7 @@ test("without a token: a clear error and nothing is sent", async () => {
 test("test connection: project and process, rejected token, unknown project", async () => {
   process.env.AZURE_DEVOPS_PAT = TOKEN;
   const okRes = await call("POST", `/projects/${PID}/ado/test`, {});
-  assert.deepEqual(okRes.body, { ok: true, project: "Demo", process: "Agile" });
+  assert.deepEqual(okRes.body, { ok: true, project: "Demo", process: "Agile", identity: null, tokenVar: "AZURE_DEVOPS_PAT", scope: "Work Items (Read & write)" });
   const missing = await call("POST", `/projects/${PID}/ado/test`, { config: { orgUrl: `${adoBase}/fakeorg`, project: "Nope" } });
   assert.equal(missing.body.ok, false);
   assert.match(missing.body.error, /project not found/);
