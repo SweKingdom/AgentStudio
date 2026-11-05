@@ -1,13 +1,20 @@
 /**
  * Importing a backlog that already exists in Azure DevOps, so AgentStudio can join a project people are working on.
  *
- * Read only: it queries work items (WIQL) and reads them; nothing in Azure DevOps is changed here. Items keep their
- * Azure DevOps id (`ado_id`) and code (US-12146), so importing again updates them instead of adding copies. Done items
- * come in as delivered and are never rebuilt; who an item is assigned to and its iteration and tags come along, so
- * AgentStudio's rule (ownership.ts) decides which ones it builds. Imported stories are merged after review.
+ * Three steps, with a buffer between fetching and the backlog:
+ *  1. Fetch (read only): a WIQL query for the ids, then the work items in batches of 200 with only the fields the
+ *     project's mapping reads (adomapping.ts), and dependency links with one link query per batch.
+ *  2. Buffer: each work item is kept as Azure DevOps sent it (`ado_raw`). The next refresh compares against it, so only
+ *     fields that changed in Azure DevOps are passed on — AgentStudio's own refinements of a story aren't overwritten,
+ *     and a story under way gets only the change, not the whole text again.
+ *  3. Map: the saved mapping turns the buffered fields into backlog items. Items keep their Azure DevOps id (`ado_id`)
+ *     and code (US-12146); done items come in as delivered; who an item is assigned to, its iteration and tags come
+ *     along, so AgentStudio's rule (ownership.ts) decides which ones it builds. Imported stories merge after review.
  */
+import { diffLines } from "diff";
 import { adoFetch, ok, type AdoConfig } from "./ado.js";
-import { insert, now } from "./db.js";
+import { categoryOf, computeMapping, defaultMapping, DEFAULT_TYPES, fieldsToRead, type AdoMapping } from "./adomapping.js";
+import { get, insert, now, run } from "./db.js";
 import { ownedByStudio } from "./ownership.js";
 import { addQuestion, createItem, getProject, listItems, logActivity, openQuestionCount, patchItem, patchProject, type Project, type WorkItem } from "./store.js";
 
@@ -18,13 +25,15 @@ export interface AdoImportFilter {
   tags?: string[];
 }
 
-const TYPES: Record<string, WorkItem["type"]> = { Epic: "epic", Feature: "feature", "User Story": "story", "Product Backlog Item": "story", Requirement: "story", Task: "task", Bug: "bug" };
 const PREFIX: Record<WorkItem["type"], string> = { epic: "EP", feature: "FT", story: "US", task: "TK", bug: "BG" };
-/** Azure DevOps states that mean the work is finished (any process), and ones that mean it was dropped. */
-const DONE = /^(done|closed|resolved|completed)$/i;
-const DROPPED = /^(removed|cut)$/i;
-/** States that mean someone is working on it (Agile, Scrum, CMMI and boards like Design → Develop → Test). */
-const STARTED = /^(active|committed|in progress|doing|design|develop|development|test|testing|in review)$/i;
+
+/** A work item as Azure DevOps sent it: the fields the mapping reads, and the items it depends on (links). */
+export interface RawItem {
+  id: number;
+  rev: number | null;
+  fields: Record<string, any>;
+  dependsOnLinks: number[];
+}
 
 export interface AdoItem {
   adoId: number;
@@ -59,44 +68,41 @@ export function htmlToText(html: string) {
     .trim();
 }
 
-const idFromUrl = (url: string) => Number(String(url).match(/\/workItems\/(\d+)$/i)?.[1] ?? NaN);
-
-/** One Azure DevOps work item, as AgentStudio needs it. Null for types it doesn't track. */
-export function mapAdoItem(raw: { id: number; fields: Record<string, any>; relations?: { rel: string; url: string }[] | null }): AdoItem | null {
+/** One buffered work item, as AgentStudio needs it, through the project's mapping. Null for types it doesn't track. */
+export function mapAdoItem(raw: RawItem, m: AdoMapping = defaultMapping()): AdoItem | null {
   const f = raw.fields ?? {};
-  const type = TYPES[String(f["System.WorkItemType"] ?? "")];
+  const type = m.types[String(f["System.WorkItemType"] ?? "")];
   if (!type) return null;
-  const rels = raw.relations ?? [];
-  const description = htmlToText(f["System.Description"] ?? "");
+  const description = htmlToText(f[m.fields.description] ?? "");
   // "Depends on: #12140, 12141" in the description, as well as Azure DevOps dependency links.
   const dependsLine = description.match(/depends on[:\s]+([^\n]+)/i)?.[1] ?? "";
-  const fromText = [...dependsLine.matchAll(/#?(\d{2,})/g)].map((m) => Number(m[1]));
-  const fromLinks = rels.filter((r) => r.rel === "System.LinkTypes.Dependency-Reverse").map((r) => idFromUrl(r.url));
-  const assigned = f["System.AssignedTo"];
-  const points = Number(f["Microsoft.VSTS.Scheduling.StoryPoints"] ?? f["Microsoft.VSTS.Scheduling.Effort"]);
+  const fromText = [...dependsLine.matchAll(/#?(\d{2,})/g)].map((x) => Number(x[1]));
+  const assigned = f[m.fields.assignee];
+  const points = Number(f[m.fields.points]);
+  const parent = Number(f["System.Parent"]);
   return {
     adoId: raw.id,
     type,
-    title: String(f["System.Title"] ?? `Work item ${raw.id}`).slice(0, 250),
+    title: String(f[m.fields.title] ?? `Work item ${raw.id}`).slice(0, 250),
     adoState: String(f["System.State"] ?? ""),
     description,
-    acceptance: htmlToText(f["Microsoft.VSTS.Common.AcceptanceCriteria"] ?? ""),
+    acceptance: htmlToText(f[m.fields.acceptance] ?? ""),
     points: Number.isFinite(points) && points > 0 ? Math.round(points) : null,
     assignee: (typeof assigned === "object" ? assigned?.displayName : assigned)?.toString().trim() || null,
-    iteration: String(f["System.IterationPath"] ?? "").split("\\").filter(Boolean).at(-1) || null,
-    tags: String(f["System.Tags"] ?? "").split(";").map((t) => t.trim()).filter(Boolean),
-    parentAdoId: rels.map((r) => (r.rel === "System.LinkTypes.Hierarchy-Reverse" ? idFromUrl(r.url) : NaN)).find((n) => Number.isFinite(n)) ?? null,
-    dependsOnAdoIds: [...new Set([...fromText, ...fromLinks].filter((n) => Number.isFinite(n) && n !== raw.id))],
+    iteration: String(f[m.fields.iteration] ?? "").split("\\").filter(Boolean).at(-1) || null,
+    tags: String(f[m.fields.tags] ?? "").split(";").map((t) => t.trim()).filter(Boolean),
+    parentAdoId: Number.isFinite(parent) && parent > 0 ? parent : null,
+    dependsOnAdoIds: [...new Set([...fromText, ...raw.dependsOnLinks].filter((n) => Number.isFinite(n) && n !== raw.id))],
   };
 }
 
 const wiqlText = (s: string) => `'${s.replace(/'/g, "''")}'`;
 
-/** The WIQL query for the filter: work items AgentStudio tracks, in the project, not removed. */
-export function wiqlFor(cfg: Pick<AdoConfig, "project">, filter: AdoImportFilter) {
+/** The WIQL query for the filter: work items of the mapped types, in the project, not removed. */
+export function wiqlFor(cfg: Pick<AdoConfig, "project">, filter: AdoImportFilter, m: Pick<AdoMapping, "types"> = { types: DEFAULT_TYPES }) {
   const where = [
     `[System.TeamProject] = ${wiqlText(cfg.project)}`,
-    `[System.WorkItemType] IN (${Object.keys(TYPES).map(wiqlText).join(", ")})`,
+    `[System.WorkItemType] IN (${Object.keys(m.types).map(wiqlText).join(", ")})`,
     `[System.State] <> 'Removed'`,
     filter.areaPath?.trim() ? `[System.AreaPath] UNDER ${wiqlText(filter.areaPath.trim())}` : "",
     filter.iterationPath?.trim() ? `[System.IterationPath] UNDER ${wiqlText(filter.iterationPath.trim())}` : "",
@@ -105,32 +111,80 @@ export function wiqlFor(cfg: Pick<AdoConfig, "project">, filter: AdoImportFilter
   return `SELECT [System.Id] FROM WorkItems WHERE ${where.join(" AND ")} ORDER BY [System.Id]`;
 }
 
-/** Reads the matching work items from Azure DevOps (at most 2,000). Changes nothing there. */
-export async function fetchAdoItems(cfg: AdoConfig, filter: AdoImportFilter): Promise<AdoItem[]> {
+/** The dependency links of a batch: which of these items depend on which (predecessor links). */
+export const dependencyWiql = (ids: number[]) =>
+  `SELECT [System.Id] FROM WorkItemLinks WHERE ([Source].[System.Id] IN (${ids.join(", ")})) AND ([System.Links.LinkType] = 'System.LinkTypes.Dependency-Reverse') MODE (MustContain)`;
+
+/** Fetches the matching work items (at most 2,000): only the mapped fields, in batches of 200. Changes nothing. */
+export async function fetchRawItems(cfg: AdoConfig, filter: AdoImportFilter, m: AdoMapping): Promise<{ items: RawItem[]; warnings: string[] }> {
   const base = `${cfg.orgUrl}/${encodeURIComponent(cfg.project)}/_apis/wit`;
-  const q = await adoFetch("POST", `${base}/wiql?api-version=7.1&$top=2000`, { query: wiqlFor(cfg, filter) });
+  const q = await adoFetch("POST", `${base}/wiql?api-version=7.1&$top=2000`, { query: wiqlFor(cfg, filter, m) });
   if (!ok(q)) throw new Error(`Azure DevOps query failed: ${q.message}`);
   const ids: number[] = (q.body?.workItems ?? []).map((w: { id: number }) => w.id);
-  const out: AdoItem[] = [];
+  const items: RawItem[] = [];
+  const warnings: string[] = [];
   for (let i = 0; i < ids.length; i += 200) {
-    const r = await adoFetch("GET", `${base}/workitems?ids=${ids.slice(i, i + 200).join(",")}&$expand=relations&api-version=7.1`);
+    const batch = ids.slice(i, i + 200);
+    const r = await adoFetch("POST", `${base}/workitemsbatch?api-version=7.1`, { ids: batch, fields: fieldsToRead(m) });
     if (!ok(r)) throw new Error(`Reading work items from Azure DevOps failed: ${r.message}`);
-    for (const raw of r.body?.value ?? []) {
-      const m = mapAdoItem(raw);
-      if (m) out.push(m);
-    }
+    const links = new Map<number, number[]>();
+    const l = await adoFetch("POST", `${base}/wiql?api-version=7.1`, { query: dependencyWiql(batch) });
+    if (ok(l)) {
+      for (const rel of l.body?.workItemRelations ?? []) {
+        if (!rel?.rel || !rel.source?.id || !rel.target?.id) continue;
+        links.set(rel.source.id, [...(links.get(rel.source.id) ?? []), rel.target.id]);
+      }
+    } else warnings.push(`Dependency links couldn't be read (${l.message}); "Depends on" lines in descriptions still count.`);
+    for (const raw of r.body?.value ?? []) items.push({ id: raw.id, rev: typeof raw.rev === "number" ? raw.rev : null, fields: raw.fields ?? {}, dependsOnLinks: links.get(raw.id) ?? [] });
   }
-  return out;
+  return { items, warnings };
+}
+
+/** The matching work items as AgentStudio sees them (for the preview). */
+export async function fetchAdoItems(cfg: AdoConfig, filter: AdoImportFilter, m: AdoMapping = defaultMapping()): Promise<AdoItem[]> {
+  return (await fetchRawItems(cfg, filter, m)).items.map((r) => mapAdoItem(r, m)).filter((a): a is AdoItem => !!a);
+}
+
+/** The project's saved mapping, or one worked out from Azure DevOps now (the standard one if that fails). */
+export async function mappingFor(projectId: string, cfg: AdoConfig): Promise<AdoMapping> {
+  const saved = getProject(projectId)?.settings.adoMapping;
+  if (saved) return saved;
+  try {
+    return await computeMapping(cfg);
+  } catch {
+    return defaultMapping();
+  }
 }
 
 /** The AgentStudio state for an Azure DevOps state: finished and dropped items keep that; someone's work in progress
  *  shows as In Progress; anything else starts at New, where AgentStudio refines and plans it if it builds it. */
-function stateFor(project: Pick<Project, "settings">, a: AdoItem, current?: WorkItem) {
-  if (DONE.test(a.adoState)) return "Deployed (Done)";
-  if (DROPPED.test(a.adoState)) return "Cancelled";
+function stateFor(project: Pick<Project, "settings">, a: AdoItem, m: AdoMapping, current?: WorkItem) {
+  const cat = categoryOf(a.adoState, m);
+  if (cat === "done") return "Deployed (Done)";
+  if (cat === "dropped") return "Cancelled";
   const owner = { owner: current?.owner ?? null, assignee: a.assignee, iteration: a.iteration, tags: a.tags };
   if (current && ownedByStudio(project, owner)) return current.state; // AgentStudio's own progress is its own
-  return STARTED.test(a.adoState) && !ownedByStudio(project, owner) ? "In Progress" : current?.state ?? "New";
+  return cat === "started" && !ownedByStudio(project, owner) ? "In Progress" : current?.state ?? "New";
+}
+
+/** Story fields that come from Azure DevOps, and their AgentStudio fields. */
+const FROM_ADO: [keyof AdoItem, keyof WorkItem, string][] = [
+  ["title", "title", "title"],
+  ["description", "user_story", "description"],
+  ["acceptance", "acceptance_criteria", "acceptance criteria"],
+  ["points", "story_points", "story points"],
+  ["assignee", "assignee", "assigned to"],
+  ["iteration", "iteration", "iteration"],
+  ["tags", "tags", "tags"],
+];
+const SPEC: (keyof AdoItem)[] = ["title", "description", "acceptance"];
+
+/** Only what changed, line by line: "+ added", "- removed". */
+export function changeText(label: string, before: string, after: string) {
+  if (!before.includes("\n") && !after.includes("\n")) return `${label}: "${before}" → "${after}"`;
+  // Both end with a line break, so an unchanged last line isn't reported as changed.
+  const lines = diffLines(`${before}\n`, `${after}\n`).flatMap((p) => (p.added || p.removed ? p.value.replace(/\n$/, "").split("\n").map((l) => `${p.added ? "+" : "-"} ${l}`) : []));
+  return `${label}:\n${lines.join("\n")}`;
 }
 
 export interface ImportResult {
@@ -139,40 +193,46 @@ export interface ImportResult {
   done: number;
   questions: number;
   total: number;
+  warnings: string[];
 }
 
-/** Creates the items that are new and updates the ones imported before (matched by Azure DevOps id). */
-export async function importBacklog(projectId: string, cfg: AdoConfig, filter: AdoImportFilter): Promise<ImportResult> {
-  const fetched = await fetchAdoItems(cfg, filter);
+/** Creates the items that are new and updates the ones imported before (matched by Azure DevOps id), passing on only
+ *  what changed in Azure DevOps since the last import. Saves the mapping it used. */
+export async function importBacklog(projectId: string, cfg: AdoConfig, filter: AdoImportFilter, mapping?: AdoMapping): Promise<ImportResult> {
+  const m = mapping ?? (await mappingFor(projectId, cfg));
+  const { items: raws, warnings } = await fetchRawItems(cfg, filter, m);
   const p = getProject(projectId)!;
   const existing = new Map(listItems(projectId).filter((i) => i.ado_id).map((i) => [i.ado_id!, i]));
   const codes = new Set(listItems(projectId).map((i) => i.code));
   const byAdo = new Map<number, WorkItem>();
+  const fetched: AdoItem[] = [];
   let created = 0;
   let updated = 0;
   // Parents first, so children can point at them.
   const order: WorkItem["type"][] = ["epic", "feature", "story", "task", "bug"];
-  for (const a of [...fetched].sort((x, y) => order.indexOf(x.type) - order.indexOf(y.type))) {
+  const mapped = raws.map((r) => ({ raw: r, a: mapAdoItem(r, m) })).filter((x): x is { raw: RawItem; a: AdoItem } => !!x.a);
+  for (const { raw, a } of mapped.sort((x, y) => order.indexOf(x.a.type) - order.indexOf(y.a.type))) {
+    fetched.push(a);
     const cur = existing.get(a.adoId);
-    const fields: Partial<WorkItem> = {
-      title: a.title,
-      user_story: a.description,
-      acceptance_criteria: a.acceptance,
-      story_points: a.points ?? cur?.story_points ?? null,
-      assignee: a.assignee,
-      iteration: a.iteration,
-      tags: a.tags,
-      state: stateFor(p, a, cur),
-    };
+    // What Azure DevOps had last time (the buffer): only fields that changed there since then are taken.
+    const buffered = get<{ fields: string; depends_on: string; rev: number | null }>("SELECT fields, depends_on, rev FROM ado_raw WHERE project_id = ? AND ado_id = ?", projectId, a.adoId);
+    const before = buffered ? mapAdoItem({ id: a.adoId, rev: buffered.rev, fields: JSON.parse(buffered.fields), dependsOnLinks: JSON.parse(buffered.depends_on) }, m) : null;
+    run(
+      "INSERT INTO ado_raw (project_id, ado_id, rev, fields, depends_on, fetched_at) VALUES (?, ?, ?, ?, ?, ?) ON CONFLICT(project_id, ado_id) DO UPDATE SET rev = excluded.rev, fields = excluded.fields, depends_on = excluded.depends_on, fetched_at = excluded.fetched_at",
+      projectId, a.adoId, raw.rev, JSON.stringify(raw.fields), JSON.stringify(raw.dependsOnLinks), now(),
+    );
+    const changedInAdo = FROM_ADO.filter(([k]) => !before || JSON.stringify(before[k] ?? null) !== JSON.stringify(a[k] ?? null));
+    const fields: Partial<WorkItem> = Object.fromEntries(changedInAdo.map(([k, f]) => [f, k === "points" ? a.points ?? cur?.story_points ?? null : a[k]]));
+    fields.state = stateFor(p, a, m, cur);
     if (cur) {
       const changed = (Object.keys(fields) as (keyof WorkItem)[]).filter((k) => JSON.stringify(cur[k] ?? null) !== JSON.stringify(fields[k] ?? null));
-      byAdo.set(a.adoId, changed.length ? patchItem(cur.id, fields) : cur);
+      byAdo.set(a.adoId, changed.length ? patchItem(cur.id, Object.fromEntries(changed.map((k) => [k, fields[k]]))) : cur);
       if (changed.length) updated++;
-      // Someone changed what AgentStudio is already building: it goes to the developer as the product owner's comment.
-      const spec = changed.filter((k) => k === "title" || k === "user_story" || k === "acceptance_criteria");
-      if (spec.length && ownedByStudio(p, cur) && !["New", "Deployed (Done)", "Cancelled"].includes(cur.state)) {
-        const label: Record<string, string> = { title: "title", user_story: "description", acceptance_criteria: "acceptance criteria" };
-        insert("comments", { project_id: projectId, item_id: cur.id, author_id: "human", content: `Changed in Azure DevOps (${spec.map((k) => label[k]).join(", ")}):${spec.map((k) => `\n\n${label[k]}:\n${String(fields[k] ?? "")}`).join("")}`, created_at: now() });
+      // Someone changed what AgentStudio is already building: the change (not the whole text) goes to the developer.
+      const spec = changedInAdo.filter(([k]) => SPEC.includes(k));
+      if (before && spec.length && ownedByStudio(p, cur) && !["New", "Deployed (Done)", "Cancelled"].includes(cur.state)) {
+        const text = spec.map(([k, , label]) => changeText(label, String(before[k] ?? ""), String(a[k] ?? ""))).join("\n\n");
+        insert("comments", { project_id: projectId, item_id: cur.id, author_id: "human", content: `Changed in Azure DevOps:\n${text}`, created_at: now() });
       }
       continue;
     }
@@ -205,12 +265,12 @@ export async function importBacklog(projectId: string, cfg: AdoConfig, filter: A
   // An imported backlog replaces the analyst's: the requirements stage (which starts from an empty backlog) never runs.
   const proj = getProject(projectId)!;
   patchProject(projectId, {
-    settings: { ...proj.settings, ado: { ...cfg, writeMode: cfg.writeMode ?? "state" }, adoImport: { ...filter, lastImport: new Date().toISOString() } },
+    settings: { ...proj.settings, ado: { ...cfg, writeMode: cfg.writeMode ?? "state" }, adoImport: { ...filter, lastImport: new Date().toISOString() }, adoMapping: m },
     stages: proj.stages.map((s) => (s.key === "requirements" && s.status === "pending" ? { ...s, status: "skipped" } : s)),
   });
   const done = [...byAdo.values()].filter((i) => i.state === "Deployed (Done)").length;
-  logActivity({ projectId, agentId: "human", type: "item_created", summary: `Imported ${fetched.length} item(s) from Azure DevOps: ${created} new, ${updated} updated, ${done} already done${questions ? `, ${questions} question(s) about unclear stories` : ""}` });
-  return { created, updated, done, questions, total: fetched.length };
+  logActivity({ projectId, agentId: "human", type: "item_created", summary: `Imported ${fetched.length} item(s) from Azure DevOps: ${created} new, ${updated} updated, ${done} already done${questions ? `, ${questions} question(s) about unclear stories` : ""}${warnings.length ? ` — ${warnings[0]}` : ""}` });
+  return { created, updated, done, questions, total: fetched.length, warnings };
 }
 
 /** AgentStudio's own imported stories that don't say what "done" means: ask the product owner instead of guessing. */

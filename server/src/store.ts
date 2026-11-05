@@ -50,6 +50,8 @@ export interface ProjectSettings {
   /** The backlog came from Azure DevOps (adoimport.ts): which items, and when they were last imported. The requirements
    *  stage, which starts from an empty backlog, never runs for such a project. */
   adoImport?: (import("./adoimport.js").AdoImportFilter & { lastImport?: string }) | null;
+  /** How Azure DevOps maps onto AgentStudio for this project (adomapping.ts): worked out once, saved, editable. */
+  adoMapping?: import("./adomapping.js").AdoMapping | null;
 }
 
 export interface Project {
