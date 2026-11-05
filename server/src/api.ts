@@ -884,14 +884,20 @@ api.post("/projects/:pid/reviews/check", wrap(async (req, res) => {
 api.post("/projects/:pid/items/owner", (req, res) => {
   const pid = String(req.params.pid);
   const ids: string[] = Array.isArray(req.body?.ids) ? req.body.ids.map(String) : [];
-  const owner = ownerPatch({ owner: req.body?.owner ?? null, ...(req.body?.assignee !== undefined ? { assignee: req.body.assignee } : {}) });
+  // Without `owner`, only the assignee changes: assigning a story to someone doesn't decide who builds it.
+  const assignOnly = req.body?.owner === undefined;
+  if (assignOnly && req.body?.assignee === undefined) return res.status(400).json({ error: "Send owner, assignee or both." });
+  const owner = ownerPatch({ ...(assignOnly ? {} : { owner: req.body.owner }), ...(req.body?.assignee !== undefined ? { assignee: req.body.assignee } : {}) });
   if ("error" in owner) return res.status(400).json({ error: owner.error });
   const items = ids.map((id) => getItem(id)).filter((i): i is WorkItem => !!i && i.project_id === pid);
   const busy = owner.owner === "person" ? items.filter(isWorkedOn) : [];
   const changed = items.filter((i) => !busy.includes(i)).map((i) => patchItem(i.id, owner));
   if (changed.length) {
-    const to = owner.owner === "person" ? owner.assignee || "someone else" : "AgentStudio";
-    logActivity({ projectId: pid, agentId: "human", type: "item_updated", summary: `You gave ${changed.length} item(s) to ${to}: ${changed.map((i) => i.code).join(", ").slice(0, 300)}` });
+    const codes = changed.map((i) => i.code).join(", ").slice(0, 300);
+    const summary = assignOnly
+      ? `You assigned ${changed.length} item(s) to ${owner.assignee || "nobody"}: ${codes}`
+      : `You gave ${changed.length} item(s) to ${owner.owner === "person" ? owner.assignee || "someone else" : owner.owner === "agentstudio" ? "AgentStudio" : "AgentStudio's rule"}: ${codes}`;
+    logActivity({ projectId: pid, agentId: "human", type: "item_updated", summary });
   }
   res.json({ changed: changed.length, skipped: busy.map((i) => ({ code: i.code, reason: "being worked on by an agent" })) });
 });
