@@ -13,6 +13,7 @@
  */
 import { diffLines } from "diff";
 import { adoFetch, ok, type AdoConfig } from "./ado.js";
+import { joinAcceptance, splitDescription } from "./adotext.js";
 import { categoryOf, computeMapping, defaultMapping, DEFAULT_TYPES, fieldsToRead, type AdoMapping } from "./adomapping.js";
 import { get, insert, now, run } from "./db.js";
 import { ownedByStudio } from "./ownership.js";
@@ -40,7 +41,13 @@ export interface AdoItem {
   type: WorkItem["type"];
   title: string;
   adoState: string;
-  description: string;
+  /** The description, split into story fields (adotext.ts). */
+  userStory: string;
+  background: string;
+  businessRules: string;
+  dependenciesText: string;
+  outOfScope: string;
+  /** The acceptance criteria field, plus Given/When/Then scenarios from the description. */
   acceptance: string;
   points: number | null;
   assignee: string | null;
@@ -74,6 +81,7 @@ export function mapAdoItem(raw: RawItem, m: AdoMapping = defaultMapping()): AdoI
   const type = m.types[String(f["System.WorkItemType"] ?? "")];
   if (!type) return null;
   const description = htmlToText(f[m.fields.description] ?? "");
+  const parts = splitDescription(description);
   // "Depends on: #12140, 12141" in the description, as well as Azure DevOps dependency links.
   const dependsLine = description.match(/depends on[:\s]+([^\n]+)/i)?.[1] ?? "";
   const fromText = [...dependsLine.matchAll(/#?(\d{2,})/g)].map((x) => Number(x[1]));
@@ -85,8 +93,8 @@ export function mapAdoItem(raw: RawItem, m: AdoMapping = defaultMapping()): AdoI
     type,
     title: String(f[m.fields.title] ?? `Work item ${raw.id}`).slice(0, 250),
     adoState: String(f["System.State"] ?? ""),
-    description,
-    acceptance: htmlToText(f[m.fields.acceptance] ?? ""),
+    ...(({ userStory, background, businessRules, dependencies, outOfScope }) => ({ userStory, background, businessRules, dependenciesText: dependencies, outOfScope }))(parts),
+    acceptance: joinAcceptance(htmlToText(f[m.fields.acceptance] ?? ""), parts.scenarios),
     points: Number.isFinite(points) && points > 0 ? Math.round(points) : null,
     assignee: (typeof assigned === "object" ? assigned?.displayName : assigned)?.toString().trim() || null,
     iteration: String(f[m.fields.iteration] ?? "").split("\\").filter(Boolean).at(-1) || null,
@@ -170,14 +178,18 @@ function stateFor(project: Pick<Project, "settings">, a: AdoItem, m: AdoMapping,
 /** Story fields that come from Azure DevOps, and their AgentStudio fields. */
 const FROM_ADO: [keyof AdoItem, keyof WorkItem, string][] = [
   ["title", "title", "title"],
-  ["description", "user_story", "description"],
+  ["userStory", "user_story", "user story"],
+  ["background", "background", "background"],
+  ["businessRules", "business_rules", "business rules"],
   ["acceptance", "acceptance_criteria", "acceptance criteria"],
+  ["dependenciesText", "dependencies", "dependencies"],
+  ["outOfScope", "out_of_scope", "out of scope"],
   ["points", "story_points", "story points"],
   ["assignee", "assignee", "assigned to"],
   ["iteration", "iteration", "iteration"],
   ["tags", "tags", "tags"],
 ];
-const SPEC: (keyof AdoItem)[] = ["title", "description", "acceptance"];
+const SPEC: (keyof AdoItem)[] = ["title", "userStory", "background", "businessRules", "acceptance", "outOfScope"];
 
 /** Only what changed, line by line: "+ added", "- removed". */
 export function changeText(label: string, before: string, after: string) {
